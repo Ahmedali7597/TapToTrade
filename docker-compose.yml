@@ -1,0 +1,15 @@
+# Local PostgreSQL for development and the API tests:  docker compose up -d
+# Creates `taptotrade` (app) and `taptotrade_test` (npm run test:api) on localhost:5432.
+services:
+  db:
+    image: postgres:17
+    environment:
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: taptotrade
+    ports: ["5432:5432"]
+    # pgdata keeps the data between restarts; the init script only runs on the very first start.
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./server/test/create-test-db.sql:/docker-entrypoint-initdb.d/create-test-db.sql:ro
+volumes:
+  pgdata:
