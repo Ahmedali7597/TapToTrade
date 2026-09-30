@@ -1,0 +1,8 @@
+node_modules/
+client/dist/
+coverage/
+.env
+cypress/screenshots/
+cypress/videos/
+*.log
+graphify-out/
