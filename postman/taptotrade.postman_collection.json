@@ -1,0 +1,197 @@
+{
+  "info": {
+    "name": "Tap to Trade API (AT-01 to AT-10)",
+    "description": "Milestone 4 section 6.2 API tests. Run against a seeded server: npm run test:postman -- --env-var seedPassword=<SEED_PASSWORD>. Requests run in order and share cookies; the csrf variable is refreshed from every auth response.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "event": [
+    {
+      "listen": "test",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          "try { const b = pm.response.json(); if (b && b.csrfToken) pm.collectionVariables.set('csrf', b.csrfToken); } catch (e) {}"
+        ]
+      }
+    }
+  ],
+  "variable": [
+    { "key": "baseUrl", "value": "http://localhost:3000" },
+    { "key": "csrf", "value": "" },
+    { "key": "email", "value": "" },
+    { "key": "boltPrinting", "value": "435589bb-27c6-4a6d-9d63-394d5092b9d8" },
+    { "key": "ringPrinting", "value": "4cbc6901-6a4a-4d0a-83ea-7eefa3b35021" }
+  ],
+  "item": [
+    {
+      "name": "Setup: get CSRF token (anonymous)",
+      "request": { "method": "GET", "url": "{{baseUrl}}/api/auth/me" },
+      "event": [
+        {
+          "listen": "prerequest",
+          "script": { "type": "text/javascript", "exec": ["pm.collectionVariables.set('email', `pm_${Date.now()}@example.test`);"] }
+        }
+      ]
+    },
+    {
+      "name": "AT-09 Access inventory without login → 401",
+      "request": { "method": "GET", "url": "{{baseUrl}}/api/inventory" },
+      "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('401 Unauthorized', () => pm.response.to.have.status(401));"] } }]
+    },
+    {
+      "name": "AT-01 Register a new user → 201",
+      "request": {
+        "method": "POST",
+        "url": "{{baseUrl}}/api/auth/register",
+        "header": [{ "key": "Content-Type", "value": "application/json" }, { "key": "X-CSRF-Token", "value": "{{csrf}}" }],
+        "body": { "mode": "raw", "raw": "{\"email\":\"{{email}}\",\"username\":\"pm_{{$timestamp}}\",\"password\":\"Secure@123\",\"city\":\"Hamilton, ON\"}" }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('201 Created + user object', () => { pm.response.to.have.status(201); pm.expect(pm.response.json().user.email).to.eql(pm.collectionVariables.get('email')); });",
+              "pm.test('no password hash exposed', () => pm.expect(pm.response.text()).not.to.match(/argon|password/i));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "AT-02 Register with duplicate email → 409",
+      "request": {
+        "method": "POST",
+        "url": "{{baseUrl}}/api/auth/register",
+        "header": [{ "key": "Content-Type", "value": "application/json" }, { "key": "X-CSRF-Token", "value": "{{csrf}}" }],
+        "body": { "mode": "raw", "raw": "{\"email\":\"{{email}}\",\"username\":\"pm_dup_{{$timestamp}}\",\"password\":\"Secure@123\",\"city\":\"Hamilton, ON\"}" }
+      },
+      "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('409 Conflict + message', () => { pm.response.to.have.status(409); pm.expect(pm.response.json().error).to.be.a('string'); });"] } }]
+    },
+    {
+      "name": "AT-04 Login with wrong password → 401",
+      "request": {
+        "method": "POST",
+        "url": "{{baseUrl}}/api/auth/login",
+        "header": [{ "key": "Content-Type", "value": "application/json" }, { "key": "X-CSRF-Token", "value": "{{csrf}}" }],
+        "body": { "mode": "raw", "raw": "{\"email\":\"{{email}}\",\"password\":\"Wrong@1234\"}" }
+      },
+      "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('401 Unauthorized', () => pm.response.to.have.status(401));"] } }]
+    },
+    {
+      "name": "AT-03 Login with correct credentials → 200",
+      "request": {
+        "method": "POST",
+        "url": "{{baseUrl}}/api/auth/login",
+        "header": [{ "key": "Content-Type", "value": "application/json" }, { "key": "X-CSRF-Token", "value": "{{csrf}}" }],
+        "body": { "mode": "raw", "raw": "{\"email\":\"{{email}}\",\"password\":\"Secure@123\"}" }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('200 OK', () => pm.response.to.have.status(200));",
+              "pm.test('protected session cookie set', () => pm.expect(pm.response.headers.get('Set-Cookie') || '').to.match(/ttt\\.sid=.*HttpOnly/i));",
+              "pm.test('no password hash exposed', () => pm.expect(pm.response.text()).not.to.match(/argon|password/i));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "AT-05 Add card with quantity 5 → 201",
+      "request": {
+        "method": "POST",
+        "url": "{{baseUrl}}/api/inventory",
+        "header": [{ "key": "Content-Type", "value": "application/json" }, { "key": "X-CSRF-Token", "value": "{{csrf}}" }],
+        "body": { "mode": "raw", "raw": "{\"printingId\":\"{{ringPrinting}}\",\"quantity\":5,\"condition\":\"NM\"}" }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('201 Created + inventory item', () => { pm.response.to.have.status(201); pm.expect(pm.response.json().item.quantity).to.eql(5); });",
+              "pm.collectionVariables.set('myItemId', pm.response.json().item.id);"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "AT-06 Add card with quantity 0 → 400",
+      "request": {
+        "method": "POST",
+        "url": "{{baseUrl}}/api/inventory",
+        "header": [{ "key": "Content-Type", "value": "application/json" }, { "key": "X-CSRF-Token", "value": "{{csrf}}" }],
+        "body": { "mode": "raw", "raw": "{\"printingId\":\"{{boltPrinting}}\",\"quantity\":0}" }
+      },
+      "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('400 Bad Request', () => pm.response.to.have.status(400));"] } }]
+    },
+    {
+      "name": "AT-07 Search cards by name 'Lightning Bolt' → 200",
+      "request": { "method": "GET", "url": "{{baseUrl}}/api/search?name=Lightning%20Bolt" },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "const body = pm.response.json();",
+              "pm.test('200 OK + list of matching users', () => { pm.response.to.have.status(200); pm.expect(body.results.length).to.be.above(0); pm.expect(body.results[0].owner.username).to.be.a('string'); });",
+              "pm.collectionVariables.set('theirItemId', body.results[0].id);",
+              "pm.collectionVariables.set('receiverId', body.results[0].owner.id);"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "AT-08 Send trade request with offer → 201",
+      "request": {
+        "method": "POST",
+        "url": "{{baseUrl}}/api/trades",
+        "header": [{ "key": "Content-Type", "value": "application/json" }, { "key": "X-CSRF-Token", "value": "{{csrf}}" }],
+        "body": {
+          "mode": "raw",
+          "raw": "{\"receiverId\":{{receiverId}},\"requested\":[{\"inventoryItemId\":{{theirItemId}},\"quantity\":1}],\"offered\":[{\"inventoryItemId\":{{myItemId}},\"quantity\":1}],\"message\":\"Postman AT-08\"}"
+        }
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test('201 Created + request object', () => { pm.response.to.have.status(201); const t = pm.response.json().trade; pm.expect(t.status).to.eql('pending'); pm.expect(t.requested).to.have.length(1); pm.expect(t.offered).to.have.length(1); });"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "Setup: log in as the seed moderator",
+      "request": {
+        "method": "POST",
+        "url": "{{baseUrl}}/api/auth/login",
+        "header": [{ "key": "Content-Type", "value": "application/json" }, { "key": "X-CSRF-Token", "value": "{{csrf}}" }],
+        "body": { "mode": "raw", "raw": "{\"email\":\"ttt_moderator@example.test\",\"password\":\"{{seedPassword}}\"}" }
+      },
+      "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('moderator logged in (pass --env-var seedPassword=...)', () => pm.response.to.have.status(200));"] } }]
+    },
+    {
+      "name": "AT-10 Moderator removes an item → 200",
+      "request": {
+        "method": "DELETE",
+        "url": "{{baseUrl}}/api/moderation/inventory/{{myItemId}}",
+        "header": [{ "key": "Content-Type", "value": "application/json" }, { "key": "X-CSRF-Token", "value": "{{csrf}}" }],
+        "body": { "mode": "raw", "raw": "{\"reason\":\"Postman AT-10 removal check.\"}" }
+      },
+      "event": [{ "listen": "test", "script": { "type": "text/javascript", "exec": ["pm.test('200 OK + item removed', () => { pm.response.to.have.status(200); pm.expect(pm.response.json().removed.id).to.eql(Number(pm.collectionVariables.get('myItemId'))); });"] } }]
+    }
+  ]
+}
