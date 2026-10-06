@@ -1,0 +1,642 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+
+@import "@fontsource-variable/bricolage-grotesque/opsz.css";
+
+/* Theme: <html data-theme="light|dark"> is set before first paint by /theme-init.js from the player's choice
+   (System, Light or Dark in the header). "System" follows the device. shadcn's dark: utilities use the same switch. */
+@custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
+
+/* Tap to Trade theme: "trade binder". Light is a cool binder page under daylight; dark is a teal-charcoal
+   playmat for evening browsing. Teal stays the brand colour. Rarity colours (uncommon silver-blue, rare gold,
+   mythic red-orange) carry trade status. All text/background pairs meet WCAG 2.1 AA (4.5:1); sizes are
+   rem-based so 200% zoom reflows (1.4.4). */
+:root {
+  color-scheme: light;
+  --radius: 0.625rem; /* card-corner radius: pockets, buttons, inputs. Containers use rounded-xl (radius + 4px). */
+  --background: #eaf0ed;
+  --foreground: #12302a;
+  --card: #f9fbfa;
+  --card-foreground: #12302a;
+  --popover: #fbfcfc;
+  --popover-foreground: #12302a;
+  --primary: #006b61;
+  --primary-foreground: #f2fbf8;
+  --secondary: #dbe5e1;
+  --secondary-foreground: #12302a;
+  --muted: #e0e8e4;
+  --muted-foreground: #48605a;
+  --accent: #d0e8e1;
+  --accent-foreground: #0a4a42;
+  --destructive: #b42318;
+  --border: #cfdad5;
+  --input: #7d928b;
+  --ring: #00796d;
+  --success: #1f7a3a;
+  --warning: #85590a;
+  --focus: #005fcc;
+  /* Binder pockets: the clear sleeve sheet that holds each card. */
+  --pocket: #e1e9e5;
+  --pocket-edge: #c3d1cb;
+  --sheen: rgb(255 255 255 / 0.55);
+  --shadow: 18 48 42; /* tinted shadows (RGB triplet) */
+  /* Rarity status colours: tint background + readable ink. */
+  --rare: #f6e7b8;
+  --rare-ink: #5c4300;
+  --uncommon: #dbe5ec;
+  --uncommon-ink: #2b4556;
+  --mythic: #f7d9cd;
+  --mythic-ink: #7a2a0d;
+  --grain-opacity: 0.025;
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --background: #0c1614;
+  --foreground: #dfece8;
+  --card: #12201d;
+  --card-foreground: #dfece8;
+  --popover: #152522;
+  --popover-foreground: #dfece8;
+  --primary: #3cbcab;
+  --primary-foreground: #04201b;
+  --secondary: #1b2e2a;
+  --secondary-foreground: #dfece8;
+  --muted: #172925;
+  --muted-foreground: #9db6af;
+  --accent: #163a33;
+  --accent-foreground: #c3ece2;
+  --destructive: #f27a6b;
+  --border: #233833;
+  --input: #5d7a72;
+  --ring: #4fd1bf;
+  --success: #6ad497;
+  --warning: #e8b84f;
+  --focus: #8cc8ff;
+  --pocket: #15251f;
+  --pocket-edge: #2a423b;
+  --sheen: rgb(200 255 240 / 0.12);
+  --shadow: 0 0 0;
+  --rare: #3a2f10;
+  --rare-ink: #f1d27a;
+  --uncommon: #1f2d36;
+  --uncommon-ink: #b9d0de;
+  --mythic: #3d1d12;
+  --mythic-ink: #f4ab8c;
+  --grain-opacity: 0.05;
+}
+
+/* Expose the variables above as Tailwind colours (bg-primary, text-muted-foreground, ...).
+   The keyframes at the bottom drive the card marquee on the home page. */
+@theme inline {
+  --font-sans: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  --font-display: "Bricolage Grotesque Variable", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --color-pocket: var(--pocket);
+  --color-pocket-edge: var(--pocket-edge);
+  --color-rare: var(--rare);
+  --color-rare-ink: var(--rare-ink);
+  --color-uncommon: var(--uncommon);
+  --color-uncommon-ink: var(--uncommon-ink);
+  --color-mythic: var(--mythic);
+  --color-mythic-ink: var(--mythic-ink);
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-success: var(--success);
+  --color-warning: var(--warning);
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+  --animate-marquee: marquee var(--duration) infinite linear;
+  --animate-marquee-vertical: marquee-vertical var(--duration) linear infinite;
+  @keyframes marquee {
+  from {
+    transform: translateX(0);
+    }
+  to {
+    transform: translateX(calc(-100% - var(--gap)));
+    }
+  }
+  @keyframes marquee-vertical {
+  from {
+    transform: translateY(0);
+    }
+  to {
+    transform: translateY(calc(-100% - var(--gap)));
+    }
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  html {
+    -webkit-text-size-adjust: 100%;
+  }
+  body {
+    @apply bg-background text-foreground antialiased;
+    font-variant-numeric: tabular-nums; /* quantities and distances line up */
+    caret-color: var(--primary);
+    accent-color: var(--primary);
+    scrollbar-color: var(--input) transparent;
+  }
+  /* Playmat grain: one fixed layer that never scrolls, so it costs nothing to repaint. */
+  body::before {
+    content: "";
+    position: fixed;
+    inset: 0;
+    z-index: 0;
+    pointer-events: none;
+    opacity: var(--grain-opacity);
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  }
+  #root {
+    position: relative;
+    z-index: 1;
+  }
+  h1,
+  h2,
+  h3,
+  .font-display {
+    font-family: var(--font-display);
+    font-optical-sizing: auto;
+    letter-spacing: -0.02em;
+    text-wrap: balance;
+  }
+  p {
+    text-wrap: pretty;
+  }
+  ::selection {
+    background: color-mix(in oklab, var(--primary) 30%, transparent);
+    color: var(--foreground);
+  }
+  /* A strong focus ring that shows up on the page, on cards and on teal buttons, in both themes. */
+  :focus-visible {
+    outline: 3px solid var(--focus);
+    outline-offset: 2px;
+  }
+  /* The logo keeps its own reduced-motion rules so an explicit Replay still plays (section 10.8). The same
+     switch applies when the device asks for less motion or the player turns on Reduce motion. */
+  @media (prefers-reduced-motion: reduce) {
+    *:not(.ttt-logo__mark, .ttt-logo__reveal),
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important; /* stops looping effects (the marquee) instead of flickering */
+      transition-duration: 0.01ms !important;
+      scroll-behavior: auto !important;
+    }
+  }
+  :root[data-motion="reduce"] *:not(.ttt-logo__mark, .ttt-logo__reveal),
+  :root[data-motion="reduce"] *::before,
+  :root[data-motion="reduce"] *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* ---- Display and accessibility choices ----
+   Set on <html> by /theme-init.js from Settings (or the header's light/dark button), before first paint.
+   Larger text scales the root size, so everything sized in rem (nearly everything) grows with it. */
+:root[data-text="large"] {
+  font-size: 112.5%;
+}
+:root[data-text="larger"] {
+  font-size: 125%;
+}
+/* On the narrowest phones, and on narrow phones with larger text, the header shows just the logo's arrow so
+   its buttons stay on one line (the link keeps its "Tap to Trade home" name). */
+@media (max-width: 440px) {
+  :root[data-text] header .ttt-logo--sm .ttt-logo__words {
+    display: none;
+  }
+}
+@media (max-width: 340px) {
+  header .ttt-logo--sm .ttt-logo__words {
+    display: none;
+  }
+}
+/* Higher contrast: text and outlines move closer to the ink colour in each theme. */
+:root[data-contrast="more"] {
+  --muted-foreground: #22392f;
+  --border: #7e948c;
+  --input: #3f554e;
+  --pocket-edge: #7e948c;
+}
+:root[data-contrast="more"][data-theme="dark"] {
+  --muted-foreground: #d3e3de;
+  --border: #5f7f77;
+  --input: #9db6af;
+  --pocket-edge: #5f7f77;
+}
+/* Underlined links: every text link, but not links styled as buttons or badges. */
+:root[data-links="underline"] a:not([data-slot="button"], [data-slot="badge"]) {
+  text-decoration-line: underline;
+  text-underline-offset: 0.2em;
+}
+
+/* The logo mark sits on the page surface; dialogs/cards override --ttt-surface. Clicking a logo replays it. */
+.ttt-logo {
+  cursor: pointer;
+}
+.ttt-logo--sm {
+  --ttt-size: 1.5rem;
+}
+.ttt-logo--dialog {
+  --ttt-size: clamp(2.25rem, 9vw, 3rem);
+}
+/* The logo's arrow sits on an opaque disc that must match whatever is behind it, so the theme supplies it.
+   Only colours change here; the logo's motion is untouched. */
+:root .ttt-logo {
+  --ttt-surface: var(--background);
+}
+:root .ttt-logo.ttt-logo--dialog {
+  --ttt-surface: var(--accent);
+}
+/* In dark mode the logo sits on the playmat: light ink and a brighter arrow. */
+[data-theme="dark"] .ttt-logo {
+  --ttt-ink: #dfece8;
+  --ttt-accent: #5fd0bf;
+}
+[data-theme="dark"] .ttt-logo__mark img {
+  filter: brightness(2.1) saturate(0.85);
+}
+[data-theme="dark"] .ttt-credit {
+  color: var(--muted-foreground);
+}
+
+/* ---- Trade binder ----
+   A pocket is one slot of a 9-pocket binder page: a slightly darker sheet with a lip along its top edge.
+   A sleeve is the clear plastic over a card; hovering sweeps a sheen across it once. Foil and etched
+   printings get a rainbow (or silver-gold) film over the card, because that is what those cards look like. */
+@layer components {
+.pocket {
+  position: relative;
+  border-radius: calc(var(--radius) + 4px);
+  background: var(--pocket);
+  box-shadow: inset 0 0 0 1px var(--pocket-edge), inset 0 10px 14px -12px rgb(var(--shadow) / 0.35);
+}
+.pocket::before {
+  /* the pocket's opening lip */
+  content: "";
+  position: absolute;
+  inset: 0.45rem 0.75rem auto;
+  height: 2px;
+  border-radius: 2px;
+  background: var(--pocket-edge);
+  opacity: 0.9;
+}
+.sleeve {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+  border-radius: 4.5% / 3.25%; /* real card corners */
+  box-shadow: 0 1px 1px rgb(var(--shadow) / 0.12), 0 10px 22px -14px rgb(var(--shadow) / 0.55);
+  transition: transform 0.35s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.35s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.sleeve::after {
+  content: "";
+  position: absolute;
+  inset: -20% -60%;
+  z-index: 1;
+  pointer-events: none;
+  background: linear-gradient(105deg, transparent 38%, var(--sheen) 48%, transparent 58%);
+  transform: translateX(-60%);
+  opacity: 0;
+}
+.group:hover .sleeve,
+.group:focus-within .sleeve {
+  transform: translateY(-3px) rotate(-0.4deg);
+  box-shadow: 0 2px 2px rgb(var(--shadow) / 0.12), 0 18px 30px -16px rgb(var(--shadow) / 0.6);
+}
+.group:hover .sleeve::after,
+.group:focus-within .sleeve::after {
+  opacity: 1;
+  transform: translateX(60%);
+  transition: transform 0.9s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.2s;
+}
+/* Foil, the way Moxfield shows it: a soft rainbow film over the whole card, in diagonal bands that drift
+   slowly (still, for anyone who asks for reduced motion). Etched foils get a paler silver-gold film. The film
+   is twice the card's size and slides with transform, so the browser moves it without repainting the card. */
+.sleeve--foil::before,
+.sleeve--etched::before {
+  content: "";
+  position: absolute;
+  inset: -50%;
+  z-index: 2;
+  pointer-events: none;
+  background: linear-gradient(
+    120deg,
+    rgb(255 0 128 / 0.5) 0%,
+    rgb(255 170 0 / 0.42) 12%,
+    rgb(255 255 80 / 0.38) 20%,
+    rgb(0 255 160 / 0.4) 30%,
+    rgb(0 200 255 / 0.45) 40%,
+    rgb(170 90 255 / 0.48) 50%,
+    rgb(255 0 128 / 0.5) 60%,
+    rgb(255 170 0 / 0.42) 72%,
+    rgb(255 255 80 / 0.38) 80%,
+    rgb(0 255 160 / 0.4) 90%,
+    rgb(0 200 255 / 0.45) 100%
+  );
+  mix-blend-mode: overlay;
+  opacity: 0.6;
+}
+.sleeve--etched::before {
+  background: linear-gradient(120deg, rgb(255 236 190 / 0.5), rgb(210 220 235 / 0.35) 25%, rgb(255 236 190 / 0.5) 50%, rgb(210 220 235 / 0.35) 75%, rgb(255 236 190 / 0.5));
+  opacity: 0.6;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .sleeve--foil::before {
+    animation: foil-drift 9s ease-in-out infinite alternate;
+  }
+}
+@keyframes foil-drift {
+  from {
+    transform: translate(-12%, -8%);
+  }
+  to {
+    transform: translate(12%, 8%);
+  }
+}
+/* Cards slide into their pockets as a page of results arrives: the one authored entrance in the app. */
+@media (prefers-reduced-motion: no-preference) {
+  .slide-in {
+    animation: pocket-in 0.6s cubic-bezier(0.16, 1, 0.3, 1) both;
+    animation-delay: calc(var(--i, 0) * 45ms);
+  }
+}
+@keyframes pocket-in {
+  from {
+    opacity: 0;
+    transform: translateY(-14px) scale(0.98);
+  }
+}
+}
+
+/* Map tiles are light artwork; in dark mode they are inverted to sit on the playmat. */
+[data-theme="dark"] .leaflet-tile-pane {
+  filter: invert(1) hue-rotate(180deg) brightness(0.85) contrast(0.9) saturate(0.7);
+}
+[data-theme="dark"] .leaflet-container {
+  background: var(--muted);
+}
+[data-theme="dark"] .leaflet-control-attribution,
+[data-theme="dark"] .leaflet-bar a {
+  background: var(--popover) !important;
+  color: var(--muted-foreground) !important;
+}
+/* Leaflet's credit links are dark blue, unreadable on the dark panel. */
+[data-theme="dark"] .leaflet-control-attribution a {
+  color: var(--primary);
+}
+
+/* ---- Map markers (TradeMap.jsx), the same on Google Maps and OpenStreetMap ----
+   city: teal bubble with the number of listings. person: outlined bubble with a name.
+   store: gold pin (partner store). spot: teal pin (another game store nearby). me: blue dot. */
+.ttt-leaflet-icon .ttt-marker {
+  position: absolute; /* Leaflet's icon box is 0x0 at the point; the marker shifts itself from there */
+  left: 0;
+  top: 0;
+}
+.ttt-marker {
+  cursor: pointer;
+  transition: scale 0.15s ease;
+}
+.ttt-marker:hover {
+  scale: 1.1;
+}
+.ttt-marker--city,
+.ttt-marker--person {
+  display: grid;
+  place-items: center;
+  min-width: var(--size, 30px);
+  height: var(--size, 30px);
+  padding: 0 8px;
+  border-radius: 999px;
+  border: 2px solid var(--card);
+  background: var(--primary);
+  color: var(--primary-foreground);
+  font: 700 13px/1 system-ui, sans-serif;
+  white-space: nowrap;
+  box-shadow: 0 0 0 5px color-mix(in srgb, var(--primary) 22%, transparent), 0 3px 8px rgb(0 0 0 / 0.25);
+}
+.ttt-marker--person {
+  --size: 28px;
+  max-width: 11rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  border-color: var(--primary);
+  background: var(--card);
+  color: var(--primary);
+}
+.ttt-marker--store,
+.ttt-marker--spot {
+  position: relative;
+  width: 32px;
+  height: 42px;
+  filter: drop-shadow(0 3px 3px rgb(0 0 0 / 0.3));
+}
+.ttt-marker--store svg,
+.ttt-marker--spot svg {
+  position: absolute;
+}
+.ttt-marker svg:first-child {
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  stroke-width: 1.5;
+}
+.ttt-marker svg + svg {
+  top: 6px;
+  left: 8px;
+  width: 16px;
+  height: 16px;
+  fill: none;
+  stroke-width: 2;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+}
+.ttt-marker--store svg:first-child {
+  fill: #f2c14e;
+  stroke: #8a6400;
+}
+.ttt-marker--store svg + svg {
+  stroke: #3d2c00;
+}
+.ttt-marker--spot svg:first-child {
+  fill: var(--primary);
+  stroke: var(--card);
+}
+.ttt-marker--spot svg + svg {
+  stroke: var(--primary-foreground);
+}
+.ttt-marker--me {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  border: 3px solid #fff;
+  background: #2563eb;
+  box-shadow: 0 0 0 6px rgb(37 99 235 / 0.25), 0 2px 5px rgb(0 0 0 / 0.3);
+}
+@media (prefers-reduced-motion: no-preference) {
+  .ttt-marker--me {
+    animation: ttt-me 2s ease-out infinite;
+  }
+}
+@keyframes ttt-me {
+  50% {
+    box-shadow: 0 0 0 12px rgb(37 99 235 / 0), 0 2px 5px rgb(0 0 0 / 0.3);
+  }
+}
+.ttt-ring {
+  stroke: var(--primary);
+  fill: var(--primary);
+  fill-opacity: 0.06;
+}
+/* Popups have a white background on both maps, so their text colours are fixed. */
+.ttt-popup {
+  color: #12302a;
+  font: 14px/1.45 system-ui, sans-serif;
+}
+.ttt-popup button,
+.ttt-popup a {
+  display: block;
+  margin-top: 6px;
+  color: #006b61;
+  font-weight: 600;
+  text-decoration: underline;
+}
+/* Small versions of each marker for the legend under the map. */
+.ttt-legend {
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  flex: none;
+  border-radius: 50%;
+}
+.ttt-legend--city {
+  background: var(--primary);
+}
+.ttt-legend--person {
+  border: 2px solid var(--primary);
+  background: var(--card);
+}
+.ttt-legend--store,
+.ttt-legend--spot {
+  width: 12px;
+  height: 12px;
+  border-radius: 50% 50% 50% 0;
+  rotate: -45deg;
+}
+.ttt-legend--store {
+  background: #f2c14e;
+  border: 1.5px solid #8a6400;
+}
+.ttt-legend--spot {
+  background: var(--primary);
+}
+.ttt-legend--me {
+  width: 12px;
+  height: 12px;
+  border: 2px solid #fff;
+  background: #2563eb;
+  box-shadow: 0 0 0 1px rgb(37 99 235 / 0.5);
+}
+
+/* ---- Feedback and motion, Apple style ----
+   Success draws a green circle and check (like Face ID); failure draws a red X and the form shakes "no".
+   Everything here is skipped under prefers-reduced-motion: the marks then appear already drawn. */
+@media (prefers-reduced-motion: no-preference) {
+  .mark {
+    animation: mark-pop 0.45s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+  }
+  .mark circle {
+    stroke-dasharray: 76;
+    stroke-dashoffset: 76;
+    animation: mark-draw 0.45s cubic-bezier(0.65, 0, 0.45, 1) forwards;
+  }
+  .mark path {
+    stroke-dasharray: 18;
+    stroke-dashoffset: 18;
+    animation: mark-draw 0.3s cubic-bezier(0.65, 0, 0.45, 1) 0.35s forwards;
+  }
+  /* Each page eases in when you arrive. Fill mode "backwards" leaves no transform behind afterwards,
+     so sticky and fixed elements inside the page behave normally. */
+  .page-in {
+    animation: page-in 0.42s cubic-bezier(0.16, 1, 0.3, 1) backwards;
+  }
+  /* The sign-in hand is dealt in, one card after another. */
+  .fan-in {
+    animation: fan-in 0.7s cubic-bezier(0.16, 1, 0.3, 1) backwards;
+    animation-delay: calc(var(--i, 0) * 90ms + 150ms);
+  }
+}
+.fan-in {
+  transform: var(--fan);
+}
+@keyframes fan-in {
+  from {
+    opacity: 0;
+    transform: translateX(-50%) translateY(48px) scale(0.9);
+  }
+}
+@keyframes mark-draw {
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+@keyframes mark-pop {
+  from {
+    transform: scale(0.6);
+    opacity: 0;
+  }
+}
+@keyframes page-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+}
+
+/* The plain page summary the server writes for crawlers (server/lib/seo.js). React replaces it on start-up,
+   so people only glimpse it on a slow connection: keep it quiet and readable. */
+.seo-shell {
+  max-width: 40rem;
+  margin: 4rem auto;
+  padding: 0 1rem;
+  color: var(--muted-foreground);
+}
+.seo-shell h1 {
+  color: var(--foreground);
+  font-size: 2rem;
+  font-weight: 700;
+}
+.seo-shell ul {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 1.25rem;
+  margin-top: 1rem;
+}
+.seo-shell a {
+  color: var(--primary);
+}
