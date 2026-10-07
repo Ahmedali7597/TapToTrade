@@ -1,0 +1,182 @@
+/* Tap to Trade animated logo. Curved arrow artwork by dh park / Noun Project, CC BY 3.0.
+   Keep the visible credit outside the logo (see ATTRIBUTION.md).
+
+   Sequence (2.3 s, CSS only, transforms + opacity so it stays on the compositor):
+     0–58 %  the arrow pops in and makes one full clockwise turn, centred over the whole logo
+    58–100 % the arrow glides left into place; "To Trade" slides out from BEHIND it
+   Layering: the arrow sits on an opaque disc (--ttt-surface) above the words. The words live in a
+   clipped window whose left edge starts under the arrow's centre and travels with the arrow, so the
+   text can only ever appear from the arrow's right-hand side.
+   The un-animated markup is the finished logo, so reduced-motion users and no-CSS contexts see it complete. */
+
+.ttt-logo {
+  --ttt-size: clamp(2rem, 7vw, 4.5rem);
+  --ttt-duration: 2.3s;
+  --ttt-ink: #153c35;
+  --ttt-accent: #006b61;
+  --ttt-surface: #f8f7f2; /* set to the solid colour behind the logo */
+  --ttt-mark: 1.45em;
+  --ttt-gap: 0.26em;
+  display: inline-block;
+  vertical-align: middle;
+  color: var(--ttt-ink);
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-size: var(--ttt-size);
+  font-weight: 800;
+  letter-spacing: -0.03em;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.ttt-logo__row {
+  display: inline-flex;
+  align-items: center;
+  isolation: isolate;
+}
+
+/* Opaque disc that the words pass underneath. */
+.ttt-logo__mark {
+  position: relative;
+  z-index: 2;
+  flex: none;
+  width: var(--ttt-mark);
+  height: var(--ttt-mark);
+  border-radius: 50%;
+  background: var(--ttt-surface);
+}
+.ttt-logo__mark img {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+/* Clip window: starts under the arrow's centre, text begins one gap past the arrow's edge. */
+.ttt-logo__window {
+  position: relative;
+  z-index: 1;
+  overflow: hidden;
+  margin-left: calc(var(--ttt-mark) / -2);
+  padding: 0.1em 0.15em 0.1em calc(var(--ttt-mark) / 2 + var(--ttt-gap)); /* right: glyph overhang */
+  line-height: 1.2;
+}
+.ttt-logo__words {
+  display: block;
+}
+.ttt-logo__trade {
+  color: var(--ttt-accent);
+}
+
+/* ---- motion ---- */
+.ttt-logo--animated .ttt-logo__row {
+  animation: ttt-glide var(--ttt-duration) both;
+}
+.ttt-logo--animated .ttt-logo__mark {
+  animation: ttt-pop var(--ttt-duration) both;
+}
+.ttt-logo--animated .ttt-logo__mark img {
+  animation: ttt-turn var(--ttt-duration) both;
+}
+.ttt-logo--animated .ttt-logo__words {
+  animation: ttt-emerge var(--ttt-duration) both;
+}
+/* The row starts shifted so the arrow is centred over the finished logo (50% of the row minus half the
+   arrow), holds through the turn, then glides home with a soft ease-out. */
+@keyframes ttt-glide {
+  0%,
+  58% {
+    transform: translateX(calc(50% - var(--ttt-mark) / 2));
+    animation-timing-function: cubic-bezier(0.22, 1, 0.36, 1);
+  }
+  100% {
+    transform: translateX(0);
+  }
+}
+
+/* Entrance and settle: grows in, stays large while turning, eases down as it lands. */
+@keyframes ttt-pop {
+  0% {
+    opacity: 0;
+    transform: scale(0.55);
+    animation-timing-function: cubic-bezier(0.34, 1.56, 0.64, 1);
+  }
+  14% {
+    opacity: 1;
+    transform: scale(1.3);
+  }
+  58% {
+    transform: scale(1.3);
+    animation-timing-function: cubic-bezier(0.22, 1, 0.36, 1);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+/* Exactly one clockwise turn, accelerating and decelerating smoothly. */
+@keyframes ttt-turn {
+  0% {
+    transform: rotate(0deg);
+    animation-timing-function: cubic-bezier(0.65, 0, 0.35, 1);
+  }
+  58%,
+  100% {
+    transform: rotate(360deg);
+  }
+}
+
+/* The words wait under the disc (invisible until the disc is fully opaque), then trail the arrow out.
+   No overshoot: overshooting would push the last letter past the clip window for a moment. */
+@keyframes ttt-emerge {
+  0%,
+  58% {
+    opacity: 0;
+    transform: translateX(calc(-100% - 0.35em));
+  }
+  60% {
+    opacity: 1;
+    transform: translateX(calc(-100% - 0.35em));
+    animation-timing-function: cubic-bezier(0.25, 1, 0.5, 1);
+  }
+  100% {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+/* A complete, static logo is the baseline. Motion is decorative and never gates content. */
+.ttt-logo--still .ttt-logo__row,
+.ttt-logo--still .ttt-logo__mark,
+.ttt-logo--still .ttt-logo__mark img,
+.ttt-logo--still .ttt-logo__words {
+  animation: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  .ttt-logo--animated:not(.ttt-logo--replay) .ttt-logo__row,
+  .ttt-logo--animated:not(.ttt-logo--replay) .ttt-logo__mark,
+  .ttt-logo--animated:not(.ttt-logo--replay) .ttt-logo__mark img,
+  .ttt-logo--animated:not(.ttt-logo--replay) .ttt-logo__words {
+    animation: none;
+  }
+}
+/* The site's own Reduce motion switch (data-motion on <html>, set by /theme-init.js) does the same. */
+[data-motion="reduce"] .ttt-logo--animated:not(.ttt-logo--replay) .ttt-logo__row,
+[data-motion="reduce"] .ttt-logo--animated:not(.ttt-logo--replay) .ttt-logo__mark,
+[data-motion="reduce"] .ttt-logo--animated:not(.ttt-logo--replay) .ttt-logo__mark img,
+[data-motion="reduce"] .ttt-logo--animated:not(.ttt-logo--replay) .ttt-logo__words {
+  animation: none;
+}
+
+.ttt-credit {
+  font-size: 0.75rem;
+  line-height: 1.7;
+  color: #52625d;
+}
+.ttt-credit a {
+  color: inherit;
+  text-underline-offset: 0.2em;
+}
+.ttt-credit a:focus-visible {
+  outline: 3px solid #005fcc;
+  outline-offset: 3px;
+}
