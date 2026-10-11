@@ -1,0 +1,31 @@
+# Runs unit tests (with coverage), API integration tests against PostgreSQL, and the build on every push and PR.
+name: CI
+on: [push, pull_request]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    # Throwaway Postgres just for the API tests. The health check makes the job wait until it accepts connections.
+    services:
+      postgres:
+        image: postgres:18
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: taptotrade_test
+        ports: ["5432:5432"]
+        options: --health-cmd pg_isready --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      TEST_DATABASE_URL: postgres://postgres:postgres@localhost:5432/taptotrade_test
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      # npm ci installs exactly what is in package-lock.json, so CI matches local installs.
+      - run: npm ci
+      - run: npm run test:coverage
+      # Build before the API tests: the server fills in the built client/dist/index.html for every page it sends,
+      # and the page tests (store pages, the 404) read it.
+      - run: npm run build
+      - run: npm run test:api
