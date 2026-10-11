@@ -70,6 +70,25 @@ export async function searchPrintings(q, { unique = "prints" } = {}) {
   return data;
 }
 
+/**
+ * Card names that match what the player has typed so far, for the suggestions under card-name boxes. Scryfall's
+ * autocomplete returns up to 20 names, best matches first. Card names rarely change, so answers are kept a day.
+ */
+export async function autocompleteNames(q) {
+  const key = `names:${q.toLowerCase()}`;
+  const hit = cache.get(key);
+  if (hit && Date.now() - hit.at < DAY_MS) return hit.data;
+
+  await throttle();
+  const res = await fetch(`${API}/cards/autocomplete?q=${encodeURIComponent(q)}`, { headers: HEADERS, signal: AbortSignal.timeout(3000) });
+  if (!res.ok) throw new Error(`Scryfall responded ${res.status}`);
+  const data = (await res.json()).data;
+
+  cache.set(key, { at: Date.now(), data });
+  if (cache.size > 500) cache.delete(cache.keys().next().value);
+  return data;
+}
+
 // Scryfall's bulk lookup accepts at most 75 identifiers per request.
 const COLLECTION_BATCH = 75;
 

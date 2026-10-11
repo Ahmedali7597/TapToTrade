@@ -52,8 +52,10 @@ await tx(async (c) => {
   // so RETURNING also gives back the id of a player who already exists.
   const ids = {};
   for (const [n, player] of PLAYERS.entries()) {
+    // The DO UPDATE changes nothing (email = itself). It is there so RETURNING id also works when the
+    // player already exists; DO NOTHING would return no row on a re-run.
     const { rows } = await c.query(
-      `INSERT INTO users (email, username, password_hash, city, role) VALUES ($1, $2, $3, $4, $5)
+      `INSERT INTO users (email, username, password_hash, city, role, email_verified_at) VALUES ($1, $2, $3, $4, $5, now())
        ON CONFLICT (email) DO UPDATE SET email = EXCLUDED.email RETURNING id`,
       [`${player.username}@example.test`, player.username, hash, player.city, player.role ?? "user"],
     );

@@ -74,7 +74,8 @@ function PickList({ title, description, items, picked, setPicked, verb, emptyTex
         {items.length === 0 ? (
           <EmptyState title={emptyText} />
         ) : (
-          <ul className="grid max-h-[28rem] gap-2 overflow-y-auto pr-1">
+          // grid-cols-1 lets the column shrink to the card, so a long one-line card name can't push rows off the edge.
+          <ul className="grid max-h-[28rem] grid-cols-1 gap-2 overflow-y-auto pr-1">
             {shown.map((item) => {
               const value = picked[item.id] ?? 0;
               return (
@@ -169,7 +170,7 @@ export default function TradeComposer({
           picked={requested}
           setPicked={setRequested}
           verb="Request"
-          emptyText="This player has no shared cards right now."
+          emptyText="This player has no shared cards right now, so there's nothing to request yet. Search for the card to find someone else who has it."
         />
         <PickList
           title="You give (optional)"
@@ -182,50 +183,54 @@ export default function TradeComposer({
         />
       </div>
 
-      {/* Sticky footer with the message box, running totals and the send button. */}
-      <Card className="sticky bottom-3 mt-6 gap-4 border-primary/30 shadow-lg">
-        <CardContent className="grid gap-4 md:grid-cols-[1fr_auto] md:items-end">
-          <div className="grid gap-3">
-            {/* Partner game stores near you: official, public places to meet. Hidden when there are none nearby. */}
-            {stores.length > 0 && (
+      {/* The message box, running totals and the send button. It sticks to the bottom of the screen from tablet
+          width up; on phones it would cover most of the cards, so there it just follows the lists. If the other
+          player has nothing shared there's nothing to request, so it's left out and the empty state explains why. */}
+      {theirItems.length > 0 && (
+        <Card className="mt-6 gap-4 border-primary/30 shadow-lg md:sticky md:bottom-3">
+          <CardContent className="grid gap-4 md:grid-cols-[1fr_auto] md:items-end">
+            <div className="grid gap-3">
+              {/* Partner game stores near you: official, public places to meet. Hidden when there are none nearby. */}
+              {stores.length > 0 && (
+                <div className="grid gap-1.5">
+                  <Label htmlFor="meetup-spot">Meetup spot (optional)</Label>
+                  <NativeSelect id="meetup-spot" value={meetupStoreId} onChange={(e) => setMeetupStoreId(e.target.value)} className="w-full">
+                    <NativeSelectOption value="">Decide in the message</NativeSelectOption>
+                    {stores.map((s) => (
+                      <NativeSelectOption key={s.id} value={String(s.id)}>
+                        {s.name} · {s.city}
+                        {s.distanceKm === 0 ? " (your city)" : s.distanceKm != null ? ` (${s.distanceKm} km)` : ""}
+                      </NativeSelectOption>
+                    ))}
+                  </NativeSelect>
+                </div>
+              )}
               <div className="grid gap-1.5">
-                <Label htmlFor="meetup-spot">Meetup spot (optional)</Label>
-                <NativeSelect id="meetup-spot" value={meetupStoreId} onChange={(e) => setMeetupStoreId(e.target.value)} className="w-full">
-                  <NativeSelectOption value="">Decide in the message</NativeSelectOption>
-                  {stores.map((s) => (
-                    <NativeSelectOption key={s.id} value={String(s.id)}>
-                      {s.name} · {s.city}
-                      {s.distanceKm === 0 ? " (your city)" : s.distanceKm != null ? ` (${s.distanceKm} km)` : ""}
-                    </NativeSelectOption>
-                  ))}
-                </NativeSelect>
+                <Label htmlFor="trade-message">Message (optional, plain text)</Label>
+                <Textarea
+                  id="trade-message"
+                  maxLength={500}
+                  rows={2}
+                  value={message}
+                  onChange={(e) => setMessage(e.target.value)}
+                  placeholder="e.g. Happy to meet at the Hamilton library on Saturday afternoon."
+                />
               </div>
-            )}
-            <div className="grid gap-1.5">
-              <Label htmlFor="trade-message">Message (optional, plain text)</Label>
-              <Textarea
-                id="trade-message"
-                maxLength={500}
-                rows={2}
-                value={message}
-                onChange={(e) => setMessage(e.target.value)}
-                placeholder="e.g. Happy to meet at the Hamilton library on Saturday afternoon."
-              />
             </div>
-          </div>
-          <div className="grid gap-2">
-            <p className="text-sm text-muted-foreground" aria-live="polite" data-testid="trade-summary">
-              You receive <strong className="text-foreground">{total(requested)}</strong> · You give{" "}
-              <strong className="text-foreground">{total(offered)}</strong>
-              {total(offered) === 0 && " (request only)"}
-            </p>
-            <Button ref={sendButton} type="submit" size="lg" disabled={busy} className="gap-2">
-              <img src={TAP_ICON} alt="" className="size-5 brightness-0 invert dark:invert-0" />
-              {busy ? "Sending…" : submitLabel}
-            </Button>
-          </div>
-        </CardContent>
-      </Card>
+            <div className="grid gap-2">
+              <p className="text-sm text-muted-foreground" aria-live="polite" data-testid="trade-summary">
+                You receive <strong className="text-foreground">{total(requested)}</strong> · You give{" "}
+                <strong className="text-foreground">{total(offered)}</strong>
+                {total(offered) === 0 && " (request only)"}
+              </p>
+              <Button ref={sendButton} type="submit" size="lg" disabled={busy} className="gap-2">
+                <img src={TAP_ICON} alt="" className="size-5 brightness-0 invert dark:invert-0" />
+                {busy ? "Sending…" : submitLabel}
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      )}
     </form>
   );
 }

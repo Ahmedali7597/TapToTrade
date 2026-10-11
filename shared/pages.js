@@ -64,8 +64,33 @@ export const PUBLIC_PAGES = {
   },
 };
 
-/** The browser tab title for a path: the public page's title, or just the site name. */
-export const pageTitle = (path) => PUBLIC_PAGES[path]?.title ?? SITE_NAME;
+// Titles of pages kept out of search (no description or crawlable text), so the tab still says where you are.
+const PRIVATE_TITLES = {
+  "/login": `Log in · ${NAME}`,
+  "/forgot-password": `Reset your password · ${NAME}`,
+  "/reset-password": `Choose a new password · ${NAME}`,
+  "/verify-email": `Confirm your email · ${NAME}`,
+  "/register/google": `Finish signing up · ${NAME}`,
+  "/dashboard": `Dashboard · ${NAME}`,
+  "/inventory": `Your inventory · ${NAME}`,
+  "/wants": `Your want list · ${NAME}`,
+  "/trades": `Trades · ${NAME}`,
+  "/trades/new": `New trade · ${NAME}`,
+  "/settings": `Account settings · ${NAME}`,
+  "/suggestions": `Suggestions · ${NAME}`,
+  "/moderation": `Moderation · ${NAME}`,
+  "/admin": `Admin · ${NAME}`,
+};
+
+/** The browser tab title for a path: the page's own title, or just the site name. */
+export function pageTitle(path) {
+  const title = PUBLIC_PAGES[path]?.title ?? PRIVATE_TITLES[path];
+  if (title) return title;
+  // One proposal (/trades/12) or its counter-offer page (/trades/12/counter).
+  if (/^\/trades\/\d+\/counter$/.test(path)) return `Counter-offer · ${NAME}`;
+  if (/^\/trades\/\d+$/.test(path)) return `Trade proposal · ${NAME}`;
+  return SITE_NAME;
+}
 
 // Titles of pages whose name depends on what they show. The server writes them into the first page load, and the
 // pages set the same text when someone reaches them by clicking around the app.

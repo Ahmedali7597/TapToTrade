@@ -2,14 +2,16 @@
 # Creates `taptotrade` (app) and `taptotrade_test` (npm run test:api) on localhost:5432.
 services:
   db:
-    image: postgres:17
+    image: postgres:18 # same major version as production (Neon)
     environment:
       POSTGRES_PASSWORD: postgres
       POSTGRES_DB: taptotrade
     ports: ["5432:5432"]
     # pgdata keeps the data between restarts; the init script only runs on the very first start.
+    # Postgres 18 images keep their data under /var/lib/postgresql. A volume made by an older version won't
+    # start; recreate it with `docker compose down -v` (this deletes the local data).
     volumes:
-      - pgdata:/var/lib/postgresql/data
+      - pgdata:/var/lib/postgresql
       - ./server/test/create-test-db.sql:/docker-entrypoint-initdb.d/create-test-db.sql:ro
 volumes:
   pgdata:

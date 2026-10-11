@@ -69,6 +69,8 @@ describe("page metadata", () => {
     for (const p of ["/dashboard", "/wants", "/trades", "/trades/12", "/trades/12/counter", "/trades/new", "/settings", "/admin", "/login"]) {
       expect(await pageMeta(p)).toMatchObject({ status: 200, robots: "noindex, nofollow" });
     }
+    expect((await pageMeta("/login")).title).toBe("Log in · Tap to Trade");
+    expect((await pageMeta("/dashboard")).title).toBe("Dashboard · Tap to Trade");
     expect(await pageMeta("/wp-admin")).toMatchObject({ status: 404, canonical: null });
     expect((await pageMeta("/trades/abc")).status).toBe(404);
   });
@@ -140,4 +142,14 @@ test("robots.txt, sitemap.xml and llms.txt use the public address", () => {
   expect(sitemap).not.toContain("/dashboard");
   expect(sitemapXml(["/stores/7-the-mana-vault"])).toContain("<loc>https://taptotrade.ca/stores/7-the-mana-vault</loc>");
   expect(llmsTxt()).toMatch(/^# Tap to Trade\n\n> /);
+});
+
+test("every page has its own tab title, including signed-in pages", async () => {
+  const { pageTitle, SITE_NAME } = await import("../../shared/pages.js");
+  const paths = ["/", "/search", "/cards", "/stores", "/login", "/register", "/forgot-password", "/reset-password", "/verify-email", "/privacy", "/terms",
+    "/dashboard", "/inventory", "/wants", "/trades", "/trades/new", "/trades/12", "/trades/12/counter", "/settings", "/suggestions", "/moderation", "/admin", "/register/google"];
+  const titles = paths.map(pageTitle);
+  expect(titles.filter((t) => t === SITE_NAME)).toEqual([]); // none fall back to the bare site name
+  expect(new Set(titles).size).toBe(paths.length);
+  expect(pageTitle("/somewhere-else")).toBe(SITE_NAME);
 });

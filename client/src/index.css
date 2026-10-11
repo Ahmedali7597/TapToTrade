@@ -150,6 +150,14 @@
   html {
     -webkit-text-size-adjust: 100%;
   }
+  /* Long unbroken text (a 24-letter username, a link pasted into a message) wraps instead of pushing the page
+     sideways. Tables keep normal wrapping and scroll inside their own box instead. */
+  main {
+    overflow-wrap: anywhere;
+  }
+  main table {
+    overflow-wrap: normal;
+  }
   body {
     @apply bg-background text-foreground antialiased;
     font-variant-numeric: tabular-nums; /* quantities and distances line up */

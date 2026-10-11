@@ -1,4 +1,4 @@
-import { useLayoutEffect } from "react";
+import { Suspense, useLayoutEffect } from "react";
 import { Link, NavLink, Outlet, useLocation, useNavigate } from "react-router";
 import { ChevronDown, MailCheck, Menu } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -17,8 +17,9 @@ import { CardViewerProvider } from "@/components/CardDetails";
 import TapToTradeLogo from "@/components/TapToTradeLogo";
 import { useAuth } from "@/lib/auth";
 import { ResendLink } from "@/components/AccountFields";
+import { Spinner } from "@/components/common";
 import { cn } from "@/lib/utils";
-import { EMAILS, pageTitle } from "@shared/pages";
+import { EMAILS, pageTitle, SITE_NAME } from "@shared/pages";
 
 // Footer links. Contact opens an email to hello@; the last two point off-site for card data credit and the WotC
 // fan content policy.
@@ -39,7 +40,8 @@ const FOOTER_LINKS = [
   { title: "Fan Content Policy", href: "https://company.wizards.com/en/legal/fancontentpolicy" },
 ];
 
-// Header links depend on who's signed in: the public pages for visitors, extra pages for staff.
+// Header links depend on who's signed in: the public pages for visitors, the player's pages once signed in.
+// Staff pages (moderation, admin) live in the account menu, so the bar fits on a 1024 px screen.
 function navItems(user) {
   if (!user) {
     return [
@@ -56,10 +58,14 @@ function navItems(user) {
     { to: "/wants", label: "Wants" },
     { to: "/trades", label: "Trades" },
     { to: "/stores", label: "Stores" },
-    ...(["moderator", "admin"].includes(user.role) ? [{ to: "/moderation", label: "Moderation" }] : []),
-    ...(user.role === "admin" ? [{ to: "/admin", label: "Admin" }] : []),
   ];
 }
+
+/** Staff pages for the account menu: moderation for moderators and admins, plus admin for admins. */
+const staffItems = (user) => [
+  ...(["moderator", "admin"].includes(user?.role) ? [{ to: "/moderation", label: "Moderation" }] : []),
+  ...(user?.role === "admin" ? [{ to: "/admin", label: "Admin" }] : []),
+];
 
 export default function Layout() {
   const { user, logout } = useAuth();
@@ -89,8 +95,9 @@ export default function Layout() {
         <header className="sticky top-0 z-40 border-b border-border/80 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80">
           <div className="mx-auto flex h-16 max-w-6xl items-center gap-2 px-3 sm:gap-4 sm:px-6">
             <Link to="/" className="shrink-0 rounded-md" aria-label="Tap to Trade home">
-              {/* Motion runs once on entry; the layout never remounts on navigation (section 10.8). */}
-              <TapToTradeLogo className="ttt-logo--sm" />
+              {/* Motion runs once on entry; the layout never remounts on navigation (section 10.8). Only the arrow
+                  turns, so the words are never caught part-way out (a click replays the full sequence). */}
+              <TapToTradeLogo className="ttt-logo--sm ttt-logo--turn-only" />
             </Link>
 
             {/* Desktop nav. On small screens the same links live in the menu button on the right. */}
@@ -164,7 +171,7 @@ export default function Layout() {
                         <span className="flex size-7 items-center justify-center rounded-md bg-primary text-xs font-bold uppercase text-primary-foreground" aria-hidden="true">
                           {user.username.slice(0, 2)}
                         </span>
-                        <span className="hidden sm:inline">{user.username}</span>
+                        <span className="hidden max-w-36 truncate sm:inline">{user.username}</span>
                         <ChevronDown aria-hidden="true" />
                       </Button>
                     </DropdownMenuTrigger>
@@ -177,6 +184,12 @@ export default function Layout() {
                       <DropdownMenuItem onSelect={() => navigate(`/u/${user.username}`)}>Public profile</DropdownMenuItem>
                       <DropdownMenuItem onSelect={() => navigate("/settings")}>Account settings</DropdownMenuItem>
                       <DropdownMenuItem onSelect={() => navigate("/suggestions")}>Send a suggestion</DropdownMenuItem>
+                      {staffItems(user).length > 0 && <DropdownMenuSeparator />}
+                      {staffItems(user).map((item) => (
+                        <DropdownMenuItem key={item.to} onSelect={() => navigate(item.to)}>
+                          {item.label}
+                        </DropdownMenuItem>
+                      ))}
                       <DropdownMenuSeparator />
                       <DropdownMenuItem onSelect={signOut}>Log out</DropdownMenuItem>
                     </DropdownMenuContent>
@@ -203,7 +216,10 @@ export default function Layout() {
 
         {/* The current page renders here, easing in on each new page. */}
         <main id="main" key={pathname} className="page-in flex-1">
-          <Outlet />
+          {/* Pages load their code on first visit (App.jsx); the spinner fills in for that moment. */}
+          <Suspense fallback={<Spinner label="Loading page" />}>
+            <Outlet />
+          </Suspense>
         </main>
 
         <MinimalFooter
@@ -228,7 +244,9 @@ export default function Layout() {
                 </a>
                 . Not approved/endorsed by Wizards. Portions of the materials used are property of Wizards of the Coast. ©Wizards of the Coast LLC.
               </p>
-              <p className="ttt-credit">Hero film by Ahmed Ali · © {new Date().getFullYear()} Tap to Trade</p>
+              {/* One string, so it renders as a single text node: tools that trim each text node and join them
+                  otherwise lose the spaces around the year ("©2026Tap to Trade"). */}
+              <p className="ttt-credit">{`Hero film by Ahmed Ali · © ${new Date().getFullYear()} ${SITE_NAME}`}</p>
             </div>
           }
         />

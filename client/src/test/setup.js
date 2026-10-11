@@ -1,7 +1,8 @@
 import "@testing-library/jest-dom";
 import { TextDecoder, TextEncoder } from "node:util";
 
-// jsdom lacks these; react-router uses TextEncoder, and Magic UI's scroll-triggered animations use IntersectionObserver.
+// jsdom lacks these; react-router uses TextEncoder, Magic UI's scroll-triggered animations use IntersectionObserver,
+// and Radix's Switch measures itself with ResizeObserver.
 Object.assign(globalThis, { TextEncoder, TextDecoder });
 globalThis.IntersectionObserver ??= class {
   observe() {}
@@ -10,4 +11,9 @@ globalThis.IntersectionObserver ??= class {
   takeRecords() {
     return [];
   }
+};
+globalThis.ResizeObserver ??= class {
+  observe() {}
+  unobserve() {}
+  disconnect() {}
 };

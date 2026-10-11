@@ -144,6 +144,15 @@
   }
 }
 
+/* Turn-only entrance (the site header): the arrow makes its one turn in place and the words are complete from
+   the first frame. The full sequence shows the words part-way out of the clip window (just "rade" around 1.5 s),
+   which is what a screenshot or a quick glance at the header caught. A click still replays the full sequence. */
+.ttt-logo--turn-only.ttt-logo--animated:not(.ttt-logo--replay) .ttt-logo__row,
+.ttt-logo--turn-only.ttt-logo--animated:not(.ttt-logo--replay) .ttt-logo__mark,
+.ttt-logo--turn-only.ttt-logo--animated:not(.ttt-logo--replay) .ttt-logo__words {
+  animation: none;
+}
+
 /* A complete, static logo is the baseline. Motion is decorative and never gates content. */
 .ttt-logo--still .ttt-logo__row,
 .ttt-logo--still .ttt-logo__mark,

@@ -32,9 +32,10 @@ export default function Profile() {
         <span className="flex size-16 items-center justify-center rounded-2xl bg-primary text-2xl font-bold uppercase text-primary-foreground" aria-hidden="true">
           {user.username.slice(0, 2)}
         </span>
-        <div className="flex-1">
+        {/* min-w-48: on a narrow phone a long name wraps the report button onto its own line instead of squeezing. */}
+        <div className="min-w-48 flex-1">
           <div className="flex flex-wrap items-center gap-2">
-            <h1 className="text-3xl font-bold tracking-tight">{user.username}</h1>
+            <h1 className="text-3xl font-bold sm:text-4xl">{user.username}</h1>
             <StoreBadge store={user.store} />
           </div>
           <p className="flex items-center gap-1 text-muted-foreground">

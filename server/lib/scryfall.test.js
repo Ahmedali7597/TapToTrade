@@ -1,4 +1,4 @@
-import { cardDetails, rankByName, sample, searchPrintings, showcasePool, toDetails, toPrinting } from "./scryfall.js";
+import { autocompleteNames, cardDetails, rankByName, sample, searchPrintings, showcasePool, toDetails, toPrinting } from "./scryfall.js";
 
 const card = {
   id: "435589bb-27c6-4a6d-9d63-394d5092b9d8",
@@ -57,6 +57,20 @@ describe("searchPrintings", () => {
     await expect(searchPrintings("zzzz no card")).resolves.toEqual([]);
     jest.spyOn(global, "fetch").mockResolvedValueOnce({ ok: false, status: 503 });
     await expect(searchPrintings("service down")).rejects.toThrow("503");
+  });
+});
+
+describe("autocompleteNames", () => {
+  afterEach(() => jest.restoreAllMocks());
+
+  test("asks Scryfall's autocomplete once per name and throws when Scryfall fails", async () => {
+    const fetchMock = jest.spyOn(global, "fetch").mockResolvedValue({ ok: true, status: 200, json: async () => ({ data: ["Sol Ring", "Solemn Simulacrum"] }) });
+    await expect(autocompleteNames("Sol")).resolves.toEqual(["Sol Ring", "Solemn Simulacrum"]);
+    await autocompleteNames("sol"); // cached, case-insensitive
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock.mock.calls[0][0]).toBe("https://api.scryfall.com/cards/autocomplete?q=Sol");
+    fetchMock.mockResolvedValueOnce({ ok: false, status: 503 });
+    await expect(autocompleteNames("down")).rejects.toThrow("503");
   });
 });
 

@@ -33,8 +33,9 @@ export function createApp() {
   // Helmet sets the usual security headers. We only loosen the CSP enough to show Scryfall card images and
   // symbols, and the map: OpenStreetMap tiles, or Google Maps when GOOGLE_MAPS_API_KEY is set (Google's
   // documented hosts, without its optional 'unsafe-inline' for scripts, which the map doesn't need).
+  // 'wasm-unsafe-eval' lets the vector map (used with a Map ID) compile its WebAssembly; JavaScript eval stays off.
   const google = process.env.GOOGLE_MAPS_API_KEY
-    ? { script: ["https://*.googleapis.com", "https://*.gstatic.com", "blob:"], img: ["https://*.googleapis.com", "https://*.gstatic.com", "https://*.google.com", "https://*.googleusercontent.com"], connect: ["https://*.googleapis.com", "https://*.google.com", "https://*.gstatic.com", "data:", "blob:"], style: ["https://fonts.googleapis.com"], font: ["https://fonts.gstatic.com"] }
+    ? { script: ["https://*.googleapis.com", "https://*.gstatic.com", "blob:", "'wasm-unsafe-eval'"], img: ["https://*.googleapis.com", "https://*.gstatic.com", "https://*.google.com", "https://*.googleusercontent.com"], connect: ["https://*.googleapis.com", "https://*.google.com", "https://*.gstatic.com", "data:", "blob:"], style: ["https://fonts.googleapis.com"], font: ["https://fonts.gstatic.com"] }
     : { script: [], img: [], connect: [], style: [], font: [] };
   app.use(
     helmet({

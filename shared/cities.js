@@ -137,7 +137,7 @@ export const cityCoords = (city) => COORDS.get(city);
 export const RADII = [10, 25, 50, 100, 250];
 
 /** Great-circle distance in km between two [lat, lng] points (haversine). */
-function distanceKm([lat1, lng1], [lat2, lng2]) {
+export function distanceKm([lat1, lng1], [lat2, lng2]) {
   const rad = Math.PI / 180;
   const a =
     Math.sin(((lat2 - lat1) * rad) / 2) ** 2 +
@@ -161,6 +161,22 @@ export function citiesWithin(origin, km = Infinity) {
     .filter(([, d]) => d <= km)
     .sort((x, y) => x[1] - y[1])
     .map(([city]) => city);
+}
+
+/** The cities a search covers: just `city`, every city within `radius` km of it, or null (anywhere) without a city. */
+export const searchCities = (city, radius) => (city ? (radius ? citiesWithin(city, radius) : [city]) : null);
+
+/**
+ * Where two players in `a` and `b` could meet: the point halfway between their cities, and how far around it to
+ * look for public meetup spots (half the gap plus 10 km, between 10 and 50 km). Null if either city isn't listed.
+ */
+export function meetupArea(a, b) {
+  const p = COORDS.get(a);
+  const q = COORDS.get(b);
+  if (!p || !q) return null;
+  // Averaging is close enough to the true midpoint at city-to-city distances.
+  const center = [(p[0] + q[0]) / 2, (p[1] + q[1]) / 2];
+  return { center, radiusKm: Math.min(50, Math.max(10, Math.round(distanceKm(p, q) / 2 + 10))) };
 }
 
 /** The listed city closest to a point, e.g. the browser's location. The point itself never leaves the browser. */

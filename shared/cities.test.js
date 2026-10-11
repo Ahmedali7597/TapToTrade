@@ -1,4 +1,4 @@
-import { CITIES, CITY_GROUPS, cityCoords, cityDistance, citiesWithin, nearestCity, PROVINCES } from "./cities.js";
+import { CITIES, CITY_GROUPS, cityCoords, cityDistance, citiesWithin, meetupArea, nearestCity, PROVINCES } from "./cities.js";
 
 describe("Canada-wide cities and distances", () => {
   test("every province and territory is covered, and every city has coordinates inside Canada", () => {
@@ -33,4 +33,14 @@ describe("Canada-wide cities and distances", () => {
     expect(nearestCity(43.65, -79.38)).toBe("Toronto, ON"); // downtown Toronto
     expect(nearestCity(46.24, -63.13)).toBe("Charlottetown, PE");
   });
+});
+
+test("meetupArea is halfway between two cities, searching 10 to 50 km around it", () => {
+  const same = meetupArea("Hamilton, ON", "Hamilton, ON");
+  expect(same).toEqual({ center: cityCoords("Hamilton, ON"), radiusKm: 10 });
+  const near = meetupArea("Hamilton, ON", "Toronto, ON"); // about 60 km apart
+  expect(Math.abs(near.radiusKm - (cityDistance("Hamilton, ON", "Toronto, ON") / 2 + 10))).toBeLessThanOrEqual(1);
+  expect(near.center[0]).toBeCloseTo((cityCoords("Hamilton, ON")[0] + cityCoords("Toronto, ON")[0]) / 2);
+  expect(meetupArea("Toronto, ON", "Montréal, QC").radiusKm).toBe(50);
+  expect(meetupArea("Nowhere, ZZ", "Toronto, ON")).toBeNull();
 });

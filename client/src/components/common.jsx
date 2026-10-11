@@ -347,7 +347,7 @@ export function CardImage({ name, setCode, imageUrl, finish, className, printing
         <RetryImage key={imageUrl} src={imageUrl} alt={zoom ? "" : alt} loading="lazy" onGiveUp={onGiveUp ?? (() => setBroken(true))} className="size-full object-cover" />
       </div>
     ) : (
-      <div role={zoom || decorative ? undefined : "img"} aria-label={zoom || decorative ? undefined : alt} className={cn(sleeve, "flex items-center justify-center p-2 text-center text-xs text-muted-foreground")}>
+      <div role={zoom || decorative ? undefined : "img"} aria-label={zoom || decorative ? undefined : alt} className={cn(sleeve, "flex items-center justify-center overflow-hidden p-2 text-center text-xs break-normal text-muted-foreground")}>
         {name}
       </div>
     );

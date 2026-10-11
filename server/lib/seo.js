@@ -3,7 +3,7 @@
 // React replaces that HTML as soon as the app starts. robots.txt, sitemap.xml and llms.txt are built here too.
 
 import { escape } from "../../shared/html.js";
-import { EMAILS, NOT_FOUND_TITLE, profileTitle, PUBLIC_PAGES as PUBLIC, SITE_NAME as NAME, storeTitle } from "../../shared/pages.js";
+import { EMAILS, NOT_FOUND_TITLE, pageTitle, profileTitle, PUBLIC_PAGES as PUBLIC, SITE_NAME as NAME, storeTitle } from "../../shared/pages.js";
 import { storeIdFromSlug, storePath, tagLabel } from "../../shared/stores.js";
 import { eventKindLabel, timeZoneFor } from "../../shared/events.js";
 import { isoWithOffset } from "./events.js";
@@ -67,7 +67,7 @@ export async function pageMeta(path, query = {}, find = {}) {
       jsonLd: storeData(siteUrl(), store, (await find.events?.(store.id)) ?? []),
     };
   }
-  if (PRIVATE.test(clean)) return { status: 200, title: NAME, description: PUBLIC["/"].description, robots: "noindex, nofollow", canonical: clean };
+  if (PRIVATE.test(clean)) return { status: 200, title: pageTitle(clean), description: PUBLIC["/"].description, robots: "noindex, nofollow", canonical: clean };
   return notFound();
 }
 

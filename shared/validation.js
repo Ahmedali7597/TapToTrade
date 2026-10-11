@@ -29,17 +29,22 @@ const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 // Usernames show up in URLs and trade lists, so keep them to plain word characters.
 const USERNAME_RE = /^[A-Za-z0-9_]{3,24}$/;
 
-/** Req 4.1.3: returns the list of unmet rules (empty = strong enough). */
+// Req 4.1.3 password rules: [what the user reads, test the password must pass].
+// The server's error message and the live checklist on the sign-up and settings pages both read this
+// one list, so they can never disagree. (The checklist leaves out the 128-character cap.)
+export const PASSWORD_RULES = [
+  ["at least 8 characters", (p) => p.length >= 8],
+  ["at most 128 characters", (p) => p.length <= 128],
+  ["a lowercase letter", (p) => /[a-z]/.test(p)],
+  ["an uppercase letter", (p) => /[A-Z]/.test(p)],
+  ["a number", (p) => /\d/.test(p)],
+  ["a symbol", (p) => /[^A-Za-z0-9]/.test(p)],
+];
+
+/** Returns the labels of the rules this password breaks (empty list = strong enough). */
 export function passwordProblems(password) {
   const p = typeof password === "string" ? password : "";
-  const problems = [];
-  if (p.length < 8) problems.push("at least 8 characters");
-  if (p.length > 128) problems.push("at most 128 characters");
-  if (!/[a-z]/.test(p)) problems.push("a lowercase letter");
-  if (!/[A-Z]/.test(p)) problems.push("an uppercase letter");
-  if (!/\d/.test(p)) problems.push("a number");
-  if (!/[^A-Za-z0-9]/.test(p)) problems.push("a symbol");
-  return problems;
+  return PASSWORD_RULES.filter(([, passes]) => !passes(p)).map(([label]) => label);
 }
 
 // One friendly sentence for the form, or null when the password is fine.
@@ -92,3 +97,24 @@ export function parseQuantity(value) {
   const n = typeof value === "string" && /^\s*\d+\s*$/.test(value) ? Number(value) : value;
   return Number.isInteger(n) && n > 0 && n <= MAX_QUANTITY ? n : null;
 }
+
+/**
+ * Where to send someone after they log in (?next=...): only a path on this site, never another site. "//x.com"
+ * and "/\x.com" look like paths but browsers treat both as a link to x.com, so they fall back to the dashboard.
+ */
+export const safeNext = (next) => (typeof next === "string" && /^\/(?![/\\])/.test(next) ? next : "/dashboard");
+
+// Who can moderate whom (4.6, 4.7). Higher number = more power: moderators can act on standard users,
+// admins can also act on moderators, and nobody can act on an admin. The server enforces this; the
+// moderation page uses the same rule to hide buttons that would only get a 403.
+const RANK = { user: 0, moderator: 1, admin: 2 };
+export const outranks = (actorRole, targetRole) => RANK[actorRole] > RANK[targetRole];
+
+// What a suggestion can be about. The server accepts only these values; the page shows the labels.
+export const SUGGESTION_TOPICS = [
+  { value: "feature", label: "Feature idea" },
+  { value: "cards", label: "Card data" },
+  { value: "problem", label: "Something broke" },
+  { value: "other", label: "Other" },
+];
+export const topicLabel = (value) => SUGGESTION_TOPICS.find((t) => t.value === value)?.label ?? value;

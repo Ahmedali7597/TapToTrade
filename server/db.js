@@ -1,5 +1,9 @@
 import pg from "pg";
 
+// Postgres "bigint" columns (every id, and count(*)) arrive as text by default, because they can be bigger than
+// JavaScript numbers. Ours never get anywhere near that (2^53), so read them as plain numbers: 5 === 5, not "5".
+pg.types.setTypeParser(pg.types.builtins.INT8, Number);
+
 // One small pool per process (deployment plan 8.3). DATABASE_URL uses ?sslmode=verify-full for Neon (encrypted and certificate-checked).
 export const pool = new pg.Pool({
   connectionString: process.env.DATABASE_URL,
@@ -24,4 +28,15 @@ export async function tx(fn) {
   } finally {
     client.release();
   }
+}
+
+/**
+ * The VALUES part of a multi-row INSERT, with its parameters:
+ * valuesList([[1, "a"], [2, "b"]]) -> { sql: "($1, $2), ($3, $4)", params: [1, "a", 2, "b"] }.
+ * Every row needs the same number of values, in the same order as the INSERT's column list.
+ */
+export function valuesList(rows) {
+  const width = rows[0]?.length ?? 0;
+  const sql = rows.map((_, r) => `(${Array.from({ length: width }, (_, c) => `$${r * width + c + 1}`).join(", ")})`).join(", ");
+  return { sql, params: rows.flat() };
 }
