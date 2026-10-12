@@ -189,3 +189,23 @@ export function nearestCity(lat, lng) {
   }
   return best;
 }
+
+// ---- City landing pages (/trade/hamilton-on): trading in one city, for people searching "trade MTG cards in <city>" ----
+
+/** "Hamilton, ON" -> "hamilton-on"; accents dropped ("Trois-Rivières, QC" -> "trois-rivieres-qc"). */
+export const citySlug = (city) =>
+  String(city)
+    .normalize("NFKD")
+    .replace(/[̀-ͯ]/g, "")
+    .toLowerCase()
+    .replace(/['’]/g, "")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+
+const BY_SLUG = new Map([...COORDS.keys()].map((city) => [citySlug(city), city]));
+
+/** The listed city for a /trade/:slug value, or null. */
+export const cityFromSlug = (slug) => BY_SLUG.get(String(slug ?? "")) ?? null;
+
+/** A city's landing page: /trade/hamilton-on. */
+export const cityPath = (city) => `/trade/${citySlug(city)}`;

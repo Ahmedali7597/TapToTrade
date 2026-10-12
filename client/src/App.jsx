@@ -26,6 +26,7 @@ const Search = page(() => import("@/pages/Search"));
 const Cards = page(() => import("@/pages/Cards"));
 const Stores = page(stores, "Stores");
 const StorePage = page(stores, "StorePage");
+const CityPage = page(() => import("@/pages/City"));
 const Profile = page(() => import("@/pages/Profile"));
 const Dashboard = page(() => import("@/pages/Dashboard"));
 const Inventory = page(() => import("@/pages/Inventory"));
@@ -95,6 +96,7 @@ export default function App() {
           <Route path="cards" element={<Cards />} />
           <Route path="stores" element={<Stores />} />
           <Route path="stores/:slug" element={<StorePage />} />
+          <Route path="trade/:slug" element={<CityPage />} />
           <Route path="u/:username" element={<Profile />} />
           <Route element={<RequireAuth />}>
             <Route path="dashboard" element={<Dashboard />} />

@@ -3,7 +3,20 @@
 // React replaces that HTML as soon as the app starts. robots.txt, sitemap.xml and llms.txt are built here too.
 
 import { escape } from "../../shared/html.js";
-import { EMAILS, NOT_FOUND_TITLE, pageTitle, profileTitle, PUBLIC_PAGES as PUBLIC, SITE_NAME as NAME, storeTitle } from "../../shared/pages.js";
+import {
+  cityHeading,
+  cityIndexable,
+  citySummary,
+  cityTitle,
+  EMAILS,
+  NOT_FOUND_TITLE,
+  pageTitle,
+  profileTitle,
+  PUBLIC_PAGES as PUBLIC,
+  SITE_NAME as NAME,
+  storeTitle,
+} from "../../shared/pages.js";
+import { cityFromSlug } from "../../shared/cities.js";
 import { storeIdFromSlug, storePath, tagLabel } from "../../shared/stores.js";
 import { eventKindLabel, timeZoneFor } from "../../shared/events.js";
 import { isoWithOffset } from "./events.js";
@@ -31,7 +44,8 @@ const clip = (s, n) => (s.length > n ? `${s.slice(0, n - 1).trimEnd()}…` : s);
 /**
  * How the server should present `path`: { status, title, description, robots, canonical, heading, text, home, jsonLd }.
  * `query` is the parsed query string. `find.profile(username)` says whether a public profile exists, and
- * `find.store(id)` returns an active partner store's row (or null), and `find.events(id)` its upcoming events.
+ * `find.store(id)` returns an active partner store's row (or null), `find.events(id)` its upcoming events, and
+ * `find.city(city)` what's happening near a city (cityStats in routes/cities.js).
  */
 export async function pageMeta(path, query = {}, find = {}) {
   const clean = path.length > 1 ? path.replace(/\/+$/, "") : path;
@@ -65,6 +79,25 @@ export async function pageMeta(path, query = {}, find = {}) {
       heading: store.name,
       text: `${store.address}, ${store.city}. ${store.notes ?? "A Tap to Trade partner store and official meetup spot for trading Magic: The Gathering cards."}`,
       jsonLd: storeData(siteUrl(), store, (await find.events?.(store.id)) ?? []),
+    };
+  }
+  const citySlug = /^\/trade\/([a-z0-9-]{1,80})$/.exec(clean);
+  if (citySlug) {
+    // City landing pages: indexed once there's real trading nearby (cityIndexable), so quiet towns aren't thin pages.
+    const city = cityFromSlug(citySlug[1]);
+    const stats = city && (await find.city?.(city));
+    if (!stats) return notFound();
+    const summary = citySummary(stats);
+    return {
+      status: 200,
+      title: cityTitle(city),
+      description: clip(`${summary} Trade Magic: The Gathering (MTG) cards in person, free and with no shipping.`, 160),
+      robots: cityIndexable(stats) ? "index, follow" : "noindex, follow",
+      canonical: clean,
+      heading: cityHeading(city),
+      text: `${summary} Search the cards players near ${city} have shared, send a trade request and meet at a public place or a partner game store.`,
+      links: stats.stores.map((s) => [s.path, `${s.name}, ${s.city}`]),
+      jsonLd: breadcrumbs(siteUrl(), [["/", NAME], [clean, `Trade MTG cards in ${city}`]]),
     };
   }
   if (PRIVATE.test(clean)) return { status: 200, title: pageTitle(clean), description: PUBLIC["/"].description, robots: "noindex, nofollow", canonical: clean };
@@ -104,7 +137,7 @@ export function renderPage(template, meta) {
     ld && `<script type="application/ld+json">${JSON.stringify(ld).replace(/</g, "\\u003c")}</script>`,
   ].filter(Boolean);
   const body = meta.heading
-    ? `<main class="seo-shell"><h1>${escape(meta.heading)}</h1><p>${escape(meta.text)}</p><nav><ul>${NAV.map(
+    ? `<main class="seo-shell"><h1>${escape(meta.heading)}</h1><p>${escape(meta.text)}</p>${links(meta.links)}<nav><ul>${NAV.map(
         ([href, label]) => `<li><a href="${href}">${escape(label)}</a></li>`,
       ).join("")}</ul></nav></main>`
     : "";
@@ -114,6 +147,17 @@ export function renderPage(template, meta) {
     .replace("</head>", `${head.join("\n    ")}\n  </head>`)
     .replace('<div id="root"></div>', `<div id="root">${body}</div>`);
 }
+
+// Page-specific links in the crawlable HTML (a city page's partner stores), before the site-wide ones.
+const links = (list = []) =>
+  list.length ? `<ul>${list.map(([href, label]) => `<li><a href="${escape(href)}">${escape(label)}</a></li>`).join("")}</ul>` : "";
+
+/** schema.org BreadcrumbList for `trail`, a list of [path, name] from the home page down. */
+const breadcrumbs = (site, trail) => ({
+  "@context": "https://schema.org",
+  "@type": "BreadcrumbList",
+  itemListElement: trail.map(([p, name], i) => ({ "@type": "ListItem", position: i + 1, name, item: `${site}${p}` })),
+});
 
 /** schema.org data for the home page: the site's name (for the name Google shows) and who runs it. */
 export const structuredData = (site) => ({
@@ -216,5 +260,6 @@ export const llmsTxt = () =>
     "## Pages",
     "",
     ...Object.entries(PUBLIC).map(([p, page]) => `- [${page.heading}](${siteUrl()}${p}): ${page.description}`),
+    `- City pages, e.g. [Trade MTG cards in Toronto, ON](${siteUrl()}/trade/toronto-on): players, shared cards, partner stores and events near one city. The sitemap lists the active ones.`,
     "",
   ].join("\n");

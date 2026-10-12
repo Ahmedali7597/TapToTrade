@@ -191,6 +191,13 @@ development; record the professor's approval for each one in the final report.
   `/llms.txt` summarizes the site for AI assistants; the home page carries `WebSite` and `Organization`
   structured data and each partner store page `HobbyShop` data; `og-image.jpg` is the share preview. Verify the domain in Google Search Console (a DNS
   `TXT` record at Squarespace) and submit `https://taptotrade.ca/sitemap.xml`.
+- **City pages** (`/trade/hamilton-on`, `pages/City.jsx`, `routes/cities.js`): one page per listed city for searches
+  like "trade MTG cards in Hamilton": players and listings within 25 km, the cards most of them share, partner
+  stores nearby and their next events. Counts and card names only, never usernames, and card names only once
+  3 players are nearby. A city is indexed and in the sitemap once it has a partner store, or players of its own
+  and 3 within 25 km (`cityIndexable` in `shared/pages.js`); quieter cities get a `noindex` page so they aren't
+  thin. Home and the store directory link to the active ones. Off-site steps that help ranking are in
+  [docs/seo-checklist.md](docs/seo-checklist.md).
 
 ## Run it locally
 

@@ -14,11 +14,11 @@ import { canManage, eventView, nextEvents, upcomingEvents } from "../lib/events.
 const router = Router();
 
 // Stores with the username of the player account the store runs (if it's still active).
-const SELECT = `SELECT s.*, u.username AS account_username FROM stores s LEFT JOIN users u ON u.id = s.account_user_id AND u.status = 'active'`;
+export const SELECT = `SELECT s.*, u.username AS account_username FROM stores s LEFT JOIN users u ON u.id = s.account_user_id AND u.status = 'active'`;
 const TAGS = new Set(STORE_TAGS.map((t) => t.value));
 
 /** API shape for a store, with its distance from `from` (a city) when one is given. */
-const storeView = (s, from) => ({
+export const storeView = (s, from) => ({
   id: s.id,
   name: s.name,
   address: s.address,

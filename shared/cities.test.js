@@ -1,4 +1,4 @@
-import { CITIES, CITY_GROUPS, cityCoords, cityDistance, citiesWithin, meetupArea, nearestCity, PROVINCES } from "./cities.js";
+import { CITIES, CITY_GROUPS, cityCoords, cityDistance, cityFromSlug, cityPath, citySlug, citiesWithin, meetupArea, nearestCity, PROVINCES } from "./cities.js";
 
 describe("Canada-wide cities and distances", () => {
   test("every province and territory is covered, and every city has coordinates inside Canada", () => {
@@ -43,4 +43,15 @@ test("meetupArea is halfway between two cities, searching 10 to 50 km around it"
   expect(near.center[0]).toBeCloseTo((cityCoords("Hamilton, ON")[0] + cityCoords("Toronto, ON")[0]) / 2);
   expect(meetupArea("Toronto, ON", "Montréal, QC").radiusKm).toBe(50);
   expect(meetupArea("Nowhere, ZZ", "Toronto, ON")).toBeNull();
+});
+
+describe("city page links", () => {
+  test("every city has its own readable slug that maps back to it", () => {
+    expect(cityPath("Hamilton, ON")).toBe("/trade/hamilton-on");
+    expect(citySlug("Montréal, QC")).toBe("montreal-qc");
+    expect(new Set(CITIES.map(citySlug)).size).toBe(CITIES.length);
+    for (const city of CITIES) expect(cityFromSlug(citySlug(city))).toBe(city);
+    expect(cityFromSlug("gotham-on")).toBeNull();
+    expect(cityFromSlug(undefined)).toBeNull();
+  });
 });

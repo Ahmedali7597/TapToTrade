@@ -19,16 +19,17 @@ const NAME = SITE_NAME;
 // Public pages worth finding in search, in sitemap order.
 export const PUBLIC_PAGES = {
   "/": {
-    // The exact spelling people search for ("taptotrade") goes in the title, description and heading.
-    title: `${NAME} (TapToTrade.ca) · Trade Magic: The Gathering cards in Canada`,
+    // The exact spelling people search for ("taptotrade") goes in the title, description and heading, and so does
+    // "MTG", the short name most players search with.
+    title: `${NAME} (TapToTrade.ca) · Trade MTG cards locally in Canada`,
     description:
-      "TapToTrade.ca: find Magic: The Gathering cards in nearby players' collections across Canada and trade in person at a game store. Free, no shipping.",
-    heading: "Tap to Trade (TapToTrade.ca): trade Magic: The Gathering cards with players near you",
+      "TapToTrade.ca: trade Magic: The Gathering (MTG) cards locally. Find cards in nearby players' binders across Canada and trade in person at a game store. Free, no shipping.",
+    heading: "Tap to Trade (TapToTrade.ca): trade Magic: The Gathering (MTG) cards locally with players near you",
     text: "List the exact printings you own, search other players' shared binders by card and distance, and send a trade request. Meet in person at a public place or a partner game store. Tap to Trade never handles money or shipping.",
   },
   "/search": {
-    title: `Find Magic cards near you · ${NAME}`,
-    description: "Search Magic: The Gathering cards that players near you have shared for trade, by card name, city, distance, condition and finish.",
+    title: `Find MTG cards near you to trade · ${NAME}`,
+    description: "Search Magic: The Gathering (MTG) cards that players near you have shared for trade, by card name, city, distance, condition and finish.",
     heading: "Find Magic cards near you",
     text: "Search the cards local players have shared for trade, on a list or a map, and see how far away each one is.",
   },
@@ -39,7 +40,7 @@ export const PUBLIC_PAGES = {
     text: "Look up any card to read its rules text, rulings and format legality, then find players who have it for trade.",
   },
   "/stores": {
-    title: `Partner game stores for trading Magic cards · ${NAME}`,
+    title: `Partner game stores for trading MTG cards · ${NAME}`,
     description: "Local game stores across Canada that host trade nights and welcome Tap to Trade players as a safe, public place to meet and trade Magic cards.",
     heading: "Partner game stores",
     text: "Find a local game store to meet at and see what each one offers: trade nights, Commander, drafts, singles and perks for Tap to Trade players. Run a store? Partner with us.",
@@ -97,3 +98,20 @@ export function pageTitle(path) {
 export const profileTitle = (username) => `${username}'s trade binder · ${SITE_NAME}`;
 export const storeTitle = (store) => `${store.name}, ${store.city} · Partner game store · ${SITE_NAME}`;
 export const NOT_FOUND_TITLE = `Page not found · ${SITE_NAME}`;
+
+// City landing pages (/trade/hamilton-on). Counts cover players within CITY_RADIUS_KM of the city centre.
+export const CITY_RADIUS_KM = 25;
+export const cityTitle = (city) => `Trade MTG cards in ${city} · ${SITE_NAME}`;
+export const cityHeading = (city) => `Trade Magic: The Gathering cards in ${city}`;
+const plural = (n, word) => `${n} ${word}${n === 1 ? "" : "s"}`;
+/** One sentence on what's happening near a city, from its stats (see cityStats in server/routes/cities.js). */
+export function citySummary({ city, radiusKm, players, listings, stores }) {
+  const shared = players > 0 ? `${plural(players, "player")} within ${radiusKm} km of ${city} have shared ${plural(listings, "card listing")} for trade` : `No one near ${city} has shared cards yet`;
+  const meet = stores.length > 0 ? `, and ${plural(stores.length, "partner game store")} nearby host${stores.length === 1 ? "s" : ""} trades` : "";
+  return `${shared}${meet}.`;
+}
+/**
+ * Whether a city page goes in search results and the sitemap: the city has a partner store of its own, or players of
+ * its own and at least 3 within the radius. Quieter cities still get a page, kept out of search so it isn't thin.
+ */
+export const cityIndexable = ({ localStores, localPlayers, players }) => localStores > 0 || (localPlayers > 0 && players >= 3);

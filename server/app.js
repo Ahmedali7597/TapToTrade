@@ -17,6 +17,7 @@ import searchRoutes from "./routes/search.js";
 import tradeRoutes from "./routes/trades.js";
 import moderationRoutes from "./routes/moderation.js";
 import storeRoutes from "./routes/stores.js";
+import cityRoutes, { activeCities, cityStats } from "./routes/cities.js";
 import suggestionRoutes from "./routes/suggestions.js";
 import emailRoutes from "./routes/emails.js";
 import wantRoutes from "./routes/wants.js";
@@ -81,7 +82,8 @@ export function createApp() {
   app.get("/sitemap.xml", async (req, res, next) => {
     try {
       const { rows } = await pool.query("SELECT id, name FROM stores WHERE active ORDER BY id");
-      res.type("application/xml").send(sitemapXml(rows.map(storePath)));
+      const cities = await activeCities();
+      res.type("application/xml").send(sitemapXml([...cities.map((c) => c.path), ...rows.map(storePath)]));
     } catch (err) {
       next(err);
     }
@@ -119,6 +121,7 @@ export function createApp() {
   app.use("/api/trades", tradeRoutes);
   app.use("/api/stores/:storeId", eventRoutes);
   app.use("/api/stores", storeRoutes);
+  app.use("/api/cities", cityRoutes);
   app.use("/api/admin/emails", emailRoutes);
   app.use("/api", searchRoutes);
   app.use("/api", moderationRoutes);
@@ -148,6 +151,7 @@ export function createApp() {
           (await pool.query("SELECT 1 FROM users WHERE lower(username) = lower($1) AND status = 'active'", [username])).rowCount > 0,
         store: async (id) => (await pool.query("SELECT * FROM stores WHERE id = $1 AND active", [id])).rows[0] ?? null,
         events: (storeId) => upcomingEvents(storeId, 20),
+        city: cityStats,
       };
       const meta = await pageMeta(req.path, req.query, find);
       // no-cache: the page is checked on every visit, so a new deploy shows up straight away.

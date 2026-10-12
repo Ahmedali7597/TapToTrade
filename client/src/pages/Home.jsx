@@ -9,6 +9,7 @@ import { useAuth } from "@/lib/auth";
 import { CardImage, useApi } from "@/components/common";
 import { useShowcase } from "@/lib/showcase";
 import { tagLabel } from "@shared/stores";
+import TradeNearYou from "@/components/TradeNearYou";
 
 // Frosted text box that floats over the hero film.
 const Caption = ({ kicker, children }) => (
@@ -147,6 +148,7 @@ function PartnerStores() {
             and we'll send local players your way.
           </p>
         )}
+        <TradeNearYou className="mt-10 border-t pt-8" />
       </div>
     </section>
   );
@@ -181,7 +183,7 @@ export default function Home() {
       <ScrollHero
         intro={
           <div className="max-w-2xl text-white drop-shadow-[0_2px_12px_rgba(0,0,0,0.45)]">
-            <p className="text-sm font-semibold uppercase tracking-[0.2em] text-teal-100">Local Magic: The Gathering trading</p>
+            <p className="text-sm font-semibold uppercase tracking-[0.2em] text-teal-100">Local Magic: The Gathering (MTG) trading</p>
             <h1 className="mt-3 text-4xl font-extrabold leading-[1.05] tracking-tight sm:text-6xl">Your bulk is someone's missing piece.</h1>
           </div>
         }

@@ -76,6 +76,37 @@ describe("page metadata", () => {
   });
 });
 
+describe("city pages", () => {
+  const busy = {
+    city: "Hamilton, ON",
+    radiusKm: 25,
+    players: 4,
+    listings: 71,
+    localPlayers: 2,
+    localStores: 1,
+    stores: [{ ...STORE, path: "/stores/7-the-mana-vault" }],
+    events: [],
+    cards: [],
+  };
+
+  test("a busy city is indexed with its own title, a summary of real activity, store links and breadcrumbs", async () => {
+    const page = await pageMeta("/trade/hamilton-on", {}, { city: async () => busy });
+    expect(page).toMatchObject({ status: 200, robots: "index, follow", canonical: "/trade/hamilton-on", title: "Trade MTG cards in Hamilton, ON · Tap to Trade" });
+    expect(page.description).toContain("4 players within 25 km of Hamilton, ON have shared 71 card listings for trade, and 1 partner game store nearby hosts trades.");
+    expect(page.description.length).toBeLessThanOrEqual(160);
+    expect(page.jsonLd.itemListElement.at(-1)).toMatchObject({ position: 2, item: "https://taptotrade.ca/trade/hamilton-on" });
+    const html = renderPage(TEMPLATE, page);
+    expect(html).toContain("<h1>Trade Magic: The Gathering cards in Hamilton, ON</h1>");
+    expect(html).toContain('<a href="/stores/7-the-mana-vault">The Mana Vault, Hamilton, ON</a>');
+  });
+
+  test("a quiet city still has a page but stays out of search; unknown cities are 404s", async () => {
+    const quiet = { ...busy, players: 1, listings: 3, localPlayers: 1, localStores: 0, stores: [] };
+    expect(await pageMeta("/trade/hamilton-on", {}, { city: async () => quiet })).toMatchObject({ status: 200, robots: "noindex, follow" });
+    expect((await pageMeta("/trade/gotham-on", {}, { city: async () => busy })).status).toBe(404);
+  });
+});
+
 describe("rendered page", () => {
   test("writes title, description, canonical, share tags and crawlable text; React's root keeps its id", async () => {
     const html = renderPage(TEMPLATE, await pageMeta("/cards"));

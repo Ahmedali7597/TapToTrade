@@ -28,7 +28,7 @@ const feedPath = (storeId) => `/api/stores/${storeId}/events.ics`;
 const eventPath = (event) => `/api/stores/${event.storeId}/events/${event.id}.ics`;
 
 /** "Fri, Oct 9 · 6:00–10:00 p.m." in the store's own time zone. */
-const eventWhen = (event) => `${eventDay(event)} · ${eventTimes(event)}`;
+export const eventWhen = (event) => `${eventDay(event)} · ${eventTimes(event)}`;
 
 /** The month and day as a small calendar page, beside each event. */
 function DateTile({ event }) {

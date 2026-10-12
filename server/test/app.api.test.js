@@ -622,6 +622,22 @@ describe("partner game stores as meetup spots", () => {
     expect((await bob.get("/api/stores?city=Vancouver%2C%20BC&radius=50")).body.stores).toEqual([]);
   });
 
+  test("city pages: nearby players, stores and cards, never usernames; active ones are in the sitemap", async () => {
+    const visitor = new Player();
+    const page = await visitor.get("/api/cities/hamilton-on");
+    expect(page.status).toBe(200);
+    expect(page.body).toMatchObject({ city: "Hamilton, ON", path: "/trade/hamilton-on", radiusKm: 25, localStores: 1, indexable: true });
+    expect(page.body.players).toBeGreaterThan(0);
+    expect(page.body.stores.map((s) => s.name)).toContain("Hammer Games");
+    expect(JSON.stringify(page.body)).not.toMatch(/store_bob|hammer_games_owner/);
+    expect((await visitor.get("/api/cities/gotham-on")).status).toBe(404);
+
+    expect((await visitor.get("/api/cities")).body.cities).toContainEqual(expect.objectContaining({ city: "Hamilton, ON", path: "/trade/hamilton-on" }));
+    expect((await visitor.get("/sitemap.xml")).text).toContain("/trade/hamilton-on</loc>");
+    const quiet = await visitor.get("/api/cities/iqaluit-nu");
+    expect(quiet.body).toMatchObject({ players: 0, stores: [], cards: [], indexable: false });
+  });
+
   test("a proposal can suggest a store; retired stores can't be picked", async () => {
     const lines = [{ inventoryItemId: bob.item.id, quantity: 1 }];
     const res = await alice.send("post", "/api/trades", { receiverId: bob.user.id, requested: lines, meetupStoreId: store.id });

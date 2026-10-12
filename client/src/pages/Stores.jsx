@@ -11,6 +11,8 @@ import { NextEvents, StoreEvents } from "@/components/StoreEvents";
 import { qs } from "@/lib/api";
 import { EMAILS, SITE_NAME, storeTitle } from "@shared/pages";
 import { directionsUrl, STORE_TAGS, tagLabel } from "@shared/stores";
+import { cityPath } from "@shared/cities";
+import TradeNearYou from "@/components/TradeNearYou";
 
 const Tags = ({ tags }) =>
   tags.length > 0 && (
@@ -181,6 +183,7 @@ export function Stores() {
           </div>
         )}
       </div>
+      <TradeNearYou className="mt-14 border-t pt-10" />
       <PartnerPitch />
     </div>
   );
@@ -265,6 +268,9 @@ export function StorePage() {
             <div className="flex flex-wrap gap-2">
               <Button asChild>
                 <Link to={`/search${qs({ city: store.city, radius: nearby.radiusKm })}`}>Find cards near this store</Link>
+              </Button>
+              <Button asChild variant="outline">
+                <Link to={cityPath(store.city)}>MTG trading in {store.city}</Link>
               </Button>
               {store.account && (
                 <Button asChild variant="outline">
