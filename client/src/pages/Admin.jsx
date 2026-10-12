@@ -7,13 +7,12 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select";
 import { EmptyState, ErrorAlert, Field, PageHeader, Spinner, SuccessMessage, useApi } from "@/components/common";
-import EmailEditor from "@/components/EmailEditor";
 import { Switch } from "@/components/ui/switch";
 import { STORE_TAGS } from "@shared/stores";
 import { CitySelect } from "@/components/AccountFields";
 import { api, qs } from "@/lib/api";
 
-// Admin page (4.7 and the admin-only tools): role management, partner stores and the site's email text.
+// Admin page (4.7 and the admin-only tools): role management and partner stores.
 // Moderators use pages/Moderation.jsx; this page is for administrators only (App.jsx checks the role).
 
 // One row in the admin table. Admin accounts show a badge instead of a dropdown since they can't be changed here.
@@ -77,7 +76,7 @@ export function AdminPage() {
   };
   return (
     <div className="mx-auto max-w-6xl px-4 py-10 sm:px-6">
-      <PageHeader title="Admin" description="Promote trusted players to moderator, manage partner stores and add your own words to the site's emails. Changes are logged." />
+      <PageHeader title="Admin" description="Promote trusted players to moderator and manage partner stores. Changes are logged." />
       <form
         role="search"
         className="mb-6 flex max-w-md items-end gap-2"
@@ -117,7 +116,6 @@ export function AdminPage() {
         </div>
       )}
       <StoresAdmin />
-      <EmailEditor />
     </div>
   );
 }

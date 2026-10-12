@@ -1036,7 +1036,7 @@ describe("email confirmation and the site's emails", () => {
     expect(await lastEmailTo(b.email)).toBeUndefined();
   });
 
-  test("a new moderator gets an email; admins add text to emails and send themselves a test", async () => {
+  test("a new moderator gets an email", async () => {
     const boss = await newPlayer("email_admin");
     await setRole(boss, "admin");
     const helper = await newPlayer("email_helper");
@@ -1044,31 +1044,8 @@ describe("email confirmation and the site's emails", () => {
     const promote = await boss.send("patch", `/api/admin/users/${helper.user.id}/role`, { role: "moderator" });
     expect(promote.body.emailed).toBe(true);
     expect((await lastEmailTo(helper.email)).subject).toBe("You're now a Tap to Trade moderator");
-
-    expect((await helper.get("/api/admin/emails")).status).toBe(403);
-    expect((await boss.send("put", "/api/admin/emails/nope", { body: "x" })).status).toBe(404);
-    expect((await boss.send("put", "/api/admin/emails/welcome", { body: "x".repeat(1001) })).status).toBe(400);
-    expect((await boss.send("put", "/api/admin/emails/welcome", { body: "Thanks {username}! See you at trade night." })).status).toBe(200);
-    expect((await boss.send("put", "/api/admin/emails/footer", { body: "Proud partner of Hammer Games." })).status).toBe(200);
-    const texts = (await boss.get("/api/admin/emails")).body.texts;
-    expect(texts.welcome).toMatchObject({ body: "Thanks {username}! See you at trade night.", updatedBy: "email_admin" });
-
-    const newcomer = await newPlayer("email_newcomer");
-    const welcome = sendEmail.mock.calls.map(([m]) => m).find((m) => m.to === newcomer.email && m.subject.startsWith("Welcome"));
-    expect(welcome.html).toContain("Thanks email_newcomer! See you at trade night.");
-    expect(welcome.text).toContain("Proud partner of Hammer Games.");
-
-    const test = await boss.send("post", "/api/admin/emails/trade_request/test", { body: "Draft text" });
-    expect(test.body.message).toMatch(/Test sent to email_admin@example.test/);
-    const sample = await lastEmailTo(boss.email);
-    expect(sample.subject).toBe("[Test] bolt_burlington sent you a trade request");
-    expect(sample.text).toContain("Draft text");
-    expect(sample.text).toContain("Proud partner of Hammer Games.");
-
-    expect((await boss.send("put", "/api/admin/emails/footer", { body: "  " })).status).toBe(200); // blank removes it
-    expect((await boss.get("/api/admin/emails")).body.texts.footer).toBeUndefined();
-    const { rows } = await pool.query("SELECT count(*)::int AS n FROM mod_actions WHERE action = 'email_text_updated' AND actor_id = $1", [boss.user.id]);
-    expect(rows[0].n).toBe(3);
+    // Email wording is edited in the Resend templates only; the old Admin page editor is gone.
+    expect((await boss.get("/api/admin/emails")).status).toBe(404);
   });
 
   test("account notices: password changed, a listing removed, suspension, reinstatement and a changed email", async () => {

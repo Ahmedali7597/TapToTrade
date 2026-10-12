@@ -1,12 +1,11 @@
-import { buildEmail, EMAIL_KINDS, emailVariables, noteHtml, previewKind, sampleData, templateVariables } from "./emails.js";
+import { buildEmail, EMAIL_KINDS, emailVariables, sampleData, templateVariables } from "./emails.js";
 
 const SITE = "https://taptotrade.ca";
 
 describe("the site's emails", () => {
   test("every email kind builds from its sample data, with the logo and a plain-text twin", () => {
     for (const { key } of EMAIL_KINDS) {
-      const kind = previewKind(key);
-      const email = buildEmail(kind, { ...sampleData(key, SITE, "hamilton_brewer") });
+      const email = buildEmail(key, { ...sampleData(key, SITE, "hamilton_brewer") });
       expect(email.subject).toBeTruthy();
       expect(email.html).toContain(`<img src="${SITE}/brand/email-logo.png"`);
       expect(email.text).toContain("support@taptotrade.ca");
@@ -52,24 +51,6 @@ describe("the site's emails", () => {
     expect(email.subject).toBe("You're now a Tap to Trade moderator");
     expect(email.html).toContain(`href="${SITE}/moderation"`);
     expect(email.text).toContain(`${SITE}/terms`);
-  });
-
-  test("admin text appears under the message and in the footer, with {username} filled in", () => {
-    const email = buildEmail("welcome", { site: SITE, username: "hamilton_brewer", link: null, note: "Thanks {username}!\n\nSee you at trade night.", footer: "Partner: The Mana Vault" });
-    expect(email.html).toContain("Thanks hamilton_brewer!");
-    expect(email.html).toContain("See you at trade night.");
-    expect(email.html).toContain("Partner: The Mana Vault");
-    expect(email.text).toMatch(/Thanks hamilton_brewer!\n\nSee you at trade night\.[\s\S]*--\nPartner: The Mana Vault/);
-  });
-
-  test("admin text is escaped, and only https and email links become clickable", () => {
-    const html = noteHtml('<img src=x onerror=alert(1)> Visit https://example.com/a?b=1&c=2. Write hello@taptotrade.ca or javascript:alert(1) or "https://x.ca"');
-    expect(html).not.toContain("<img");
-    expect(html).toContain("&lt;img src=x onerror=alert(1)&gt;");
-    expect(html).toContain('<a href="https://example.com/a?b=1&amp;c=2" style="color:#006b61">https://example.com/a?b=1&amp;c=2</a>.');
-    expect(html).toContain('<a href="mailto:hello@taptotrade.ca"');
-    expect(html).not.toContain('href="javascript');
-    expect(html).toContain('&quot;<a href="https://x.ca"');
   });
 
   test("values from players are escaped", () => {

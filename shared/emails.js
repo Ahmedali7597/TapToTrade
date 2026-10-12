@@ -2,21 +2,18 @@
 //
 // - In production the templates live in Resend (`npm run emails:sync` uploads them once), where the wording can be
 //   edited in Resend's dashboard. The app then sends only the template's alias and the variables (lib/notify.js).
-// - Everywhere else (local development, tests, the Admin page preview, or if Resend rejects a send) the app fills
-//   in the same templates itself with buildEmail().
+// - Everywhere else (local development, tests, or if Resend rejects a send) the app fills in the same templates
+//   itself with buildEmail().
 //
 // Each template is { subject, html, text }. Email apps ignore stylesheets, so the HTML is one table with inline
 // styles, and the plain-text twin carries the same words for apps that show text only. Resend templates can only
 // substitute variables (no if/else), so optional parts such as the confirm button arrive as ready-made snippets.
-//
-// Admins can also add their own text to each email (`note`) and to the bottom of every email (`footer`) from the
-// Admin page. That text is plain text: it's escaped, links are made clickable, and {username} is filled in.
 
 import { escape } from "./html.js";
 import { EMAILS, SITE_NAME } from "./pages.js";
 import { FINISH_LABELS } from "./validation.js";
 
-/** Every email, in the order the Admin page lists them. `alias` is the template's name in Resend. */
+/** Every email the site sends. `alias` is the template's name in Resend. */
 export const EMAIL_KINDS = [
   { key: "welcome", label: "Welcome", when: "Sent when someone creates an account. Email sign-ups also get the confirm-your-email button." },
   { key: "verify", label: "Confirm email address", when: "Sent when a player asks for a new confirmation link or changes their email address." },
@@ -33,36 +30,11 @@ export const EMAIL_KINDS = [
   { key: "account_suspended", label: "Account suspended", when: "Sent when a moderator suspends a player's account." },
   { key: "account_reinstated", label: "Account reinstated", when: "Sent when a moderator lifts a suspension." },
   { key: "report_received", label: "Report received", when: "Sent to a player after they report a listing or another player." },
-  { key: "footer", label: "Footer on every email", when: "Added to the bottom of every email above, e.g. a partner store shout-out." },
-].map((k) => ({ ...k, alias: k.key === "footer" ? null : `ttt-${k.key.replace(/_/g, "-")}` }));
-export const EMAIL_KEYS = EMAIL_KINDS.map((k) => k.key);
-export const NOTE_MAX = 1000;
+].map((k) => ({ ...k, alias: `ttt-${k.key.replace(/_/g, "-")}` }));
 
 // Brand colours from the site's light theme.
 const C = { page: "#eaf0ed", card: "#f9fbfa", line: "#c3d1cb", ink: "#12302a", soft: "#48605a", teal: "#006b61", tint: "#e3efeb" };
 const FONT = "system-ui,-apple-system,'Segoe UI',Roboto,sans-serif";
-
-// ---- admin-written text (notes and footer) ----
-
-/** Fills {username} in admin-written text. */
-export const fill = (text, vars = {}) => String(text ?? "").replace(/\{username\}/g, vars.username || "there");
-
-// Links in admin-written text: https addresses and email addresses (matched first, then escaped).
-const LINK = /(https:\/\/[^\s<>"']+[^\s<>"'.,;:!?)]|[\w.+-]+@[\w-]+(?:\.[\w-]+)+)/g;
-const linkify = (s) =>
-  s
-    .split(LINK)
-    .map((part, i) => (i % 2 ? `<a href="${part.startsWith("https://") ? "" : "mailto:"}${escape(part)}" style="color:${C.teal}">${escape(part)}</a>` : escape(part)))
-    .join("");
-
-/** Admin-written plain text as email HTML: escaped, paragraphs on blank lines, clickable https and email links. */
-export const noteHtml = (text, vars) =>
-  fill(text, vars)
-    .trim()
-    .split(/\n\s*\n/)
-    .filter((p) => p.trim())
-    .map((p) => `<p style="margin:0 0 12px">${linkify(p.trim()).replace(/\n/g, "<br>")}</p>`)
-    .join("");
 
 // ---- building blocks for the templates ----
 
@@ -75,8 +47,8 @@ const pasteLink = (url, before = "") =>
   para(`${before}Button not working? Paste this link into your browser:<br><a href="${url}" style="color:${C.teal};word-break:break-all">${url}</a>`, true);
 
 /**
- * The shared frame around every email: logo, heading, body, the admin's note, then the footer (with the admin's
- * footer text, and why the reader gets trade emails). Written with variables, like the bodies.
+ * The shared frame around every email: logo, heading, body, then the footer (with why the reader gets trade
+ * emails). Written with variables, like the bodies.
  */
 const frame = (heading, preheader, body) => `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${heading}</title></head>
 <body style="margin:0;padding:24px 12px;background:${C.page};font-family:${FONT};color:${C.ink}">
@@ -87,13 +59,12 @@ const frame = (heading, preheader, body) => `<!doctype html><html lang="en"><hea
 <h1 style="margin:12px 0 12px;font-size:22px;line-height:1.3">${heading}</h1>
 ${body}
 </td></tr>
-{{{NOTE_HTML}}}
-<tr><td style="padding:20px 28px 28px;font-size:12px;line-height:1.5;color:${C.soft};border-top:1px solid ${C.line}">{{{FOOTER_HTML}}}{{{REASON_HTML}}}${SITE_NAME} · Local Magic: The Gathering trading in Canada<br>Questions? Reply to this email or write to <a href="mailto:${EMAILS.support}" style="color:${C.teal}">${EMAILS.support}</a>.</td></tr>
+<tr><td style="padding:20px 28px 28px;font-size:12px;line-height:1.5;color:${C.soft};border-top:1px solid ${C.line}">{{{REASON_HTML}}}${SITE_NAME} · Local Magic: The Gathering trading in Canada<br>Questions? Reply to this email or write to <a href="mailto:${EMAILS.support}" style="color:${C.teal}">${EMAILS.support}</a>.</td></tr>
 </table></body></html>`;
 
 /** The plain-text twin: the same words, links written out, then the same footer. */
 const plain = (lines) =>
-  `${lines.join("\n")}{{{NOTE_TEXT}}}\n\n--\n{{{FOOTER_TEXT}}}{{{REASON_TEXT}}}${SITE_NAME} · Local Magic: The Gathering trading in Canada\nQuestions? Reply to this email or write to ${EMAILS.support}.`;
+  `${lines.join("\n")}\n\n--\n{{{REASON_TEXT}}}${SITE_NAME} · Local Magic: The Gathering trading in Canada\nQuestions? Reply to this email or write to ${EMAILS.support}.`;
 
 /** One template: subject line, the HTML version (heading, hidden preview text, body) and the text version. */
 const template = ({ subject, heading, preheader, body, lines }) => ({ subject, html: frame(heading, preheader, body), text: plain(lines) });
@@ -337,21 +308,16 @@ const TRADE_REASON = (site) => ({
 });
 
 /**
- * The variable values for email `kind`, from `data` (always { site, username, ... } plus what that email needs)
- * and the admin's `note` and `footer` text. Values that go into HTML are already escaped.
+ * The variable values for email `kind`, from `data` (always { site, username, ... } plus what that email needs).
+ * Values that go into HTML are already escaped.
  * Usernames only ever contain letters, numbers and underscores, so one USERNAME works for HTML and text.
  */
-export function emailVariables(kind, { note, footer, ...data }) {
+export function emailVariables(kind, data) {
   if (!TEMPLATES[kind]) throw new Error(`Unknown email: ${kind}`);
-  const vars = { username: data.username };
   const reason = kind.startsWith("trade_") ? TRADE_REASON(data.site) : null;
   const common = {
     SITE: escape(data.site),
     USERNAME: escape(data.username ?? ""),
-    NOTE_HTML: note?.trim() ? `<tr><td style="padding:4px 28px 8px;font-size:15px;line-height:1.55">${noteHtml(note, vars)}</td></tr>` : "",
-    NOTE_TEXT: note?.trim() ? `\n\n${fill(note, vars).trim()}` : "",
-    FOOTER_HTML: footer?.trim() ? `<div style="margin:0 0 10px">${noteHtml(footer, vars).replaceAll("margin:0 0 12px", "margin:0 0 8px")}</div>` : "",
-    FOOTER_TEXT: footer?.trim() ? `${fill(footer, vars).trim()}\n\n` : "",
     REASON_HTML: reason?.html ?? "",
     REASON_TEXT: reason?.text ?? "",
   };
@@ -389,7 +355,7 @@ export function buildEmail(kind, data) {
   return { subject: render(t.subject, vars), text: render(t.text, vars), html: render(t.html, vars) };
 }
 
-// ---- made-up data for the Admin page preview and "Send me a test" ----
+// ---- made-up data, so the tests can build every email ----
 
 const SAMPLE_LINES = {
   requested: [{ quantity: 1, cardName: "Sol Ring", setCode: "c21", collectorNumber: "263", condition: "NM", finish: "nonfoil" }],
@@ -413,8 +379,5 @@ export function sampleData(kind, site, username) {
     trade_declined: { ...base, ...trades, message: null },
     listing_removed: { ...base, card: "Lightning Bolt (M10 #146, LP, Foil)" },
     report_received: { ...base, reported: "a listing by bolt_burlington" },
-    footer: { ...base, link, hours: 72 }, // previewed on the welcome email
   }[kind] ?? base;
 }
-/** Which email shows a key's text in the preview ('footer' shows on the welcome email). */
-export const previewKind = (key) => (key === "footer" ? "welcome" : key);

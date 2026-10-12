@@ -61,8 +61,7 @@ export const apiLimiter = limiter(60_000, 300, "Too many requests. Please slow d
 export const authLimiter = limiter(15 * 60_000, 20, "Too many attempts. Please wait a few minutes and try again.");
 // Collection imports can mean dozens of Scryfall calls each, so keep them occasional.
 export const importLimiter = limiter(60 * 60_000, 20, "That's a lot of imports. Please wait a while before importing again.");
-// Confirmation emails on request, and admins' test emails: enough for typos, not enough to flood an inbox.
+// Confirmation emails on request: enough for typos, not enough to flood an inbox.
 export const verifyLimiter = limiter(60 * 60_000, 5, "We've sent a few links already. Check your spam folder, or wait a while and try again.");
-export const testEmailLimiter = limiter(60 * 60_000, 20, "That's a lot of test emails. Please wait a while before sending more.");
 // Suggestions are read by people, so a handful an hour is plenty.
 export const suggestionLimiter = limiter(60 * 60_000, 10, "Thanks for all the ideas! Please wait a while before sending more.");

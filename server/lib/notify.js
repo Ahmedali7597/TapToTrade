@@ -4,17 +4,11 @@ import { sendEmail } from "./email.js";
 import { siteUrl } from "./seo.js";
 import { newToken, sha256 } from "./security.js";
 
-// Sends the site's emails (built in shared/emails.js) with the text admins added on the Admin page.
+// Sends the site's emails (written in shared/emails.js; in production, the templates on Resend).
 // Emails that shouldn't hold up a page (welcome, trade updates, the moderator note) are sent in the background.
 
 /** How long a "confirm your email" link works. */
 export const VERIFY_HOURS = 72;
-
-/** Admin-written text, keyed like EMAIL_KEYS ('footer' goes on every email). */
-export async function emailTexts() {
-  const { rows } = await query("SELECT key, body FROM email_texts");
-  return Object.fromEntries(rows.map((r) => [r.key, r.body]));
-}
 
 // With EMAIL_TEMPLATES=resend (set in Render once `npm run emails:sync` has created the templates), emails are sent as
 // Resend templates, so wording edited in Resend's dashboard is what players get. Otherwise the app fills in its own
@@ -22,10 +16,9 @@ export async function emailTexts() {
 const useResendTemplates = () => process.env.EMAIL_TEMPLATES === "resend" && Boolean(process.env.EMAIL_API_KEY);
 const ALIASES = Object.fromEntries(EMAIL_KINDS.map((k) => [k.key, k.alias]));
 
-/** Sends email `kind` to `to`, with the admin's extra text. Resolves to true if the provider accepted it. */
+/** Sends email `kind` to `to`. Resolves to true if the provider accepted it. */
 export async function sendTemplate(kind, to, data) {
-  const texts = await emailTexts();
-  const full = { ...data, site: siteUrl(), note: texts[kind], footer: texts.footer };
+  const full = { ...data, site: siteUrl() };
   if (useResendTemplates()) {
     const sent = await sendEmail({ to, template: { id: ALIASES[kind], variables: emailVariables(kind, full) } });
     if (sent) return true;

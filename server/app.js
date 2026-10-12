@@ -19,7 +19,6 @@ import moderationRoutes from "./routes/moderation.js";
 import storeRoutes from "./routes/stores.js";
 import cityRoutes, { activeCities, cityStats } from "./routes/cities.js";
 import suggestionRoutes from "./routes/suggestions.js";
-import emailRoutes from "./routes/emails.js";
 import wantRoutes from "./routes/wants.js";
 import { upcomingEvents } from "./lib/events.js";
 import eventRoutes from "./routes/events.js";
@@ -122,7 +121,6 @@ export function createApp() {
   app.use("/api/stores/:storeId", eventRoutes);
   app.use("/api/stores", storeRoutes);
   app.use("/api/cities", cityRoutes);
-  app.use("/api/admin/emails", emailRoutes);
   app.use("/api", searchRoutes);
   app.use("/api", moderationRoutes);
   app.use("/api", suggestionRoutes);
