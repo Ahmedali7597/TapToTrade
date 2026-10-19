@@ -1,4 +1,4 @@
-import { llmsTxt, pageMeta, renderPage, robotsTxt, sitemapXml, structuredData } from "./seo.js";
+import { pageMeta, renderPage, robotsTxt, sitemapXml, structuredData } from "./seo.js";
 
 const STORE = { id: 7, name: "The Mana Vault", address: "1 King St W", city: "Hamilton, ON", lat: 43.25, lng: -79.87, website: "https://example.com", notes: "Trade tables </script> on Fridays", tags: ["trade_night", "commander"] };
 const TEMPLATE = `<!doctype html><html lang="en-CA"><head><meta name="description" content="old" /><title>Old</title></head><body><div id="root"></div></body></html>`;
@@ -161,10 +161,10 @@ test("structured data names the site and its organisation", () => {
   expect(data["@graph"][0]).toMatchObject({ name: "Tap to Trade", url: "https://taptotrade.ca/" });
 });
 
-test("robots.txt, sitemap.xml and llms.txt use the public address", () => {
+test("robots.txt and sitemap.xml use the public address", () => {
   const robots = robotsTxt();
   expect(robots).toContain("Disallow: /api/");
-  expect(robots).toMatch(/User-agent: GPTBot\nDisallow: \//);
+  expect(robots).toContain("User-agent: *\nAllow: /");
   expect(robots).not.toContain("Disallow: /u/"); // profiles must be readable to see their noindex
   expect(robots).toContain("Sitemap: https://taptotrade.ca/sitemap.xml");
   const sitemap = sitemapXml();
@@ -172,7 +172,6 @@ test("robots.txt, sitemap.xml and llms.txt use the public address", () => {
   expect(sitemap).toContain("<loc>https://taptotrade.ca/cards</loc>");
   expect(sitemap).not.toContain("/dashboard");
   expect(sitemapXml(["/stores/7-the-mana-vault"])).toContain("<loc>https://taptotrade.ca/stores/7-the-mana-vault</loc>");
-  expect(llmsTxt()).toMatch(/^# Tap to Trade\n\n> /);
 });
 
 test("every page has its own tab title, including signed-in pages", async () => {

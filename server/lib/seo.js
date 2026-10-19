@@ -1,6 +1,6 @@
 // Search engine basics for a single-page app: every page the server sends gets its own title, description,
 // canonical link, share tags and robots rule, plus a little real HTML for crawlers that don't run JavaScript.
-// React replaces that HTML as soon as the app starts. robots.txt, sitemap.xml and llms.txt are built here too.
+// React replaces that HTML as soon as the app starts. robots.txt and sitemap.xml are built here too.
 
 import { escape } from "../../shared/html.js";
 import {
@@ -227,8 +227,7 @@ const storeData = (site, store, events = []) => {
 };
 
 /**
- * robots.txt: search engines and AI search tools may crawl the public pages; the API and private pages are off
- * limits, and crawlers that only collect AI training data are turned away (players' listings aren't training data).
+ * robots.txt keeps the API and private pages out of search results.
  * Profiles stay crawlable on purpose: their "noindex" tag is what keeps them out of results, and a crawler has to
  * read the page to see it.
  */
@@ -239,7 +238,6 @@ export const robotsTxt = () =>
     "Disallow: /api/",
     ...["/dashboard", "/inventory", "/wants", "/trades", "/settings", "/suggestions", "/moderation", "/admin"].map((p) => `Disallow: ${p}`),
     "",
-    ...["GPTBot", "ClaudeBot", "Google-Extended", "Applebot-Extended", "CCBot", "Bytespider"].flatMap((bot) => [`User-agent: ${bot}`, "Disallow: /", ""]),
     `Sitemap: ${siteUrl()}/sitemap.xml`,
     "",
   ].join("\n");
@@ -249,17 +247,3 @@ export const sitemapXml = (extra = []) =>
   `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${[...Object.keys(PUBLIC), ...extra]
     .map((p) => `  <url><loc>${escape(`${siteUrl()}${p}`)}</loc></url>`)
     .join("\n")}\n</urlset>\n`;
-
-/** llms.txt (llmstxt.org): a plain summary for AI assistants that read it. Google Search ignores it. */
-export const llmsTxt = () =>
-  [
-    `# ${NAME}`,
-    "",
-    "> A free website for trading Magic: The Gathering cards in person with players nearby, anywhere in Canada. Players list the exact printings they own, search other players' shared cards by distance, and send trade requests to meet at a public place or a partner game store. No payments or shipping.",
-    "",
-    "## Pages",
-    "",
-    ...Object.entries(PUBLIC).map(([p, page]) => `- [${page.heading}](${siteUrl()}${p}): ${page.description}`),
-    `- City pages, e.g. [Trade MTG cards in Toronto, ON](${siteUrl()}/trade/toronto-on): players, shared cards, partner stores and events near one city. The sitemap lists the active ones.`,
-    "",
-  ].join("\n");

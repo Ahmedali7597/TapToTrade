@@ -1233,7 +1233,7 @@ describe("want lists and automatic matches", () => {
   });
 });
 
-test("robots.txt, sitemap.xml and llms.txt are real files, not the app page", async () => {
+test("robots.txt and sitemap.xml are real files, not the app page", async () => {
   const p = await new Player().init();
   const robots = await p.get("/robots.txt");
   expect(robots.headers["content-type"]).toMatch(/text\/plain/);
@@ -1241,7 +1241,6 @@ test("robots.txt, sitemap.xml and llms.txt are real files, not the app page", as
   const sitemap = await p.get("/sitemap.xml");
   expect(sitemap.headers["content-type"]).toMatch(/application\/xml/);
   expect(sitemap.text).toContain("<urlset");
-  expect((await p.get("/llms.txt")).text).toMatch(/^# Tap to Trade/);
   // Email apps load the logo from their own pages, so brand images allow cross-origin use; the rest don't.
   expect((await p.get("/brand/email-logo.png")).headers["cross-origin-resource-policy"]).toBe("cross-origin");
   expect((await p.get("/robots.txt")).headers["cross-origin-resource-policy"]).toBe("same-origin");

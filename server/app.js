@@ -6,7 +6,7 @@ import connectPgSimple from "connect-pg-simple";
 import helmet from "helmet";
 import { pool } from "./db.js";
 import { errorHandler, HttpError } from "./lib/http.js";
-import { llmsTxt, pageMeta, renderPage, robotsTxt, siteUrl, sitemapXml } from "./lib/seo.js";
+import { pageMeta, renderPage, robotsTxt, siteUrl, sitemapXml } from "./lib/seo.js";
 import { storePath } from "../shared/stores.js";
 import { apiLimiter, csrf, IDLE_MINUTES, loadUser } from "./middleware.js";
 import authRoutes from "./routes/auth.js";
@@ -87,8 +87,6 @@ export function createApp() {
       next(err);
     }
   });
-  app.get("/llms.txt", (req, res) => res.type("text/plain").send(llmsTxt()));
-
   // Everything under /api goes through the same chain: JSON body -> session -> rate limit -> user -> CSRF.
   // Order matters: loadUser needs the session, and csrf needs both.
   const PgStore = connectPgSimple(session);
