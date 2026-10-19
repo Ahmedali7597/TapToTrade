@@ -2,9 +2,10 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { pool, tx } from "./db.js";
 
-// Versioned SQL migrations: server/migrations/NNN_name.sql, applied once each, in order.
+// Migrations are numbered schema changes in server/migrations; each database records which files it has applied.
+// This keeps local, test, and production schemas moving forward without recreating existing data.
 export async function migrate() {
-  // Bookkeeping table: one row per file that has already been applied.
+  // The ledger makes reruns safe: already-recorded migration files are skipped.
   await pool.query(
     "CREATE TABLE IF NOT EXISTS schema_migrations (name text PRIMARY KEY, applied_at timestamptz NOT NULL DEFAULT now())",
   );
@@ -14,7 +15,7 @@ export async function migrate() {
   const applied = new Set(rows.map((r) => r.name));
   for (const file of files.filter((f) => !applied.has(f))) {
     const sql = await fs.readFile(path.join(dir, file), "utf8");
-    // Run the file and record it in the same transaction, so a broken migration leaves no trace.
+    // Apply the schema change and record it atomically; a failed migration can be fixed and retried cleanly.
     await tx(async (c) => {
       await c.query(sql);
       await c.query("INSERT INTO schema_migrations (name) VALUES ($1)", [file]);

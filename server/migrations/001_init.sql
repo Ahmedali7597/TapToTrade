@@ -33,7 +33,8 @@ CREATE TABLE card_printings (
 );
 CREATE INDEX card_printings_name_trgm ON card_printings USING gin (name gin_trgm_ops);
 
--- One row per card a player owns, per condition and finish (a foil and a non-foil copy are separate rows). "available" decides whether others can see it.
+-- Inventory connects a player to a specific printing. Condition/finish distinguish copies; available controls
+-- whether a listing is public and searchable, while private copies stay visible only to their owner.
 CREATE TABLE inventory_items (
   id          bigserial PRIMARY KEY,
   owner_id    bigint NOT NULL REFERENCES users (id) ON DELETE CASCADE,
@@ -50,6 +51,7 @@ CREATE TABLE inventory_items (
 CREATE INDEX inventory_items_printing_idx ON inventory_items (printing_id) WHERE available;
 
 -- Each row is one immutable proposal version. A counter creates a child row; the parent becomes 'countered'.
+-- The separate item table below snapshots card details so the negotiation history survives inventory edits.
 CREATE TABLE trade_requests (
   id          bigserial PRIMARY KEY,
   parent_id   bigint REFERENCES trade_requests (id),

@@ -54,7 +54,8 @@ router.get("/me", (req, res) => {
   res.json({ user: req.user ? selfView(req.user) : null, csrfToken: req.session.csrfToken, googleEnabled: googleConfigured() });
 });
 
-// Sign up, then log the new user straight in.
+// Registration flow: validate on the server, hash the password, insert a user, then establish a session.
+// The browser uses the returned safe user view; the password hash stays in the database.
 router.post("/register", authLimiter, async (req, res) => {
   const { email, username, password, city } = req.body ?? {};
   const fields = validateRegistration({ email, username, password, city });
@@ -76,7 +77,8 @@ router.post("/register", authLimiter, async (req, res) => {
   res.status(201).json({ user: selfView(user), csrfToken: req.session.csrfToken });
 });
 
-// Log in. Wrong email and wrong password give the same message on purpose.
+// Log in by checking the submitted password against its Argon2id hash. A dummy hash check for unknown emails
+// keeps the response timing similar, and both failure cases return the same message.
 router.post("/login", authLimiter, async (req, res) => {
   const email = normalizeEmail(req.body?.email);
   const password = req.body?.password;

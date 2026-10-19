@@ -6,7 +6,9 @@ import { feedbackError } from "../lib/reputation.js";
 import { tradeUpdate } from "../lib/notify.js";
 import { requireAuth } from "../middleware.js";
 
-// Trade requests (4.5.1–4.5.7). Stock policy: ARRANGEMENT-ONLY (section 9.2 fallback).
+// Trade lifecycle: send -> negotiate with counters -> accept/decline -> report what happened after meeting.
+// Each proposal version and its card snapshots are stored in PostgreSQL (4.5.1–4.5.7).
+// Stock policy: ARRANGEMENT-ONLY (section 9.2 fallback).
 // Acceptance rechecks stock but never reserves or decrements it. Once a player confirms the trade happened,
 // the cards they gave leave their inventory and the cards they got are added (see the feedback route at the bottom).
 const router = Router();
@@ -218,7 +220,7 @@ router.get("/:id", async (req, res) => {
   res.json({ thread: await withItems(rows), currentId: id, feedback });
 });
 
-// Send a brand new trade request to another player.
+// Send a brand new request. The transaction validates both players' stock and saves the proposal plus snapshots.
 router.post("/", async (req, res) => {
   requireConfirmedEmail(req.user);
   const receiverId = Number(req.body?.receiverId);

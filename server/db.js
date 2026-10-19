@@ -4,7 +4,8 @@ import pg from "pg";
 // JavaScript numbers. Ours never get anywhere near that (2^53), so read them as plain numbers: 5 === 5, not "5".
 pg.types.setTypeParser(pg.types.builtins.INT8, Number);
 
-// One small pool per process (deployment plan 8.3). DATABASE_URL uses ?sslmode=verify-full for Neon (encrypted and certificate-checked).
+// Every route shares this PostgreSQL pool. DATABASE_URL selects the local Docker database or hosted Neon database.
+// Neon connection strings use ?sslmode=verify-full so the server checks the TLS certificate.
 export const pool = new pg.Pool({
   connectionString: process.env.DATABASE_URL,
   max: Number(process.env.PG_POOL_MAX ?? 10),
