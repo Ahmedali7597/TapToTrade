@@ -1,7 +1,7 @@
 {
   "compilerOptions": {
     "jsx": "react-jsx",
-    "paths": { "@/*": ["client/src/*"], "@shared/*": ["shared/*"] }
+    "paths": { "@/*": ["./client/src/*"], "@shared/*": ["./shared/*"] }
   },
   "include": ["client/src", "shared"]
 }
