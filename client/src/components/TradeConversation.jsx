@@ -224,9 +224,11 @@ export function TradeMessages({ tradeId, initial, canMessage, other }) {
     setBusy(true);
     setError(null);
     try {
-      const { message } = await api(`/trades/${tradeId}/messages`, { method: "POST", body: { body } });
+      const sent = body;
+      const { message } = await api(`/trades/${tradeId}/messages`, { method: "POST", body: { body: sent } });
       setMessages((m) => [...m, message]);
-      setBody("");
+      // Clear the box only if it still holds what was sent, so a next message typed meanwhile isn't wiped.
+      setBody((current) => (current === sent ? "" : current));
     } catch (err) {
       setError(err);
     } finally {
