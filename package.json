@@ -14,6 +14,7 @@
     "build": "vite build",
     "start": "node --env-file-if-exists=.env server/index.js",
     "migrate": "node --env-file-if-exists=.env server/migrate.js",
+    "migrate:down": "node --env-file-if-exists=.env server/migrate.js down",
     "seed": "node --env-file-if-exists=.env server/seed/seed.js",
     "make-admin": "node --env-file-if-exists=.env server/make-admin.js",
     "emails:sync": "node --env-file-if-exists=.env server/emails-sync.js",
