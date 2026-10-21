@@ -93,10 +93,10 @@ export async function autocompleteNames(q) {
 const COLLECTION_BATCH = 75;
 
 /**
- * Looks up many cards at once (collection import). `entries` is [[key, identifier], ...] from
- * collectionImport.identifierFor; returns Map(key -> printing) for every identifier Scryfall found.
+ * Looks up many cards at once (collection import, prices). `entries` is [[key, identifier], ...] from
+ * collectionImport.identifierFor; returns Map(key -> map(card)) for every identifier Scryfall found (a printing by default).
  */
-export async function lookupCollection(entries) {
+export async function lookupCollection(entries, map = toPrinting) {
   const found = new Map();
   for (let i = 0; i < entries.length; i += COLLECTION_BATCH) {
     const batch = entries.slice(i, i + COLLECTION_BATCH);
@@ -112,7 +112,7 @@ export async function lookupCollection(entries) {
     // Match by content rather than position, so a missing card can't shift the others.
     for (const [key, ident] of batch) {
       const card = data.find((c) => matchesIdentifier(c, ident));
-      if (card) found.set(key, toPrinting(card));
+      if (card) found.set(key, map(card));
     }
   }
   return found;
@@ -132,6 +132,7 @@ export function toDetails(card, rulings = []) {
     setCode: card.set,
     setName: card.set_name,
     collectorNumber: card.collector_number,
+    finishes: toPrinting(card).finishes,
     rarity: card.rarity,
     artist: card.artist ?? null,
     imageUrl: images?.large ?? images?.normal ?? null,

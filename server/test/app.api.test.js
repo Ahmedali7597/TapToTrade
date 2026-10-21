@@ -8,11 +8,13 @@ import { settle } from "../lib/notify.js";
 import { exchangeCode } from "../lib/google.js";
 import { autocompleteNames, cardDetails, lookupCollection, searchPrintings, showcasePool } from "../lib/scryfall.js";
 import { localParts, nextDay } from "../lib/events.js";
+import { priceCards } from "../lib/prices.js";
 import { TERMS_UPDATED } from "../../shared/pages.js";
 
 jest.mock("../lib/email.js", () => ({ ...jest.requireActual("../lib/email.js"), sendEmail: jest.fn().mockResolvedValue(true) }));
 // Google and Scryfall are external services; the tests stand in for their answers.
 jest.mock("../lib/google.js", () => ({ ...jest.requireActual("../lib/google.js"), googleConfigured: () => true, exchangeCode: jest.fn() }));
+jest.mock("../lib/prices.js", () => ({ ...jest.requireActual("../lib/prices.js"), priceCards: jest.fn() }));
 jest.mock("../lib/scryfall.js", () => ({
   ...jest.requireActual("../lib/scryfall.js"),
   lookupCollection: jest.fn(),
@@ -905,6 +907,25 @@ describe("browsing without an account (Fan Content Policy)", () => {
     expect((await anon.get("/api/cards/autocomplete?q=lightning%20b")).body.names).toEqual(["Lightning Bolt"]);
     expect((await anon.get("/api/cards/autocomplete?q=l")).body.names).toEqual([]); // too short: no request
     expect(autocompleteNames).toHaveBeenCalledTimes(2);
+  });
+
+  test("card prices are public; requests are checked, store prices are one card at a time, and an outage is a 503", async () => {
+    const anon = await new Player().init();
+    const bolt = { cad: 2.64, source: "market", marketUsd: 1.88, marketCad: 2.64, store: null };
+    priceCards.mockResolvedValueOnce({ rate: { usdCad: 1.4057, date: "2026-10-21" }, prices: { [`${BOLT}:nonfoil`]: bolt } });
+    const ok = await anon.get(`/api/cards/prices?cards=${BOLT}:nonfoil`);
+    expect(ok.body.prices[`${BOLT}:nonfoil`]).toEqual(bolt);
+    expect(ok.headers["cache-control"]).toBe("public, max-age=3600");
+    expect(priceCards).toHaveBeenLastCalledWith([{ printingId: BOLT, finish: "nonfoil" }], { store: false });
+
+    for (const bad of ["", "cards=nope:nonfoil", `cards=${BOLT}:shiny`, `cards=${Array(41).fill(`${BOLT}:foil`).join(",")}`]) {
+      expect((await anon.get(`/api/cards/prices?${bad}`)).status).toBe(400);
+    }
+    expect((await anon.get(`/api/cards/prices?store=1&cards=${Array(5).fill(`${BOLT}:foil`).join(",")}`)).status).toBe(400);
+    priceCards.mockRejectedValueOnce(new Error("Bank of Canada responded 500"));
+    const down = await anon.get(`/api/cards/prices?store=1&cards=${BOLT}:foil`);
+    expect(down.status).toBe(503);
+    expect(down.body.error).toMatch(/aren't available/);
   });
 
   test("card details are public; bad ids 404 and a Scryfall outage is a 503", async () => {

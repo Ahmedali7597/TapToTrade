@@ -7,6 +7,8 @@ import { Label } from "@/components/ui/label";
 import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select";
 import { Textarea } from "@/components/ui/textarea";
 import { CardImage, ConditionBadge, EmptyState, ErrorAlert, FinishBadge, printingLabel, shake } from "@/components/common";
+import PriceTag from "@/components/PriceTag";
+import { cad, priceOf, totalOf, usePrices } from "@/lib/prices";
 import { cn } from "@/lib/utils";
 
 // The logo arrow, reused as the icon on the send button.
@@ -49,7 +51,18 @@ function Stepper({ item, value, onChange, verb }) {
 
 // One side of the trade: a scrollable list of listings, each with a quantity stepper.
 // A filter box shows up once the list is long enough to need it.
-function PickList({ title, description, items, picked, setPicked, verb, emptyText }) {
+/** " (≈ CA$5.28)" after a count in the summary, when there's a value to show. */
+const ValueNote = ({ value }) => (value ? <span className="tabular-nums"> (≈ {cad(value)})</span> : null);
+
+// Prices are looked up once for both lists, so each row and the totals agree.
+const priceKey = (item) => ({ printingId: item.printing.id, finish: item.finish });
+const totalFor = (prices, items, picked) =>
+  totalOf(
+    prices,
+    items.filter((i) => picked[i.id] > 0).map((i) => ({ ...priceKey(i), quantity: picked[i.id] })),
+  );
+
+function PickList({ title, description, items, picked, setPicked, verb, emptyText, prices }) {
   const [filter, setFilter] = useState("");
   const shown = useMemo(
     () => items.filter((i) => i.printing.name.toLowerCase().includes(filter.trim().toLowerCase())),
@@ -96,6 +109,7 @@ function PickList({ title, description, items, picked, setPicked, verb, emptyTex
                     <p className="truncate text-sm font-semibold">{item.printing.name}</p>
                     <p className="flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
                       {printingLabel(item.printing)} <ConditionBadge condition={item.condition} /> <FinishBadge finish={item.finish} /> {item.quantity} available
+                      <PriceTag price={priceOf(prices, priceKey(item))} rate={prices?.rate} each />
                     </p>
                   </div>
                   <Stepper item={item} value={value} verb={verb} onChange={(q) => setPicked((p) => ({ ...p, [item.id]: q }))} />
@@ -126,6 +140,7 @@ export default function TradeComposer({
   onSubmit,
 }) {
   const [requested, setRequested] = useState(initialRequested);
+  const prices = usePrices([...theirItems, ...myItems].map(priceKey));
   const [offered, setOffered] = useState(initialOffered);
   const [message, setMessage] = useState("");
   const [meetupStoreId, setMeetupStoreId] = useState(String(initialMeetupStoreId ?? ""));
@@ -167,6 +182,7 @@ export default function TradeComposer({
           title={`You receive from ${counterpart.username}`}
           description={`Cards ${counterpart.username} has shared in ${counterpart.city}.`}
           items={theirItems}
+          prices={prices}
           picked={requested}
           setPicked={setRequested}
           verb="Request"
@@ -176,6 +192,7 @@ export default function TradeComposer({
           title="You give (optional)"
           description="Offer cards from your own inventory in return. You can also send a request-only proposal."
           items={myItems}
+          prices={prices}
           picked={offered}
           setPicked={setOffered}
           verb="Offer"
@@ -219,8 +236,9 @@ export default function TradeComposer({
             </div>
             <div className="grid gap-2">
               <p className="text-sm text-muted-foreground" aria-live="polite" data-testid="trade-summary">
-                You receive <strong className="text-foreground">{total(requested)}</strong> · You give{" "}
-                <strong className="text-foreground">{total(offered)}</strong>
+                You receive <strong className="text-foreground">{total(requested)}</strong>
+                <ValueNote value={totalFor(prices, theirItems, requested)} /> · You give <strong className="text-foreground">{total(offered)}</strong>
+                <ValueNote value={totalFor(prices, myItems, offered)} />
                 {total(offered) === 0 && " (request only)"}
               </p>
               <Button ref={sendButton} type="submit" size="lg" disabled={busy} className="gap-2">

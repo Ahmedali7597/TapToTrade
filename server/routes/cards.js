@@ -4,6 +4,8 @@ import { HttpError, isUuid } from "../lib/http.js";
 import { autocompleteNames, cardDetails, sample, searchPrintings, showcasePool } from "../lib/scryfall.js";
 import { escapeLike } from "../lib/search.js";
 import { printingView } from "../lib/views.js";
+import { priceCards } from "../lib/prices.js";
+import { FINISHES } from "../../shared/validation.js";
 import { requireAuth } from "../middleware.js";
 
 // Card data. Browsing cards, card details and the showcase are public (the Fan Content Policy asks for Magic
@@ -87,6 +89,30 @@ router.get("/autocomplete", async (req, res) => {
   }
   // Browsers may reuse an answer for an hour, so backspacing and retyping doesn't ask again.
   res.set("Cache-Control", "public, max-age=3600").json({ names: names.slice(0, 10) });
+});
+
+// Reference prices in CAD for up to 40 cards ("cards=<printing id>:<finish>,..."), for trades and the card close-up.
+// `store=1` also gets Face to Face Games' price next to the market price; that's limited to a few cards at a time
+// (one card's finishes), since it can mean a request to the store per card. See lib/prices.js for the sources.
+router.get("/prices", async (req, res) => {
+  const cards = String(req.query.cards ?? "")
+    .split(",")
+    .filter(Boolean)
+    .map((pair) => {
+      const [printingId, finish] = pair.split(":");
+      return { printingId: printingId?.toLowerCase(), finish };
+    });
+  const store = req.query.store === "1";
+  if (!cards.length || cards.length > 40 || cards.some((c) => !isUuid(c.printingId) || !FINISHES.includes(c.finish))) {
+    throw new HttpError(400, "Ask for 1 to 40 cards, each as <printing id>:<finish>.");
+  }
+  if (store && cards.length > 4) throw new HttpError(400, "Store prices are for one card at a time.");
+  try {
+    res.set("Cache-Control", "public, max-age=3600").json(await priceCards(cards, { store }));
+  } catch (err) {
+    console.warn(`Card prices unavailable: ${err.message}`);
+    throw new HttpError(503, "Card prices aren't available right now. Please try again later.");
+  }
 });
 
 // Card name lookup for the "add a card" form.

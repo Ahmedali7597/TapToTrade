@@ -5,7 +5,9 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import { Skeleton } from "@/components/ui/skeleton";
 import { CardViewerContext, ErrorAlert, RetryImage, useApi } from "@/components/common";
+import { cad, priceOf, usePrices } from "@/lib/prices";
 import { cn } from "@/lib/utils";
+import { FINISH_LABELS } from "@shared/validation";
 
 // Formats in the order Moxfield lists them. Scryfall's key -> label.
 const FORMATS = [
@@ -77,7 +79,46 @@ function Legality({ label, status }) {
   );
 }
 
-const money = (value, symbol) => (value ? `${symbol}${value}` : null);
+/**
+ * The price guide in the close-up, per finish: the market price in CAD and Face to Face Games' near-mint price
+ * (with a link to it). Shows nothing until the prices arrive, or if there are none.
+ */
+function CardPrices({ card }) {
+  const finishes = card.finishes?.length ? card.finishes : ["nonfoil"];
+  const prices = usePrices(
+    finishes.map((finish) => ({ printingId: card.id, finish })),
+    { store: true },
+  );
+  const rows = finishes.map((finish) => [finish, priceOf(prices, { printingId: card.id, finish })]).filter(([, p]) => p?.cad != null);
+  if (!rows.length) return null;
+  return (
+    <div className="rounded-lg border bg-card p-3 text-sm">
+      <p className="mb-1.5 font-semibold">Price guide (CAD)</p>
+      <dl className="grid gap-1.5">
+        {rows.map(([finish, p]) => (
+          <div key={finish} className="flex items-baseline justify-between gap-3">
+            <dt className="text-muted-foreground">{FINISH_LABELS[finish]}</dt>
+            <dd className="text-right tabular-nums">
+              {p.marketCad != null && (
+                <span className="block">
+                  {cad(p.marketCad)} <span className="text-xs text-muted-foreground">market</span>
+                </span>
+              )}
+              {p.store && (
+                <a href={p.store.url} target="_blank" rel="noopener noreferrer" className="block text-primary underline-offset-4 hover:underline">
+                  {cad(p.store.cad)} <span className="text-xs">Face to Face Games, {p.store.condition}</span>
+                </a>
+              )}
+            </dd>
+          </div>
+        ))}
+      </dl>
+      <p className="mt-2 text-xs text-muted-foreground">
+        Market price: TCGplayer via Scryfall, at the Bank of Canada rate of {prices.rate.usdCad} USD/CAD ({prices.rate.date}). For reference only.
+      </p>
+    </div>
+  );
+}
 
 /** The zoomed-in card: big image, rules text, printing, rulings, legalities and links to Scryfall. */
 function CardDetailsDialog({ ids, index, onIndex, onClose }) {
@@ -96,7 +137,6 @@ function CardDetailsDialog({ ids, index, onIndex, onClose }) {
     if (e.key === "ArrowRight" && hasNext) go(1);
   };
   const image = back ? card?.faces[1]?.imageUrl : card?.imageUrl;
-  const prices = card && [money(card.prices.usd, "US$"), card.prices.usdFoil && `foil US$${card.prices.usdFoil}`, money(card.prices.eur, "€")].filter(Boolean);
 
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>
@@ -135,11 +175,7 @@ function CardDetailsDialog({ ids, index, onIndex, onClose }) {
             )}
             {card && (
               <>
-                {prices.length > 0 && (
-                  <p className="text-center text-sm text-muted-foreground">
-                    Market price {prices.join(" · ")} <span className="block text-xs">via Scryfall, for reference only</span>
-                  </p>
-                )}
+                <CardPrices card={card} />
                 <Button asChild>
                   <Link to={`/search?name=${encodeURIComponent(card.name)}`} onClick={onClose}>
                     <Search aria-hidden="true" /> Find players trading it

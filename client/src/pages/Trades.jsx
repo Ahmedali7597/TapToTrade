@@ -26,6 +26,8 @@ import { useAuth } from "@/lib/auth";
 import { cn } from "@/lib/utils";
 import LazyMap from "@/components/LazyMap";
 import { MeetupPlanner, TradeMessages } from "@/components/TradeConversation";
+import PriceTag from "@/components/PriceTag";
+import { cad, priceOf, totalOf, usePrices } from "@/lib/prices";
 import { meetupArea } from "@shared/cities";
 
 // List of summaries with a quick staggered fade-in (capped so long lists don't crawl in).
@@ -70,8 +72,8 @@ export function TradesPage() {
   );
 }
 
-// The cards on one side of a proposal, read from the snapshot saved when it was sent.
-function LineList({ lines, emptyText }) {
+// The cards on one side of a proposal, read from the snapshot saved when it was sent, with reference prices.
+function LineList({ lines, emptyText, prices }) {
   if (!lines.length) return <p className="rounded-lg bg-muted p-4 text-sm text-muted-foreground">{emptyText}</p>;
   return (
     <ul className="grid gap-2">
@@ -91,6 +93,7 @@ function LineList({ lines, emptyText }) {
             <p className="flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
               {l.setCode.toUpperCase()} #{l.collectorNumber} <ConditionBadge condition={l.condition} /> <FinishBadge finish={l.finish} />
               {l.inventoryItemId == null && <span>(listing since removed)</span>}
+              <PriceTag price={priceOf(prices, l)} rate={prices?.rate} each />
             </p>
           </div>
           <span className="text-lg font-bold tabular-nums" aria-label={`quantity ${l.quantity}`}>
@@ -105,14 +108,21 @@ function LineList({ lines, emptyText }) {
 // "You give" and "You receive" side by side, always from the viewer's point of view.
 function ProposalPanels({ trade, viewerId }) {
   const p = perspective(trade, viewerId);
+  const prices = usePrices([...trade.requested, ...trade.offered]);
   const emptyText = trade.offered.length === 0 ? "No cards were offered in return. This is a request-only proposal." : "Nothing.";
   // Both halves look the same apart from the title and the lines, so build them from one template.
-  const panel = (title, lines) => (
-    <section className="pocket p-5 pt-6">
-      <h2 className="mb-3 text-lg font-semibold">{title}</h2>
-      <LineList lines={lines} emptyText={emptyText} />
-    </section>
-  );
+  const panel = (title, lines) => {
+    const total = totalOf(prices, lines);
+    return (
+      <section className="pocket p-5 pt-6">
+        <h2 className="mb-3 flex flex-wrap items-baseline justify-between gap-x-3 text-lg font-semibold">
+          {title}
+          {total != null && <span className="text-sm font-normal text-muted-foreground" title="Reference prices only; you agree the value between you.">≈ {cad(total)} total</span>}
+        </h2>
+        <LineList lines={lines} emptyText={emptyText} prices={prices} />
+      </section>
+    );
+  };
   return (
     <div className="grid gap-4 md:grid-cols-[1fr_auto_1fr] md:items-start">
       {panel("You give", p.give)}
