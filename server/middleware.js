@@ -63,5 +63,7 @@ export const authLimiter = limiter(15 * 60_000, 20, "Too many attempts. Please w
 export const importLimiter = limiter(60 * 60_000, 20, "That's a lot of imports. Please wait a while before importing again.");
 // Confirmation emails on request: enough for typos, not enough to flood an inbox.
 export const verifyLimiter = limiter(60 * 60_000, 5, "We've sent a few links already. Check your spam folder, or wait a while and try again.");
+// Trade messages: plenty for arranging a meetup, not enough to flood someone.
+export const messageLimiter = limiter(60 * 60_000, 60, "That's a lot of messages. Please wait a while before sending more.");
 // Suggestions are read by people, so a handful an hour is plenty.
 export const suggestionLimiter = limiter(60 * 60_000, 10, "Thanks for all the ideas! Please wait a while before sending more.");

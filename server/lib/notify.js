@@ -92,6 +92,17 @@ export async function promoted(userId) {
   return Boolean(user);
 }
 
+/**
+ * Emails player `toId` about trade `tradeId` (a new message, or a meetup suggested, changed or confirmed), in the
+ * background. Skipped when that player turned trade emails off.
+ */
+export function tradeNotice(kind, tradeId, toId, data) {
+  background(async () => {
+    const to = await reachable(toId, { trades: true });
+    if (to) await sendTemplate(kind, to.email, { username: to.username, tradeId, ...data });
+  });
+}
+
 const line = (l) => ({ quantity: l.quantity, cardName: l.card_name, setCode: l.set_code, collectorNumber: l.collector_number, condition: l.condition, finish: l.finish });
 
 /**

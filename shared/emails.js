@@ -26,6 +26,9 @@ export const EMAIL_KINDS = [
   { key: "trade_counter", label: "Counter-offer", when: "Sent to the player who receives a counter-offer (if trade emails are on)." },
   { key: "trade_accepted", label: "Trade accepted", when: "Sent to the player whose request was accepted (if trade emails are on)." },
   { key: "trade_declined", label: "Trade declined", when: "Sent to the player whose request was declined (if trade emails are on)." },
+  { key: "trade_message", label: "New trade message", when: "Sent when the other player writes about a trade: at most once per half hour per trade (if trade emails are on)." },
+  { key: "trade_meetup", label: "Meetup suggested", when: "Sent when the other player suggests or changes when and where to meet (if trade emails are on)." },
+  { key: "trade_meetup_confirmed", label: "Meetup confirmed", when: "Sent when the other player confirms the meetup you suggested (if trade emails are on)." },
   { key: "listing_removed", label: "Listing removed", when: "Sent when a moderator removes one of a player's listings." },
   { key: "account_suspended", label: "Account suspended", when: "Sent when a moderator suspends a player's account." },
   { key: "account_reinstated", label: "Account reinstated", when: "Sent when a moderator lifts a suspension." },
@@ -200,7 +203,7 @@ export const TEMPLATES = {
     subject: "{{{FROM}}} accepted your trade request",
     heading: "Trade accepted",
     intro: "{{{FROM}}} ({{{FROM_CITY}}}) accepted your proposal. That means you've both agreed to meet; nothing has changed hands yet.",
-    next: "Agree on a time to meet{{{MEET_PLACE}}}. Check the cards before you swap, then update your inventory.",
+    next: "Agree on a time to meet{{{MEET_PLACE}}} on the trade page. Check the cards before you swap; afterwards, say there that the trade happened and your inventory updates.",
     cta: "View the trade",
   }),
   trade_declined: tradeTemplate({
@@ -209,6 +212,52 @@ export const TEMPLATES = {
     intro: "{{{FROM}}} ({{{FROM_CITY}}}) declined your proposal.",
     next: "You can send them a new request with different cards, or look for these cards near you.",
     cta: "View the proposal",
+  }),
+  // Messages stay on the site: the email only says there's one, so nothing a player wrote sits in an inbox.
+  trade_message: template({
+    subject: "{{{FROM}}} sent you a message about your trade",
+    heading: "New message",
+    preheader: "{{{FROM}}} wrote to you about your trade.",
+    body: para("{{{FROM}}} sent you a message about your trade. Open the trade to read it and reply.") + button("Read the message", "{{{SITE}}}/trades/{{{TRADE_ID}}}"),
+    lines: ["{{{FROM}}} sent you a message about your trade. Open the trade to read it and reply:", "{{{SITE}}}/trades/{{{TRADE_ID}}}"],
+  }),
+  trade_meetup: template({
+    subject: "{{{FROM}}} suggested a time to meet",
+    heading: "Meetup suggested",
+    preheader: "{{{WHEN}}}, {{{PLACE_HTML}}}",
+    body:
+      para("{{{FROM}}} suggested when and where to meet for your trade:") +
+      para("<strong>{{{WHEN}}}</strong><br>{{{PLACE_HTML}}}") +
+      para("If that works for you, confirm it on the trade page. If not, suggest another time or place there.") +
+      button("Confirm or change", "{{{SITE}}}/trades/{{{TRADE_ID}}}"),
+    lines: [
+      "{{{FROM}}} suggested when and where to meet for your trade:",
+      "",
+      "{{{WHEN}}}",
+      "{{{PLACE_TEXT}}}",
+      "",
+      "If that works for you, confirm it on the trade page. If not, suggest another time or place there:",
+      "{{{SITE}}}/trades/{{{TRADE_ID}}}",
+    ],
+  }),
+  trade_meetup_confirmed: template({
+    subject: "{{{FROM}}} confirmed your meetup",
+    heading: "Meetup confirmed",
+    preheader: "{{{WHEN}}}, {{{PLACE_HTML}}}",
+    body:
+      para("{{{FROM}}} confirmed the meetup for your trade:") +
+      para("<strong>{{{WHEN}}}</strong><br>{{{PLACE_HTML}}}") +
+      para("Check the cards together before you swap. Afterwards, say on the trade page whether the trade happened.") +
+      button("View the trade", "{{{SITE}}}/trades/{{{TRADE_ID}}}"),
+    lines: [
+      "{{{FROM}}} confirmed the meetup for your trade:",
+      "",
+      "{{{WHEN}}}",
+      "{{{PLACE_TEXT}}}",
+      "",
+      "Check the cards together before you swap. Afterwards, say on the trade page whether the trade happened:",
+      "{{{SITE}}}/trades/{{{TRADE_ID}}}",
+    ],
   }),
   listing_removed: template({
     subject: `A moderator removed one of your ${SITE_NAME} listings`,
@@ -302,6 +351,15 @@ function tradeVariables(kind, d) {
   };
 }
 
+// The meetup emails: who, when (already written out in the meetup's time zone) and where.
+const meetupVariables = (d) => ({
+  FROM: escape(d.from),
+  TRADE_ID: String(d.tradeId),
+  WHEN: escape(d.when),
+  PLACE_HTML: escape(d.place),
+  PLACE_TEXT: d.place,
+});
+
 const TRADE_REASON = (site) => ({
   html: `<div style="margin:0 0 10px">You're getting this because trade emails are on for your account. <a href="${escape(site)}/settings" style="color:${C.teal}">Turn them off in Settings</a>.</div>`,
   text: `You're getting this because trade emails are on for your account. Turn them off in Settings: ${site}/settings\n\n`,
@@ -341,8 +399,11 @@ export function emailVariables(kind, data) {
     email_changed: () => ({ NEW_EMAIL_HTML: escape(data.newEmail), NEW_EMAIL_TEXT: data.newEmail }),
     listing_removed: () => ({ CARD_HTML: escape(data.card), CARD_TEXT: data.card }),
     report_received: () => ({ REPORTED_HTML: escape(data.reported), REPORTED_TEXT: data.reported }),
+    trade_message: () => ({ FROM: escape(data.from), TRADE_ID: String(data.tradeId) }),
+    trade_meetup: () => meetupVariables(data),
+    trade_meetup_confirmed: () => meetupVariables(data),
   }[kind];
-  return { ...common, ...(kind.startsWith("trade_") ? tradeVariables(kind, data) : extra?.() ?? {}) };
+  return { ...common, ...(TRADE_TITLES[kind] ? tradeVariables(kind, data) : extra?.() ?? {}) };
 }
 
 /** Puts variable values into a template string. Unknown variables become empty. */
@@ -379,5 +440,8 @@ export function sampleData(kind, site, username) {
     trade_declined: { ...base, ...trades, message: null },
     listing_removed: { ...base, card: "Lightning Bolt (M10 #146, LP, Foil)" },
     report_received: { ...base, reported: "a listing by bolt_burlington" },
+    trade_message: { ...base, from: "bolt_burlington", tradeId: 1 },
+    trade_meetup: { ...base, from: "bolt_burlington", tradeId: 1, when: "Saturday, October 25, 2026 at 2:00 p.m. EDT", place: "The Mana Vault, 120 King St E, Hamilton, ON" },
+    trade_meetup_confirmed: { ...base, from: "bolt_burlington", tradeId: 1, when: "Saturday, October 25, 2026 at 2:00 p.m. EDT", place: "The Mana Vault, 120 King St E, Hamilton, ON" },
   }[kind] ?? base;
 }

@@ -1233,6 +1233,111 @@ describe("want lists and automatic matches", () => {
   });
 });
 
+describe("trade messages and meetups", () => {
+  let ana;
+  let ben;
+  let outsider;
+  let trade;
+  let storeId;
+  // "YYYY-MM-DD" a number of days from today, for meetup times that stay in the future whenever the tests run.
+  const daysFromNow = (n) => new Date(Date.now() + n * 86_400_000).toISOString().slice(0, 10);
+  const subjects = (to) => sendEmail.mock.calls.map(([m]) => m).filter((m) => m.to === to).map((m) => m.subject);
+
+  beforeAll(async () => {
+    ana = await newPlayer("meet_ana", "Halifax, NS");
+    ben = await newPlayer("meet_ben", "Dartmouth, NS");
+    outsider = await newPlayer("meet_outsider", "Halifax, NS");
+    const ring = await ben.add(RING, 2);
+    trade = (await ana.send("post", "/api/trades", { receiverId: ben.user.id, requested: [{ inventoryItemId: ring.id, quantity: 1 }] })).body.trade;
+    ({ rows: [{ id: storeId }] } = await pool.query(
+      "INSERT INTO stores (name, address, city) VALUES ('Harbour Games', '1 Water St, Halifax', 'Halifax, NS') RETURNING id",
+    ));
+  });
+
+  test("both players can write while the trade is open; messages are private, checked and emailed once per burst", async () => {
+    sendEmail.mockClear();
+    expect((await outsider.send("post", `/api/trades/${trade.id}/messages`, { body: "hi" })).status).toBe(404);
+    expect((await ana.send("post", `/api/trades/${trade.id}/messages`, { body: "   " })).status).toBe(400);
+    expect((await ana.send("post", `/api/trades/${trade.id}/messages`, { body: "x".repeat(1001) })).status).toBe(400);
+    const slur = await ana.send("post", `/api/trades/${trade.id}/messages`, { body: "you retard" });
+    expect(slur.status).toBe(400);
+    expect(slur.body.fields.body).toMatch(/slur/);
+
+    const first = await ana.send("post", `/api/trades/${trade.id}/messages`, { body: "Hi! Is Saturday good?" });
+    expect(first.status).toBe(201);
+    expect(first.body.message).toMatchObject({ body: "Hi! Is Saturday good?", sender: { username: "meet_ana" } });
+    await ana.send("post", `/api/trades/${trade.id}/messages`, { body: "Afternoon works best for me." });
+    await ben.send("post", `/api/trades/${trade.id}/messages`, { body: "Saturday at 2 works." });
+    await settle();
+    // Ana wrote twice in a row, so Ben got one email; Ben's reply emailed Ana. No message text goes in an email.
+    expect(subjects(ben.email)).toEqual(["meet_ana sent you a message about your trade"]);
+    expect(subjects(ana.email)).toEqual(["meet_ben sent you a message about your trade"]);
+    expect((await lastEmailTo(ben.email)).text).not.toContain("Saturday");
+
+    const view = (await ben.get(`/api/trades/${trade.id}`)).body;
+    expect(view.canMessage).toBe(true);
+    expect(view.messages.map((m) => m.body)).toEqual(["Hi! Is Saturday good?", "Afternoon works best for me.", "Saturday at 2 works."]);
+    expect(view.meetup).toBeNull(); // nothing to plan until the trade is accepted
+    expect((await outsider.get(`/api/trades/${trade.id}`)).status).toBe(404);
+  });
+
+  test("a meetup needs an accepted trade, a real future time and a public place, and the other player confirms it", async () => {
+    const plan = { localTime: `${daysFromNow(7)}T14:00`, timeZone: "America/Halifax", storeId };
+    expect((await ana.send("put", `/api/trades/${trade.id}/meetup`, plan)).status).toBe(409); // still pending
+    expect((await ben.send("post", `/api/trades/${trade.id}/accept`)).status).toBe(200);
+
+    const bad = await ana.send("put", `/api/trades/${trade.id}/meetup`, { localTime: "soon", timeZone: "Mars/Olympus", place: "" });
+    expect(Object.keys(bad.body.fields).sort()).toEqual(["localTime", "place", "timeZone"]);
+    const past = await ana.send("put", `/api/trades/${trade.id}/meetup`, { ...plan, localTime: `${daysFromNow(-1)}T14:00` });
+    expect(past.body.fields.localTime).toMatch(/half an hour from now/);
+    const far = await ana.send("put", `/api/trades/${trade.id}/meetup`, { ...plan, localTime: `${daysFromNow(200)}T14:00` });
+    expect(far.body.fields.localTime).toMatch(/within the next 120 days/);
+    expect((await ana.send("put", `/api/trades/${trade.id}/meetup`, { ...plan, storeId: undefined, place: "the r3tard store" })).status).toBe(400);
+
+    sendEmail.mockClear();
+    const set = await ana.send("put", `/api/trades/${trade.id}/meetup`, plan);
+    expect(set.status).toBe(200);
+    // 2:00 p.m. on Halifax clocks, whatever the server's own time zone.
+    expect(set.body.meetup).toMatchObject({ timeZone: "America/Halifax", place: "Harbour Games, 1 Water St, Halifax, Halifax, NS", confirmedAt: null });
+    expect(set.body.meetup.when).toMatch(/2:00 p\.m\. A[DS]T$/);
+    await settle();
+    expect((await lastEmailTo(ben.email)).subject).toBe("meet_ana suggested a time to meet");
+    expect((await lastEmailTo(ben.email)).text).toContain(set.body.meetup.when);
+
+    expect((await ana.send("post", `/api/trades/${trade.id}/meetup/confirm`)).status).toBe(409); // not your own suggestion
+    expect((await ana.get(`/api/trades/${trade.id}/meetup.ics`)).status).toBe(404); // not confirmed yet
+    const confirmed = await ben.send("post", `/api/trades/${trade.id}/meetup/confirm`);
+    expect(confirmed.body.meetup.confirmedAt).toBeTruthy();
+    await settle();
+    expect((await lastEmailTo(ana.email)).subject).toBe("meet_ben confirmed your meetup");
+
+    const ics = await ana.get(`/api/trades/${trade.id}/meetup.ics`);
+    expect(ics.headers["content-type"]).toMatch(/text\/calendar/);
+    expect(ics.text).toContain("SUMMARY:Magic card trade with meet_ben");
+    expect(ics.text).toContain("LOCATION:Harbour Games\\, 1 Water St\\, Halifax\\, Halifax\\, NS");
+
+    // Changing anything (here, to a place the players typed) needs confirming again.
+    const moved = await ben.send("put", `/api/trades/${trade.id}/meetup`, { localTime: `${daysFromNow(8)}T11:30`, timeZone: "America/Halifax", place: "Halifax Central Library" });
+    expect(moved.body.meetup).toMatchObject({ place: "Halifax Central Library", confirmedAt: null, proposedBy: { username: "meet_ben" } });
+    expect((await ana.get(`/api/trades/${trade.id}`)).body.meetup.place).toBe("Halifax Central Library");
+    expect((await outsider.send("post", `/api/trades/${trade.id}/meetup/confirm`)).status).toBe(404);
+  });
+
+  test("declined trades close the conversation, and deleting an account removes what that player wrote", async () => {
+    const ring = await ben.add(RING, 1, { condition: "LP" });
+    const t = (await ana.send("post", "/api/trades", { receiverId: ben.user.id, requested: [{ inventoryItemId: ring.id, quantity: 1 }] })).body.trade;
+    await ana.send("post", `/api/trades/${t.id}/messages`, { body: "One more?" });
+    await ben.send("post", `/api/trades/${t.id}/decline`);
+    expect((await ana.send("post", `/api/trades/${t.id}/messages`, { body: "Why not?" })).status).toBe(409);
+    expect((await ana.get(`/api/trades/${t.id}`)).body).toMatchObject({ canMessage: false, messages: [{ body: "One more?" }] });
+
+    expect((await ben.send("delete", "/api/account", { password: PASSWORD })).status).toBe(204);
+    const { rows } = await pool.query("SELECT count(*)::int AS n FROM trade_messages WHERE sender_id = $1", [ben.user.id]);
+    expect(rows[0].n).toBe(0);
+    expect((await ana.get(`/api/trades/${trade.id}`)).body).toMatchObject({ meetup: null });
+  });
+});
+
 test("robots.txt and sitemap.xml are real files, not the app page", async () => {
   const p = await new Player().init();
   const robots = await p.get("/robots.txt");

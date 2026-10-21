@@ -39,6 +39,7 @@
     "leaflet": "^1.9.4",
     "lucide-react": "^1.49.0",
     "motion": "^14.0.0",
+    "obscenity": "0.4.6",
     "pg": "^8.23.0",
     "radix-ui": "^1.6.7",
     "react": "^19.3.0",

@@ -7,6 +7,7 @@ import { hashPassword, newToken, safeEqual, sha256, verifyDummy, verifyPassword 
 import { authUrl, exchangeCode, googleConfigured } from "../lib/google.js";
 import { authLimiter, revokeSessions } from "../middleware.js";
 import { TERMS_UPDATED } from "../../shared/pages.js";
+import { usernameProblem } from "../lib/slurs.js";
 import { cityMessage, normalizeEmail, passwordMessage, safeNext, usernameMessage, validateRegistration } from "../../shared/validation.js";
 
 const router = Router();
@@ -59,6 +60,8 @@ router.get("/me", (req, res) => {
 router.post("/register", authLimiter, async (req, res) => {
   const { email, username, password, city } = req.body ?? {};
   const fields = validateRegistration({ email, username, password, city });
+  const usernameIssue = usernameProblem(username, fields.username);
+  if (usernameIssue) fields.username = usernameIssue;
   checkFields(fields);
 
   // Let the unique indexes catch duplicates instead of checking first; it avoids a race between two sign-ups.
@@ -266,7 +269,7 @@ router.post("/google/complete", authLimiter, async (req, res) => {
   const username = typeof req.body?.username === "string" ? req.body.username.trim() : "";
   const city = req.body?.city;
   const fields = Object.fromEntries(
-    Object.entries({ username: usernameMessage(username), city: city ? cityMessage(city) : "City is required." }).filter(([, v]) => v),
+    Object.entries({ username: usernameProblem(username, usernameMessage(username)), city: city ? cityMessage(city) : "City is required." }).filter(([, v]) => v),
   );
   checkFields(fields);
 

@@ -4,6 +4,7 @@ import { HttpError } from "../lib/http.js";
 import { hashPassword, verifyPassword } from "../lib/security.js";
 import { background, notice, sendTemplate, verificationLink, VERIFY_HOURS } from "../lib/notify.js";
 import { requireAuth, revokeSessions, verifyLimiter } from "../middleware.js";
+import { usernameProblem } from "../lib/slurs.js";
 import { cityMessage, emailMessage, normalizeEmail, parseTravelKm, passwordMessage, usernameMessage } from "../../shared/validation.js";
 import { duplicateAccountError, selfView } from "./auth.js";
 
@@ -44,7 +45,7 @@ router.patch("/travel", async (req, res) => {
 // No password needed, like city: it's public display info and doesn't affect sign-in or recovery.
 router.patch("/username", async (req, res) => {
   const username = typeof req.body?.username === "string" ? req.body.username.trim() : "";
-  const problem = usernameMessage(username);
+  const problem = usernameProblem(username, usernameMessage(username));
   if (problem) throw new HttpError(400, problem, { username: problem });
   const { rows } = await query("UPDATE users SET username = $1, updated_at = now() WHERE id = $2 RETURNING *", [username, req.user.id]).catch(
     (err) => {
@@ -108,8 +109,8 @@ router.patch("/password", async (req, res) => {
 });
 
 /**
- * 4.2.4: deletion anonymizes rather than hard-deletes. Listings, the want list, reset and confirmation links, a store account
- * link and sessions are removed; trade snapshots, trade feedback, moderation records and suggestions are retained (documented in
+ * 4.2.4: deletion anonymizes rather than hard-deletes. Listings, the want list, trade messages they wrote, meetups on their
+ * trades, reset and confirmation links, a store account link and sessions are removed; trade snapshots, trade feedback, moderation records and suggestions are retained (documented in
  * README "Retention").
  */
 router.delete("/", async (req, res) => {
@@ -119,6 +120,8 @@ router.delete("/", async (req, res) => {
     // Remove listings and reset links, close any open trades, then scrub the user row itself.
     await c.query("DELETE FROM inventory_items WHERE owner_id = $1", [id]);
     await c.query("DELETE FROM want_items WHERE user_id = $1", [id]);
+    await c.query("DELETE FROM trade_messages WHERE sender_id = $1", [id]);
+    await c.query("DELETE FROM trade_meetups WHERE trade_request_id IN (SELECT id FROM trade_requests WHERE sender_id = $1 OR receiver_id = $1)", [id]);
     await c.query("DELETE FROM password_resets WHERE user_id = $1", [id]);
     await c.query("DELETE FROM email_verifications WHERE user_id = $1", [id]);
     await c.query("UPDATE stores SET account_user_id = NULL WHERE account_user_id = $1", [id]);

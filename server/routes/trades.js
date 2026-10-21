@@ -1,10 +1,14 @@
 import { Router } from "express";
 import { query, tx, valuesList } from "../db.js";
-import { HttpError, idParam } from "../lib/http.js";
+import { checkFields, HttpError, idParam } from "../lib/http.js";
 import { canTransition, lineShapeError, stockErrors } from "../lib/trades.js";
 import { feedbackError } from "../lib/reputation.js";
-import { tradeUpdate } from "../lib/notify.js";
-import { requireAuth } from "../middleware.js";
+import { tradeNotice, tradeUpdate } from "../lib/notify.js";
+import { meetupCalendar, zonedToUtc } from "../lib/events.js";
+import { siteUrl } from "../lib/seo.js";
+import { formatMeetup, MEETUP_DAYS_AHEAD, meetupProblems } from "../../shared/meetups.js";
+import { hasSlur, SLUR_MESSAGE } from "../lib/slurs.js";
+import { messageLimiter, requireAuth } from "../middleware.js";
 
 // Trade lifecycle: send -> negotiate with counters -> accept/decline -> report what happened after meeting.
 // Each proposal version and its card snapshots are stored in PostgreSQL (4.5.1–4.5.7).
@@ -84,6 +88,7 @@ export function readProposal(body = {}) {
   if (message.length > 500) {
     throw new HttpError(400, "Keep the message under 500 characters.", { message: "Too long (500 max)." });
   }
+  if (hasSlur(message)) throw new HttpError(400, SLUR_MESSAGE, { message: SLUR_MESSAGE });
   // Optional partner store to meet at; insertProposal checks it exists and is still active.
   const raw = body.meetupStoreId;
   const meetupStoreId = raw === undefined || raw === null || raw === "" ? null : Number(raw);
@@ -192,9 +197,12 @@ router.get("/", async (req, res) => {
   });
 });
 
-// The whole negotiation thread (original + counters), visible to its two participants only.
-router.get("/:id", async (req, res) => {
-  const id = idParam(req, "That proposal");
+/**
+ * Every version of the negotiation that `id` belongs to (the first request and each counter-offer), oldest first,
+ * with `current` (version `id`), `root` (the first) and `latest` (the newest). Outsiders get a 404, so they can't
+ * even tell the trade exists.
+ */
+async function loadThread(id, userId) {
   // Walk "up" parent links to find the first version, then "down" from there to collect every counter.
   const { rows: ids } = await query(
     `WITH RECURSIVE up AS (
@@ -208,16 +216,170 @@ router.get("/:id", async (req, res) => {
   );
   const { rows } = await query(`${TRADE_SELECT} WHERE t.id = ANY($1) ORDER BY t.created_at, t.id`, [ids.map((r) => r.id)]);
   const current = rows.find((r) => r.id === id);
-  if (!current || !isParty(current, req.user.id)) {
-    throw new HttpError(404, "That proposal was not found.");
-  }
+  if (!current || !isParty(current, userId)) throw new HttpError(404, "That proposal was not found.");
+  return { rows, current, root: rows[0], latest: rows.at(-1) };
+}
+
+/** The other player on trade row `t`, seen from `userId`. */
+const otherPlayer = (t, userId) =>
+  t.sender_id === userId ? { id: t.receiver_id, username: t.receiver_username } : { id: t.sender_id, username: t.sender_username };
+
+// The whole negotiation thread (original + counters), its messages and the meetup, for its two players only.
+router.get("/:id", async (req, res) => {
+  const id = idParam(req, "That proposal");
+  const { rows, root, latest } = await loadThread(id, req.user.id);
   // The viewer's own feedback on this version, if any. The other player's feedback about them stays private.
   const { rows: given } = await query(
     "SELECT completed, rating, created_at FROM trade_feedback WHERE trade_request_id = $1 AND author_id = $2",
     [id, req.user.id],
   );
   const feedback = given[0] ? { completed: given[0].completed, rating: given[0].rating, createdAt: given[0].created_at } : null;
-  res.json({ thread: await withItems(rows), currentId: id, feedback });
+  res.json({
+    thread: await withItems(rows),
+    currentId: id,
+    feedback,
+    messages: await threadMessages(root.id),
+    // Players can talk while a trade is pending or accepted; once it's declined it's closed.
+    canMessage: latest.status === "pending" || latest.status === "accepted",
+    meetup: latest.status === "accepted" ? await meetupView(latest.id) : null,
+  });
+});
+
+// ---- Messages between the two players (for arranging the meetup; Milestone 4 rules out live chat) ----
+
+const messageView = (m) => ({ id: m.id, body: m.body, createdAt: m.created_at, sender: { id: m.sender_id, username: m.username } });
+
+/** Every message in negotiation `rootId`, oldest first. */
+const threadMessages = async (rootId) =>
+  (
+    await query(
+      "SELECT m.*, u.username FROM trade_messages m JOIN users u ON u.id = m.sender_id WHERE m.thread_id = $1 ORDER BY m.created_at, m.id",
+      [rootId],
+    )
+  ).rows.map(messageView);
+
+router.post("/:id/messages", messageLimiter, async (req, res) => {
+  const { root, latest } = await loadThread(idParam(req, "That proposal"), req.user.id);
+  const body = typeof req.body?.body === "string" ? req.body.body.trim() : "";
+  if (!body) throw new HttpError(400, "Write a message first.", { body: "Write a message first." });
+  if (body.length > 1000) throw new HttpError(400, "Keep messages under 1,000 characters.", { body: "Too long (1,000 max)." });
+  if (hasSlur(body)) throw new HttpError(400, SLUR_MESSAGE, { body: SLUR_MESSAGE });
+  if (latest.status !== "pending" && latest.status !== "accepted") {
+    throw new HttpError(409, "This trade is closed, so it can't get new messages.");
+  }
+  const other = otherPlayer(latest, req.user.id);
+  const message = await tx(async (c) => {
+    await assertBothActive(c, req.user.id, other.id);
+    // One email covers a burst of messages: skip it if this player already wrote here in the last half hour.
+    const { rowCount: wroteRecently } = await c.query(
+      "SELECT 1 FROM trade_messages WHERE thread_id = $1 AND sender_id = $2 AND created_at > now() - interval '30 minutes' LIMIT 1",
+      [root.id, req.user.id],
+    );
+    const { rows } = await c.query("INSERT INTO trade_messages (thread_id, sender_id, body) VALUES ($1, $2, $3) RETURNING *", [
+      root.id,
+      req.user.id,
+      body,
+    ]);
+    return { ...rows[0], username: req.user.username, wroteRecently };
+  });
+  if (!message.wroteRecently) tradeNotice("trade_message", latest.id, other.id, { from: req.user.username });
+  res.status(201).json({ message: messageView(message) });
+});
+
+// ---- The meetup: where and when, confirmed by the other player (Milestone 4 section 9.2) ----
+
+/** Where a meetup is, as one line: the partner store's name and address, or the place the players typed. */
+const placeLine = (m) => (m.store_name ? `${m.store_name}, ${m.store_address}, ${m.store_city}` : m.place);
+
+/** The meetup for accepted version `tradeId`, or null if none has been suggested. */
+async function meetupView(tradeId) {
+  const { rows } = await query(
+    `SELECT m.*, u.username AS proposer, s.name AS store_name, s.address AS store_address, s.city AS store_city
+       FROM trade_meetups m JOIN users u ON u.id = m.proposed_by LEFT JOIN stores s ON s.id = m.store_id
+      WHERE m.trade_request_id = $1`,
+    [tradeId],
+  );
+  const m = rows[0];
+  if (!m) return null;
+  return {
+    meetAt: m.meet_at,
+    timeZone: m.time_zone,
+    when: formatMeetup(m.meet_at, m.time_zone),
+    store: m.store_id == null ? null : { id: m.store_id, name: m.store_name, address: m.store_address, city: m.store_city },
+    place: placeLine(m),
+    proposedBy: { id: m.proposed_by, username: m.proposer },
+    confirmedAt: m.confirmed_at,
+    updatedAt: m.updated_at,
+  };
+}
+
+/** The accepted version of the negotiation in the request, for the meetup routes. */
+async function acceptedTrade(req) {
+  const { latest } = await loadThread(idParam(req, "That proposal"), req.user.id);
+  if (latest.status !== "accepted") throw new HttpError(409, "You can plan a meetup once the trade is accepted.");
+  return latest;
+}
+
+/** Reads { localTime, timeZone, storeId | place } and returns { meetAt, timeZone, storeId, place }, or a 400. */
+async function readMeetup(body = {}) {
+  const { localTime, timeZone } = body;
+  const storeId = body.storeId === undefined || body.storeId === null || body.storeId === "" ? null : Number(body.storeId);
+  const place = storeId === null && typeof body.place === "string" ? body.place.trim() : null;
+  const problems = meetupProblems({ localTime, timeZone, storeId, place });
+  if (storeId !== null && (!Number.isInteger(storeId) || storeId <= 0)) problems.place = "Choose a partner store from the list.";
+  if (place && !problems.place && hasSlur(place)) problems.place = SLUR_MESSAGE;
+  let meetAt;
+  if (!problems.localTime && !problems.timeZone) {
+    // The wall-clock time in the chosen zone (daylight saving included), checked against the real current time.
+    meetAt = zonedToUtc(...localTime.split("T"), timeZone);
+    if (meetAt.getTime() < Date.now() + 30 * 60_000) problems.localTime = "Choose a time at least half an hour from now.";
+    else if (meetAt.getTime() > Date.now() + MEETUP_DAYS_AHEAD * 86_400_000) problems.localTime = `Choose a time within the next ${MEETUP_DAYS_AHEAD} days.`;
+  }
+  checkFields(problems);
+  if (storeId !== null) {
+    const { rows } = await query("SELECT 1 FROM stores WHERE id = $1 AND active", [storeId]);
+    if (!rows[0]) throw new HttpError(400, "That store isn't available any more. Choose another place.", { place: "Choose another place." });
+  }
+  return { meetAt, timeZone, storeId, place };
+}
+
+// Suggest (or change) when and where to meet. Any change needs the other player to confirm again.
+router.put("/:id/meetup", async (req, res) => {
+  const t = await acceptedTrade(req);
+  const m = await readMeetup(req.body);
+  await query(
+    `INSERT INTO trade_meetups (trade_request_id, meet_at, time_zone, store_id, place, proposed_by, confirmed_at, updated_at)
+     VALUES ($1, $2, $3, $4, $5, $6, NULL, now())
+     ON CONFLICT (trade_request_id) DO UPDATE SET meet_at = EXCLUDED.meet_at, time_zone = EXCLUDED.time_zone, store_id = EXCLUDED.store_id,
+       place = EXCLUDED.place, proposed_by = EXCLUDED.proposed_by, confirmed_at = NULL, updated_at = now()`,
+    [t.id, m.meetAt, m.timeZone, m.storeId, m.place, req.user.id],
+  );
+  const meetup = await meetupView(t.id);
+  tradeNotice("trade_meetup", t.id, otherPlayer(t, req.user.id).id, { from: req.user.username, when: meetup.when, place: meetup.place });
+  res.json({ meetup });
+});
+
+// The other player confirms the meetup as suggested.
+router.post("/:id/meetup/confirm", async (req, res) => {
+  const t = await acceptedTrade(req);
+  const { rows } = await query(
+    "UPDATE trade_meetups SET confirmed_at = now() WHERE trade_request_id = $1 AND proposed_by <> $2 AND confirmed_at IS NULL RETURNING proposed_by",
+    [t.id, req.user.id],
+  );
+  if (!rows[0]) throw new HttpError(409, "There's no meetup waiting for you to confirm.");
+  const meetup = await meetupView(t.id);
+  tradeNotice("trade_meetup_confirmed", t.id, rows[0].proposed_by, { from: req.user.username, when: meetup.when, place: meetup.place });
+  res.json({ meetup });
+});
+
+// A confirmed meetup as a calendar file, for either player's calendar app.
+router.get("/:id/meetup.ics", async (req, res) => {
+  const t = await acceptedTrade(req);
+  const meetup = await meetupView(t.id);
+  if (!meetup?.confirmedAt) throw new HttpError(404, "There's no confirmed meetup for this trade yet.");
+  const other = otherPlayer(t, req.user.id).username;
+  const ics = meetupCalendar({ tradeId: t.id, meetAt: meetup.meetAt, place: meetup.place, other, updatedAt: meetup.updatedAt }, siteUrl());
+  res.type("text/calendar").set("Content-Disposition", `attachment; filename="tap-to-trade-meetup-${t.id}.ics"`).send(ics);
 });
 
 // Send a brand new request. The transaction validates both players' stock and saves the proposal plus snapshots.

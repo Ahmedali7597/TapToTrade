@@ -28,7 +28,8 @@ export function Privacy() {
           "Use my location" works only in your browser: it picks the nearest city from our list and puts a dot on your own map.
           Your exact position is never sent to us or shown to anyone.
         </li>
-        <li>What you add: inventory listings, your want list, trade requests, offers and counter-offers, and any reports or suggestions you send.</li>
+        <li>What you add: inventory listings, your want list, trade requests, offers and counter-offers, messages to the other player on a trade, the meetup you plan (place, date, time and time zone), and any reports or suggestions you send.</li>
+        <li>Trade messages and meetup plans are only shown to the two players on that trade. Messages containing slurs are refused before they're saved.</li>
         <li>After an accepted trade, whether you say it happened and the 1 to 5 star rating you give the other player.</li>
         <li>A session cookie that keeps you signed in. No analytics, advertising or tracking cookies.</li>
         <li>Security logs of failed sign-ins, which hold account ids only.</li>
@@ -62,12 +63,13 @@ export function Privacy() {
         <li>Sessions end after 30 minutes idle or when you log out.</li>
         <li>Password-reset links expire after 60 minutes, email confirmation links after 72 hours; both are removed with your account.</li>
         <li>Trade history and trade ratings stay so both players keep a record of what was agreed and how it went.</li>
+        <li>Trade messages and meetup plans stay with the trade for both players; the messages you wrote, and meetups on your trades, are deleted with your account.</li>
         <li>Reports, moderator actions and suggestions are kept for accountability.</li>
       </ul>
       <h2>Your choices</h2>
       <p>
         You can change your details or delete your account in <Link className="text-primary underline" to="/settings">account settings</Link>.
-        Deleting removes your listings, want list, sessions and reset links and anonymizes your account; past trade snapshots,
+        Deleting removes your listings, want list, the trade messages you wrote, meetups on your trades, sessions and reset links and anonymizes your account; past trade snapshots,
         ratings and moderation records are kept without your details. You can also export your inventory as a CSV from the inventory page.
       </p>
       <h2>Access, corrections and complaints</h2>

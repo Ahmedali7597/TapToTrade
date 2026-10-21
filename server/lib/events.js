@@ -252,3 +252,30 @@ export function icsCalendar(store, events, site) {
   ];
   return `${lines.map(foldLine).join("\r\n")}\r\n`;
 }
+
+/**
+ * A calendar file for a confirmed trade meetup: one hour at the agreed place. `meetup` is
+ * { tradeId, meetAt, place, other (the other player's username), updatedAt }.
+ */
+export function meetupCalendar({ tradeId, meetAt, place, other, updatedAt }, site) {
+  const lines = [
+    "BEGIN:VCALENDAR",
+    "VERSION:2.0",
+    "PRODID:-//Tap to Trade//Trade meetup//EN",
+    "CALSCALE:GREGORIAN",
+    "METHOD:PUBLISH",
+    "BEGIN:VEVENT",
+    `UID:trade-meetup-${tradeId}@${new URL(site).hostname}`,
+    `DTSTAMP:${icsTime(updatedAt)}`,
+    `DTSTART:${icsTime(meetAt)}`,
+    `DTEND:${icsTime(new Date(new Date(meetAt).getTime() + 60 * 60_000))}`,
+    `SUMMARY:${icsText(`Magic card trade with ${other}`)}`,
+    `LOCATION:${icsText(place)}`,
+    `DESCRIPTION:${icsText(`Bring the cards and check them together before you swap.\n${site}/trades/${tradeId}`)}`,
+    `URL:${site}/trades/${tradeId}`,
+    "STATUS:CONFIRMED",
+    "END:VEVENT",
+    "END:VCALENDAR",
+  ];
+  return `${lines.map(foldLine).join("\r\n")}\r\n`;
+}

@@ -25,6 +25,7 @@ import { api, qs } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { cn } from "@/lib/utils";
 import LazyMap from "@/components/LazyMap";
+import { MeetupPlanner, TradeMessages } from "@/components/TradeConversation";
 import { meetupArea } from "@shared/cities";
 
 // List of summaries with a quick staggered fade-in (capped so long lists don't crawl in).
@@ -339,7 +340,7 @@ export function TradeDetail() {
           <p className="flex items-start gap-3">
             <SuccessMark className="size-7" />
             <span>
-              <strong>Offer accepted.</strong> Agree on a public place and time. Accepting means you've both agreed to meet; it
+              <strong>Offer accepted.</strong> Plan a public place and time below. Accepting means you've both agreed to meet; it
               doesn't mean the trade is complete, and no cards are held for you. After you meet, tell us below: the cards you
               gave come off your inventory and the cards you got are added (as private, until you share them).
             </span>
@@ -354,6 +355,10 @@ export function TradeDetail() {
           </p>
         )}
       </div>
+
+      {/* The meetup belongs to the accepted (newest) version; messages cover the whole negotiation. */}
+      {trade.id === latest.id && trade.status === "accepted" && <MeetupPlanner tradeId={trade.id} initial={data.meetup} other={p.other} />}
+      <TradeMessages tradeId={trade.id} initial={data.messages} canMessage={data.canMessage} other={p.other} />
 
       {(trade.status === "pending" || trade.status === "accepted") && <MeetupMap trade={trade} viewerId={user.id} />}
 
