@@ -306,7 +306,7 @@ export function Reputation({ reputation, compact = false, className }) {
  * then it calls onGiveUp. It fades in once loaded, so a half-loaded or retrying image never shows a broken icon.
  * Callers key it by src, so a new picture starts fresh.
  */
-export function RetryImage({ src, onGiveUp, className, ...props }) {
+export function RetryImage({ src, onGiveUp, className, instant = false, ...props }) {
   const [attempt, setAttempt] = useState(0);
   const [loaded, setLoaded] = useState(false);
   const retry = () => (attempt < 2 ? setTimeout(() => setAttempt((n) => n + 1), 500 * (attempt + 1)) : onGiveUp?.());
@@ -317,7 +317,7 @@ export function RetryImage({ src, onGiveUp, className, ...props }) {
       src={url}
       onError={retry}
       onLoad={() => setLoaded(true)}
-      className={cn("transition-opacity duration-500 ease-out", !loaded && "opacity-0", className)}
+      className={cn(!instant && "transition-opacity duration-500 ease-out", !instant && !loaded && "opacity-0", className)}
       {...props}
     />
   );
@@ -334,8 +334,10 @@ const useCardViewer = () => useContext(CardViewerContext);
  * `siblings` are the other printing ids on screen, for the viewer's Previous and Next.
  * `onGiveUp` replaces the name tile, e.g. to swap in a different showcase card.
  * `tabIndex={-1}` keeps a visual repeat (a marquee copy) clickable but out of the keyboard's tab order.
+ * `instant` shows the image as soon as it's ready, without the fade-in, and loads it straight away (the binder,
+ * where pages turning in and out would otherwise flash).
  */
-export function CardImage({ name, setCode, imageUrl, finish, className, printingId, siblings, onGiveUp, decorative = false, tabIndex }) {
+export function CardImage({ name, setCode, imageUrl, finish, className, printingId, siblings, onGiveUp, decorative = false, tabIndex, instant = false }) {
   const viewer = useCardViewer();
   const [broken, setBroken] = useState(false);
   const alt = decorative ? "" : `${name}${setCode ? ` (${setCode.toUpperCase()})` : ""} card image`;
@@ -344,7 +346,15 @@ export function CardImage({ name, setCode, imageUrl, finish, className, printing
   const art =
     imageUrl && !broken ? (
       <div className={sleeve}>
-        <RetryImage key={imageUrl} src={imageUrl} alt={zoom ? "" : alt} loading="lazy" onGiveUp={onGiveUp ?? (() => setBroken(true))} className="size-full object-cover" />
+        <RetryImage
+          key={imageUrl}
+          src={imageUrl}
+          alt={zoom ? "" : alt}
+          loading={instant ? "eager" : "lazy"}
+          instant={instant}
+          onGiveUp={onGiveUp ?? (() => setBroken(true))}
+          className="size-full object-cover"
+        />
       </div>
     ) : (
       <div role={zoom || decorative ? undefined : "img"} aria-label={zoom || decorative ? undefined : alt} className={cn(sleeve, "flex items-center justify-center overflow-hidden p-2 text-center text-xs break-normal text-muted-foreground")}>

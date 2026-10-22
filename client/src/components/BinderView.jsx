@@ -37,6 +37,7 @@ function Sheet({ page, siblings, still = false, side }) {
                     siblings={siblings}
                     decorative={still}
                     tabIndex={still ? -1 : undefined}
+                    instant
                     className="w-full"
                   />
                   {item.quantity > 1 && <span className="binder-count">×{item.quantity}</span>}
@@ -123,6 +124,24 @@ export default function BinderView({ groups, siblings }) {
     // The page box is a different element in the one- and two-page layouts, so watch the new one.
   }, [spread]);
   useEffect(() => () => cancelAnimationFrame(raf.current), []);
+  // Switching between one and two pages mid-turn (the window was resized) drops the turn: its pages no longer fit.
+  useEffect(() => {
+    cancelAnimationFrame(raf.current);
+    drag.current = null;
+    setFlip(null);
+  }, [spread]);
+
+  // Load and decode the pages either side of the open ones, so a page turned to is already painted.
+  const nearby = pages.slice(Math.max(0, first - 2 * per), first + 3 * per);
+  const nearbyKey = nearby.flatMap((p) => p.items.map((i) => i.printing.imageUrl)).join("|");
+  useEffect(() => {
+    for (const src of nearbyKey.split("|")) {
+      if (!src) continue;
+      const img = new Image();
+      img.src = src;
+      img.decode?.().catch(() => {});
+    }
+  }, [nearbyKey]);
 
   const canNext = first + per < pages.length;
   const canPrev = first > 0;
@@ -145,9 +164,12 @@ export default function BinderView({ groups, siblings }) {
     if (cast.current) cast.current.style.opacity = String(Math.sin(Math.PI * t) * 0.8);
   };
 
+  // When a turn ends, the pages underneath switch to their new cards while the landed sheet (showing the same
+  // cards) stays on top for two more frames, so there's never a frame of empty pockets between them.
   const finish = (base, t) => {
-    setFlip(null);
     setAt(t >= 1 ? base + per : base);
+    setFlip((f) => f && { ...f, done: true });
+    raf.current = requestAnimationFrame(() => (raf.current = requestAnimationFrame(() => setFlip(null))));
   };
   const animate = (base, from, to) => {
     cancelAnimationFrame(raf.current);
@@ -170,7 +192,7 @@ export default function BinderView({ groups, siblings }) {
     setFlip({ base: baseFor(dir), from: dir === "next" ? 0 : 1, to: dir === "next" ? 1 : 0 });
   };
   useLayoutEffect(() => {
-    if (!flip) return;
+    if (!flip || flip.done) return;
     pose(flip.from);
     if (flip.to !== undefined) animate(flip.base, flip.from, flip.to);
     // pose and animate only touch refs; re-running them on every render isn't wanted.
@@ -207,7 +229,7 @@ export default function BinderView({ groups, siblings }) {
     animate(baseFor(d.dir), d.t, to);
   };
 
-  const shown = flip
+  const shown = flip && !flip.done
     ? spread
       ? [pages[flip.base], pages[flip.base + 3]]
       : [pages[flip.base + 1]]
@@ -216,6 +238,7 @@ export default function BinderView({ groups, siblings }) {
       : [pages[first]];
   const sheetFront = flip && pages[spread ? flip.base + 1 : flip.base];
   const sheetBack = flip && (spread ? pages[flip.base + 2] : null);
+  // The 3D depth grows with the page (perspective = 8 page widths), so a lifted edge stays close to the binder.
   const label = pages.length
     ? spread && first + 1 < pages.length
       ? `Pages ${first + 1}–${first + 2} of ${pages.length}`
@@ -248,10 +271,10 @@ export default function BinderView({ groups, siblings }) {
           e.stopPropagation();
         }}
         className="binder mx-auto w-full touch-pan-y select-none focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-none"
-        // Sized so the whole binder fits on screen below the header (a page is about 1.45 times as tall as it is wide).
-        style={{ maxWidth: spread ? "min(100%, max(26rem, calc((100dvh - 12rem) * 1.38)))" : "min(100%, 30rem, max(16rem, calc((100dvh - 12rem) * 0.72)))" }}
+        // Two pages fill the width of the toolbar above; a single page (phones) is capped so it isn't stretched.
+        style={{ maxWidth: spread ? "100%" : "min(100%, 30rem)" }}
       >
-        <div className={cn("relative grid", spread ? "grid-cols-[1fr_auto_1fr]" : "grid-cols-[auto_1fr] overflow-hidden")} style={{ perspective: spread ? "2600px" : "1800px" }}>
+        <div className={cn("relative grid", spread ? "grid-cols-[1fr_auto_1fr]" : "grid-cols-[auto_1fr] overflow-hidden")} style={{ perspective: `${Math.max(1800, size.w * 8)}px` }}>
           {spread ? (
             <>
               <Sheet page={shown[0]} siblings={siblings} side="left" />
@@ -290,19 +313,21 @@ export default function BinderView({ groups, siblings }) {
         </div>
       </div>
 
-      <div className="flex flex-wrap items-center justify-center gap-3">
-        <Button variant="outline" size="icon" onClick={() => go("prev")} disabled={!canPrev || Boolean(flip)} aria-label="Previous page">
-          <ChevronLeft aria-hidden="true" />
-        </Button>
-        <p className="min-w-36 text-center text-sm font-medium tabular-nums" aria-live="polite">
-          {label}
-        </p>
-        <Button variant="outline" size="icon" onClick={() => go("next")} disabled={!canNext || Boolean(flip)} aria-label="Next page">
-          <ChevronRight aria-hidden="true" />
-        </Button>
+      <div className="flex flex-col items-center gap-3 sm:flex-row sm:justify-center">
+        <div className="flex items-center gap-2 sm:gap-3">
+          <Button variant="outline" size="icon" onClick={() => go("prev")} disabled={!canPrev || Boolean(flip)} aria-label="Previous page">
+            <ChevronLeft aria-hidden="true" />
+          </Button>
+          <p className="min-w-0 text-center text-sm font-medium whitespace-nowrap tabular-nums sm:min-w-36" aria-live="polite">
+            {label}
+          </p>
+          <Button variant="outline" size="icon" onClick={() => go("next")} disabled={!canNext || Boolean(flip)} aria-label="Next page">
+            <ChevronRight aria-hidden="true" />
+          </Button>
+        </div>
         {pages.length > per * 2 && (
-          <label className="flex items-center gap-2 text-sm text-muted-foreground">
-            Jump to page
+          <label className="flex w-full max-w-xs items-center gap-2 text-sm text-muted-foreground sm:w-auto">
+            <span className="shrink-0">Jump to page</span>
             <input
               type="range"
               min={0}
@@ -310,7 +335,7 @@ export default function BinderView({ groups, siblings }) {
               step={per}
               value={first}
               onChange={(e) => !flip && setAt(Number(e.target.value))}
-              className="w-32 accent-primary"
+              className="w-full min-w-0 accent-primary sm:w-32"
             />
           </label>
         )}
