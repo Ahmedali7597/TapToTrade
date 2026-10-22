@@ -16,7 +16,8 @@ export default function ImportCollection({ onImported }) {
   const [open, setOpen] = useState(false);
   const [text, setText] = useState("");
   const [fileName, setFileName] = useState("");
-  const [available, setAvailable] = useState(true);
+  // Imported cards stay private unless the player chooses to share them.
+  const [available, setAvailable] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
   const [result, setResult] = useState(null);
@@ -81,7 +82,12 @@ export default function ImportCollection({ onImported }) {
             <ul className="list-disc space-y-1 pl-5 text-sm text-muted-foreground">
               {result.nameOnly > 0 && <li>{result.nameOnly} card(s) had no set, so the newest printing was used. Edit them if yours differ.</li>}
               {result.adjustedFinish > 0 && <li>{result.adjustedFinish} card(s) were listed in a finish their printing doesn't come in, so it was corrected.</li>}
-              <li>Cards you already listed in the same printing, condition and finish were added to those listings.</li>
+              <li>Cards you already listed in the same printing, condition and finish were added to those listings, which stay shared or private as they were.</li>
+              {!available && (
+                <li>
+                  New listings are private. To trade some, choose Show: Private only, then Select cards, pick them (or Select all shown) and press Share.
+                </li>
+              )}
             </ul>
             {result.skippedCount > 0 && (
               <details className="rounded-md border p-3 text-sm">
@@ -122,7 +128,7 @@ export default function ImportCollection({ onImported }) {
             </div>
             <div className="flex items-center gap-3 text-sm">
               <Switch id="import-share" checked={available} onCheckedChange={setAvailable} />
-              <Label htmlFor="import-share">Share new listings for trade (you can hide any card later)</Label>
+              <Label htmlFor="import-share">Share imported cards for trade right away (off: they stay private until you share them)</Label>
             </div>
             <DialogFooter>
               <Button type="submit" disabled={busy || !text.trim()}>

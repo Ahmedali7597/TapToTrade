@@ -57,12 +57,15 @@ describe("signed-in player", () => {
 
   it("FE-07 an added card appears in the inventory list", () => {
     cy.visit("/inventory");
+    cy.contains("button", "Add a card").click();
     cy.get("#q").type("Counterspell");
     cy.contains("button", "Find").click();
     cy.contains("legend", "Choose a printing");
     cy.get("label:has(input[name=printingId])").first().click();
     cy.get("#quantity").clear().type("3");
     cy.contains("button", "Add to inventory").click();
+    cy.get("body").type("{esc}");
+    cy.contains("button", "List").click();
     cy.get("[data-testid=inventory-list]").should("contain", "Counterspell");
   });
 
