@@ -134,7 +134,7 @@ const detectFormat = (header) => {
 };
 
 /** One plain-text list line: "4 Lightning Bolt", "1x Sol Ring (C21) 263", "2 Opt (ELD) 59 *F*". */
-const LINE = /^(\d+)\s*x?\s+(.+?)(?:\s+\(([A-Za-z0-9]{2,6})\)(?:\s+([A-Za-z0-9★-]+))?)?(?:\s+\*([FE])\*)?$/i;
+export const LINE = /^(\d+)\s*x?\s+(.+?)(?:\s+\(([A-Za-z0-9]{2,6})\)(?:\s+([A-Za-z0-9★-]+))?)?(?:\s+\*([FE])\*)?$/i;
 
 function parseTextList(lines) {
   const rows = [];

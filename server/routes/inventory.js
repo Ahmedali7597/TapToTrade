@@ -7,7 +7,7 @@ import { lookupCollection } from "../lib/scryfall.js";
 import { importLimiter, requireAuth } from "../middleware.js";
 import { CONDITIONS, FINISH_LABELS, FINISHES, parseQuantity } from "../../shared/validation.js";
 import { itemView, PRINTING_COLUMNS } from "../lib/views.js";
-import { cachePrintings } from "./cards.js";
+import { cachePrintings, fillCardDetails } from "./cards.js";
 
 // Inventory CRUD (4.3.1–4.3.4). Every statement filters by owner_id, so users can only touch their own rows.
 const router = Router();
@@ -72,34 +72,10 @@ function checkFinish(finish, finishes) {
 
 const DUPLICATE = "You already list this printing in that condition and finish.";
 
-/**
- * Printings saved before migration 010 have no type, colours or rarity. Fill them in from Scryfall (75 per
- * request, up to 5000, the import limit) so the inventory page can group them; it's a one-off per printing. Best effort: if Scryfall is down they stay ungrouped until next time, and
- * a card Scryfall doesn't know gets an empty type so it isn't asked about again.
- */
-async function fillCardDetails(items) {
-  const ids = [...new Set(items.filter((i) => i.printing.typeLine === null).map((i) => i.printing.id))].slice(0, MAX_ROWS);
-  if (!ids.length) return false;
-  try {
-    const found = await lookupCollection(ids.map((id) => [id, { id }]));
-    const rows = ids.map((id) => found.get(id) ?? { id, typeLine: "", colors: [], rarity: null });
-    const values = valuesList(rows.map((p) => [p.id, p.typeLine, p.colors, p.rarity]));
-    await query(
-      `UPDATE card_printings p SET type_line = v.type_line, colors = v.colors::text[], rarity = v.rarity
-         FROM (VALUES ${values.sql}) AS v (id, type_line, colors, rarity) WHERE p.id = v.id::uuid`,
-      values.params,
-    );
-    return true;
-  } catch (err) {
-    console.warn(`Card details lookup failed: ${err.message}`);
-    return false;
-  }
-}
-
 // The signed-in user's whole inventory, hidden listings included.
 router.get("/", async (req, res) => {
   const items = await listItems(req.user.id);
-  res.json({ items: (await fillCardDetails(items)) ? await listItems(req.user.id) : items });
+  res.json({ items: (await fillCardDetails(items.map((i) => i.printing))) ? await listItems(req.user.id) : items });
 });
 
 // Market prices in CAD for every listing, for the collection's value and the price sort. Face to Face Games is

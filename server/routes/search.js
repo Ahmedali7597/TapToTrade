@@ -70,6 +70,15 @@ router.get("/users/:username", async (req, res) => {
       reputation: (await loadReputation([u.id])).get(String(u.id)),
     },
     inventory: await listItems(u.id, { availableOnly: true }),
+    // Decks the player chose to show on their profile.
+    decks: (
+      await query(
+        `SELECT d.id, d.name, d.format, d.updated_at, COALESCE(sum(c.quantity) FILTER (WHERE c.board IN ('commander', 'main')), 0)::int AS cards
+           FROM decks d LEFT JOIN deck_cards c ON c.deck_id = d.id WHERE d.owner_id = $1 AND d.visibility = 'public'
+          GROUP BY d.id ORDER BY d.updated_at DESC LIMIT 50`,
+        [u.id],
+      )
+    ).rows.map((d) => ({ id: d.id, name: d.name, format: d.format, updatedAt: d.updated_at, cards: d.cards })),
   });
 });
 

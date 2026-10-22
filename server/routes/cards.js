@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { query, valuesList } from "../db.js";
 import { HttpError, isUuid } from "../lib/http.js";
-import { autocompleteNames, cardDetails, sample, searchPrintings, showcasePool } from "../lib/scryfall.js";
+import { autocompleteNames, cardDetails, lookupCollection, sample, searchPrintings, showcasePool } from "../lib/scryfall.js";
 import { escapeLike } from "../lib/search.js";
 import { printingView } from "../lib/views.js";
 import { priceCards } from "../lib/prices.js";
@@ -13,7 +13,7 @@ import { requireAuth } from "../middleware.js";
 const router = Router();
 
 // Order of the fields when we bulk-insert printings below.
-const COLS = ["id", "name", "setCode", "setName", "collectorNumber", "imageUrl", "finishes", "typeLine", "colors", "rarity"];
+const COLS = ["id", "name", "setCode", "setName", "collectorNumber", "imageUrl", "finishes", "typeLine", "colors", "rarity", "manaValue", "manaCost", "colorIdentity", "legalities"];
 
 // Saves printings locally (multi-row upserts, 1000 at a time) so listings can reference them by id.
 // Also used by collection import.
@@ -22,14 +22,46 @@ export async function cachePrintings(printings) {
     const chunk = printings.slice(start, start + 1000);
     const values = valuesList(chunk.map((p) => COLS.map((c) => p[c])));
     await query(
-      `INSERT INTO card_printings (id, name, set_code, set_name, collector_number, image_url, finishes, type_line, colors, rarity)
+      `INSERT INTO card_printings (id, name, set_code, set_name, collector_number, image_url, finishes, type_line, colors, rarity,
+                                  mana_value, mana_cost, color_identity, legalities)
        VALUES ${values.sql}
        ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name, set_name = EXCLUDED.set_name,
          image_url = EXCLUDED.image_url, finishes = EXCLUDED.finishes,
          type_line = COALESCE(EXCLUDED.type_line, card_printings.type_line), colors = COALESCE(EXCLUDED.colors, card_printings.colors),
-         rarity = COALESCE(EXCLUDED.rarity, card_printings.rarity), updated_at = now()`,
+         rarity = COALESCE(EXCLUDED.rarity, card_printings.rarity), mana_value = COALESCE(EXCLUDED.mana_value, card_printings.mana_value),
+         mana_cost = COALESCE(EXCLUDED.mana_cost, card_printings.mana_cost),
+         color_identity = COALESCE(EXCLUDED.color_identity, card_printings.color_identity),
+         legalities = COALESCE(EXCLUDED.legalities, card_printings.legalities), updated_at = now()`,
       values.params,
     );
+  }
+}
+
+/**
+ * Printings saved before migrations 010 and 011 lack type, colours, rarity, mana value, cost, colour identity and
+ * legality. Fill them in from Scryfall (75 per request, up to 5000) so collections can be grouped and decks
+ * checked; it's a one-off per printing. Best effort: if Scryfall is down they stay unknown until next time, and a
+ * card Scryfall doesn't know gets an empty type and mana value 0 so it isn't asked about again.
+ * Returns true if anything changed (so the caller reloads).
+ */
+export async function fillCardDetails(printings) {
+  const ids = [...new Set(printings.filter((p) => p.typeLine === null || p.manaValue === null).map((p) => p.id))].slice(0, 5000);
+  if (!ids.length) return false;
+  try {
+    const found = await lookupCollection(ids.map((id) => [id, { id }]));
+    await cachePrintings([...found.values()]);
+    const unknown = ids.filter((id) => !found.has(id));
+    if (unknown.length) {
+      await query(
+        `UPDATE card_printings SET type_line = COALESCE(type_line, ''), colors = COALESCE(colors, '{}'), mana_value = COALESCE(mana_value, 0),
+                mana_cost = COALESCE(mana_cost, ''), color_identity = COALESCE(color_identity, '{}') WHERE id = ANY($1::uuid[])`,
+        [unknown],
+      );
+    }
+    return true;
+  } catch (err) {
+    console.warn(`Card details lookup failed: ${err.message}`);
+    return false;
   }
 }
 

@@ -1,3 +1,4 @@
+import { DECK_FORMATS } from "../../shared/decks.js";
 import { FINISHES } from "../../shared/validation.js";
 import { matchesIdentifier } from "./collectionImport.js";
 
@@ -28,6 +29,11 @@ export function toPrinting(card) {
     typeLine: card.type_line ?? card.card_faces?.[0]?.type_line ?? "",
     colors: card.colors ?? card.card_faces?.[0]?.colors ?? [],
     rarity: card.rarity ?? null,
+    // For decks: mana value and cost (front face for double-faced cards), colour identity and format legality.
+    manaValue: card.cmc ?? 0,
+    manaCost: card.mana_cost ?? card.card_faces?.[0]?.mana_cost ?? "",
+    colorIdentity: card.color_identity ?? [],
+    legalities: card.legalities ? Object.fromEntries(DECK_FORMATS.map((f) => [f, card.legalities[f] ?? "not_legal"])) : null,
   };
 }
 

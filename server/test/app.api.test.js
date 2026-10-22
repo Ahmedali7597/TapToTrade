@@ -9,11 +9,13 @@ import { exchangeCode } from "../lib/google.js";
 import { autocompleteNames, cardDetails, lookupCollection, searchPrintings, showcasePool } from "../lib/scryfall.js";
 import { localParts, nextDay } from "../lib/events.js";
 import { priceCards } from "../lib/prices.js";
+import { commanderSuggestions } from "../lib/edhrec.js";
 import { TERMS_UPDATED } from "../../shared/pages.js";
 
 jest.mock("../lib/email.js", () => ({ ...jest.requireActual("../lib/email.js"), sendEmail: jest.fn().mockResolvedValue(true) }));
 // Google and Scryfall are external services; the tests stand in for their answers.
 jest.mock("../lib/google.js", () => ({ ...jest.requireActual("../lib/google.js"), googleConfigured: () => true, exchangeCode: jest.fn() }));
+jest.mock("../lib/edhrec.js", () => ({ ...jest.requireActual("../lib/edhrec.js"), commanderSuggestions: jest.fn() }));
 jest.mock("../lib/prices.js", () => ({ ...jest.requireActual("../lib/prices.js"), priceCards: jest.fn() }));
 jest.mock("../lib/scryfall.js", () => ({
   ...jest.requireActual("../lib/scryfall.js"),
@@ -808,7 +810,7 @@ describe("Continue with Google", () => {
 
 describe("collection import and export", () => {
   let p;
-  const printing = (id, name, setCode, collectorNumber, finishes) => ({ id, name, setCode, setName: setCode, collectorNumber, imageUrl: null, finishes });
+  const printing = (id, name, setCode, collectorNumber, finishes, extra = {}) => ({ id, name, setCode, setName: setCode, collectorNumber, imageUrl: null, finishes, ...extra });
   beforeAll(async () => {
     p = await newPlayer("importer");
     await p.add(BOLT, 1, { finish: "foil" });
@@ -856,10 +858,11 @@ describe("collection import and export", () => {
   });
 
   test("fills in card type, colours and rarity for printings saved before they were kept", async () => {
-    await pool.query("UPDATE card_printings SET type_line = NULL, colors = NULL, rarity = NULL WHERE id = ANY($1::uuid[])", [[BOLT, RING]]);
-    lookupCollection.mockResolvedValueOnce(new Map([[BOLT, { id: BOLT, typeLine: "Instant", colors: ["R"], rarity: "uncommon" }]]));
+    await pool.query("UPDATE card_printings SET type_line = NULL, colors = NULL, rarity = NULL, mana_value = NULL WHERE id = ANY($1::uuid[])", [[BOLT, RING]]);
+    const details = { typeLine: "Instant", colors: ["R"], rarity: "uncommon", manaValue: 1, manaCost: "{R}", colorIdentity: ["R"], legalities: { modern: "legal" } };
+    lookupCollection.mockResolvedValueOnce(new Map([[BOLT, printing(BOLT, "Lightning Bolt", "m10", "146", ["nonfoil", "foil"], details)]]));
     const items = (await p.get("/api/inventory")).body.items;
-    expect(items.find((i) => i.printing.id === BOLT).printing).toMatchObject({ typeLine: "Instant", colors: ["R"], rarity: "uncommon" });
+    expect(items.find((i) => i.printing.id === BOLT).printing).toMatchObject({ typeLine: "Instant", colors: ["R"], rarity: "uncommon", manaValue: 1, colorIdentity: ["R"] });
     // Scryfall didn't know this one: marked as asked, so it isn't looked up on every visit.
     expect(items.find((i) => i.printing.id === RING).printing).toMatchObject({ typeLine: "", colors: [] });
     lookupCollection.mockClear();
@@ -917,6 +920,122 @@ describe("collection import and export", () => {
     const lines = res.text.trim().split("\r\n");
     expect(lines[0]).toMatch(/^Count,Tradelist Count,Name,Edition,Condition/);
     expect(lines).toEqual(expect.arrayContaining(["4,4,Lightning Bolt,m10,Near Mint,English,foil,,,146,False,False,", "3,0,Sol Ring,c21,Played,English,,,,263,False,False,"]));
+  });
+});
+
+describe("decks", () => {
+  let owner;
+  let other;
+  let deck;
+  const printing = (id, name, setCode, collectorNumber, extra = {}) => ({
+    id, name, setCode, setName: setCode, collectorNumber, imageUrl: null, finishes: ["nonfoil"],
+    typeLine: "Instant", colors: ["R"], rarity: "common", manaValue: 1, manaCost: "{R}", colorIdentity: ["R"], legalities: { commander: "legal" }, ...extra,
+  });
+  beforeAll(async () => {
+    owner = await newPlayer("deck_owner");
+    other = await newPlayer("deck_other");
+  });
+
+  test("creates decks, keeps private ones private and lists public ones on the profile", async () => {
+    expect((await owner.send("post", "/api/decks", { name: "", format: "commander" })).status).toBe(400);
+    expect((await owner.send("post", "/api/decks", { name: "Burn", format: "chess" })).status).toBe(400);
+    const res = await owner.send("post", "/api/decks", { name: "Mono-red burn", format: "modern" });
+    expect(res.status).toBe(201);
+    deck = res.body.deck;
+    expect(deck).toMatchObject({ name: "Mono-red burn", format: "modern", visibility: "private", owner: { username: "deck_owner" } });
+    expect((await owner.get("/api/decks")).body.decks).toEqual([expect.objectContaining({ id: deck.id, cards: 0 })]);
+    const anon = await new Player().init();
+    expect((await anon.get(`/api/decks/${deck.id}`)).status).toBe(404);
+    expect((await other.get(`/api/decks/${deck.id}`)).status).toBe(404);
+    expect((await other.send("patch", `/api/decks/${deck.id}`, { name: "Mine now" })).status).toBe(404);
+
+    await owner.send("patch", `/api/decks/${deck.id}`, { visibility: "unlisted" });
+    expect((await anon.get(`/api/decks/${deck.id}`)).body).toMatchObject({ mine: false, owned: null });
+    expect((await other.send("patch", `/api/decks/${deck.id}`, { name: "Mine now" })).status).toBe(403);
+    expect((await anon.get("/api/users/deck_owner")).body.decks).toEqual([]);
+    await owner.send("patch", `/api/decks/${deck.id}`, { visibility: "public" });
+    expect((await anon.get("/api/users/deck_owner")).body.decks).toEqual([expect.objectContaining({ id: deck.id, name: "Mono-red burn" })]);
+  });
+
+  test("adds cards by name or printing, merges copies and moves cards between boards", async () => {
+    lookupCollection.mockResolvedValueOnce(new Map([["n", printing(BOLT, "Lightning Bolt", "m10", "146", { finishes: ["nonfoil", "foil"], setName: "Magic 2010" })]]));
+    const added = await owner.send("post", `/api/decks/${deck.id}/cards`, { name: "lightning bolt", quantity: 3 });
+    expect(added.status).toBe(201);
+    expect(added.body.card).toMatchObject({ board: "main", quantity: 3, printing: { name: "Lightning Bolt", manaValue: 1 } });
+    const again = await owner.send("post", `/api/decks/${deck.id}/cards`, { printingId: BOLT, quantity: 98 });
+    expect(again.body.card).toMatchObject({ id: added.body.card.id, quantity: 99 }); // same row, capped
+    lookupCollection.mockResolvedValueOnce(new Map());
+    expect((await owner.send("post", `/api/decks/${deck.id}/cards`, { name: "Not A Card" })).status).toBe(404);
+    expect((await owner.send("post", `/api/decks/${deck.id}/cards`, { printingId: BOLT, board: "attic" })).status).toBe(400);
+    expect((await other.send("post", `/api/decks/${deck.id}/cards`, { printingId: BOLT })).status).toBe(403);
+
+    const side = (await owner.send("post", `/api/decks/${deck.id}/cards`, { printingId: BOLT, board: "side", quantity: 2 })).body.card;
+    const moved = await owner.send("patch", `/api/decks/${deck.id}/cards/${side.id}`, { board: "main", quantity: 2 });
+    expect(moved.body.card).toMatchObject({ id: added.body.card.id, board: "main", quantity: 99 });
+    await owner.send("patch", `/api/decks/${deck.id}/cards/${added.body.card.id}`, { quantity: 4 });
+    const cards = (await owner.get(`/api/decks/${deck.id}`)).body.cards;
+    expect(cards).toEqual([expect.objectContaining({ board: "main", quantity: 4 })]);
+  });
+
+  test("imports a decklist with sections, exports it, and shows what the viewer owns", async () => {
+    lookupCollection.mockImplementationOnce(async (entries) => {
+      const known = { "sc:c21:263": printing(RING, "Sol Ring", "c21", "263", { typeLine: "Artifact", manaCost: "{1}", colorIdentity: [], finishes: ["nonfoil", "etched"], setName: "Commander 2021" }), "n:black lotus": printing(LOTUS, "Black Lotus", "lea", "232", { typeLine: "Artifact", setName: "Limited Edition Alpha" }) };
+      return new Map(entries.filter(([k]) => known[k]).map(([k]) => [k, known[k]]));
+    });
+    const text = "Deck\n1 Sol Ring (C21) 263\n1x Black Lotus\nnot a card line\n\nSideboard\n1 Sol Ring (C21) 263";
+    const res = await owner.send("post", `/api/decks/${deck.id}/import`, { text, replace: true });
+    expect(res.body).toMatchObject({ added: 3, skippedCount: 1 });
+    const { cards, owned } = (await owner.get(`/api/decks/${deck.id}`)).body;
+    expect(cards.map((c) => [c.printing.name, c.board, c.quantity])).toEqual([
+      ["Black Lotus", "main", 1],
+      ["Sol Ring", "main", 1],
+      ["Sol Ring", "side", 1],
+    ]);
+    expect(owned).toEqual({});
+    await owner.add(RING, 1);
+    expect((await owner.get(`/api/decks/${deck.id}`)).body.owned).toEqual({ "Sol Ring": 1 });
+
+    const out = await owner.get(`/api/decks/${deck.id}/export`);
+    expect(out.headers["content-type"]).toMatch(/text\/plain/);
+    expect(out.text).toBe("Deck\n1 Black Lotus (LEA) 232\n1 Sol Ring (C21) 263\n\nSideboard\n1 Sol Ring (C21) 263\n");
+  });
+
+  test("puts the cards the player is missing on their want list, once", async () => {
+    // Needs 2 Sol Rings (main + side) and owns 1; needs a Black Lotus and owns none.
+    expect((await owner.send("post", `/api/decks/${deck.id}/want-missing`)).body).toEqual({ added: 2, full: false });
+    const wants = (await owner.get("/api/wants")).body.wants;
+    expect(wants.map((w) => [w.printing.name, w.quantity, w.anyPrinting])).toEqual([
+      ["Black Lotus", 1, true],
+      ["Sol Ring", 1, true],
+    ]);
+    expect((await owner.send("post", `/api/decks/${deck.id}/want-missing`)).body).toEqual({ added: 0, full: false });
+  });
+
+  test("suggests cards from EDHREC for the commander, leaving out cards already in the deck", async () => {
+    expect((await owner.get(`/api/decks/${deck.id}/suggestions`)).status).toBe(400); // no commander yet
+    lookupCollection.mockResolvedValueOnce(new Map([["n", printing(LOTUS, "Black Lotus", "lea", "232", { typeLine: "Legendary Creature — Lotus", setName: "Limited Edition Alpha" })]]));
+    await owner.send("post", `/api/decks/${deck.id}/cards`, { name: "Black Lotus", board: "commander" });
+    commanderSuggestions.mockResolvedValueOnce({
+      slug: "black-lotus",
+      url: "https://edhrec.com/commanders/black-lotus",
+      lists: [{ tag: "topcards", header: "Top Cards", cards: [{ name: "Sol Ring", synergy: 0.1, inclusion: 0.9 }, { name: "Lightning Bolt", synergy: 0.4, inclusion: 0.5 }] }],
+    });
+    lookupCollection.mockResolvedValueOnce(new Map([["Lightning Bolt", printing(BOLT, "Lightning Bolt", "m10", "146", { finishes: ["nonfoil", "foil"], setName: "Magic 2010" })]]));
+    const res = await owner.get(`/api/decks/${deck.id}/suggestions`);
+    expect(commanderSuggestions).toHaveBeenLastCalledWith(["Black Lotus"]);
+    // Sol Ring is already in the deck, so only Lightning Bolt is suggested.
+    expect(res.body).toMatchObject({ url: "https://edhrec.com/commanders/black-lotus", lists: [{ tag: "topcards", count: 1 }], list: { cards: [{ name: "Lightning Bolt", printing: { id: BOLT } }] } });
+    commanderSuggestions.mockRejectedValueOnce(new Error("EDHREC responded 500"));
+    expect((await owner.get(`/api/decks/${deck.id}/suggestions`)).status).toBe(503);
+  });
+
+  test("deletes a card and then the whole deck", async () => {
+    const [first] = (await owner.get(`/api/decks/${deck.id}`)).body.cards;
+    expect((await owner.send("delete", `/api/decks/${deck.id}/cards/${first.id}`)).status).toBe(204);
+    expect((await owner.send("delete", `/api/decks/${deck.id}/cards/${first.id}`)).status).toBe(404);
+    expect((await other.send("delete", `/api/decks/${deck.id}`)).status).toBe(403);
+    expect((await owner.send("delete", `/api/decks/${deck.id}`)).status).toBe(204);
+    expect((await owner.get(`/api/decks/${deck.id}`)).status).toBe(404);
   });
 });
 

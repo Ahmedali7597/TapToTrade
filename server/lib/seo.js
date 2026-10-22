@@ -37,7 +37,7 @@ const NAV = [
 ];
 
 // Pages that exist but don't belong in search results: sign-in steps and everything behind a login.
-const PRIVATE = /^\/(login|forgot-password|reset-password|verify-email|register\/google|dashboard|inventory|wants|settings|suggestions|moderation|admin|trades(\/new|\/\d+(\/counter)?)?)$/;
+const PRIVATE = /^\/(login|forgot-password|reset-password|verify-email|register\/google|dashboard|inventory|wants|decks(\/\d+)?|settings|suggestions|moderation|admin|trades(\/new|\/\d+(\/counter)?)?)$/;
 
 const clip = (s, n) => (s.length > n ? `${s.slice(0, n - 1).trimEnd()}…` : s);
 
@@ -236,7 +236,7 @@ export const robotsTxt = () =>
     "User-agent: *",
     "Allow: /",
     "Disallow: /api/",
-    ...["/dashboard", "/inventory", "/wants", "/trades", "/settings", "/suggestions", "/moderation", "/admin"].map((p) => `Disallow: ${p}`),
+    ...["/dashboard", "/inventory", "/wants", "/decks", "/trades", "/settings", "/suggestions", "/moderation", "/admin"].map((p) => `Disallow: ${p}`),
     "",
     `Sitemap: ${siteUrl()}/sitemap.xml`,
     "",

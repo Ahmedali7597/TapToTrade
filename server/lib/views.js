@@ -6,7 +6,8 @@ import { storePath } from "../../shared/stores.js";
 // The card_printings columns printingView reads, for queries that join printings (alias p) onto listings or wants.
 // The printing's id comes back as printing_id so it can't clash with the listing's own id.
 export const PRINTING_COLUMNS =
-  "p.id AS printing_id, p.name, p.set_code, p.set_name, p.collector_number, p.image_url, p.finishes, p.type_line, p.colors, p.rarity";
+  "p.id AS printing_id, p.name, p.set_code, p.set_name, p.collector_number, p.image_url, p.finishes, p.type_line, p.colors, p.rarity, " +
+  "p.mana_value, p.mana_cost, p.color_identity, p.legalities";
 
 /**
  * A card printing, from a card_printings row (the same shape scryfall.toPrinting gives).
@@ -24,6 +25,10 @@ export const printingView = (r, id = r.id) => ({
   typeLine: r.type_line ?? null,
   colors: r.colors ?? null,
   rarity: r.rarity ?? null,
+  manaValue: r.mana_value == null ? null : Number(r.mana_value),
+  manaCost: r.mana_cost ?? null,
+  colorIdentity: r.color_identity ?? null,
+  legalities: r.legalities ?? null,
 });
 
 /** One inventory listing joined with its printing. */

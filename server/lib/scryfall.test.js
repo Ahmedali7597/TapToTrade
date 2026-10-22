@@ -10,6 +10,10 @@ const card = {
   type_line: "Instant",
   colors: ["R"],
   rarity: "common",
+  cmc: 1,
+  mana_cost: "{R}",
+  color_identity: ["R"],
+  legalities: { commander: "legal", modern: "legal", standard: "not_legal", oathbreaker: "legal" },
 };
 
 describe("toPrinting", () => {
@@ -25,6 +29,11 @@ describe("toPrinting", () => {
       typeLine: "Instant",
       colors: ["R"],
       rarity: "common",
+      manaValue: 1,
+      manaCost: "{R}",
+      colorIdentity: ["R"],
+      // Only the formats decks use; missing ones count as not legal.
+      legalities: { commander: "legal", standard: "not_legal", pioneer: "not_legal", modern: "legal", legacy: "not_legal", vintage: "not_legal", pauper: "not_legal" },
     });
   });
 
