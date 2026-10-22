@@ -62,3 +62,22 @@ test("decklists round-trip through text, with sections and Archidekt tags", () =
   ]);
   expect(archidekt.skipped).toEqual([{ line: 5, name: "bad line here", reason: "Couldn't read this line." }]);
 });
+
+test("edge rules: limited cards, casual, too many or non-legendary commanders, and cards not in the format", () => {
+  expect(copyLimit({ name: "Seven Dwarves", typeLine: "Creature" }, "modern")).toBe(7);
+  expect(copyLimit({ name: "Bolt", typeLine: "Instant" }, "casual")).toBe(Infinity);
+  const cmd = (name, typeLine = "Legendary Creature — Human") => card(name, "commander", 1, { typeLine, colorIdentity: ["W"] });
+  const problems = deckProblems("commander", [cmd("A"), cmd("B"), cmd("C"), cmd("Not A Commander", "Artifact"), card("Pauper Only", "main", 1, { legalities: { commander: "not_legal" } })]);
+  expect(problems).toEqual(
+    expect.arrayContaining([
+      "A deck can have at most two commanders (with Partner or a similar ability).",
+      "Not A Commander isn't a legendary creature, so it usually can't be a commander.",
+      "Pauper Only isn't legal in Commander.",
+    ]),
+  );
+  // More than ten cards outside the colour identity are summed up instead of listed.
+  const outside = Array.from({ length: 12 }, (_, i) => card(`Red ${i}`));
+  expect(deckProblems("commander", [cmd("White"), ...outside])).toContain("…and 2 more cards outside the colour identity.");
+  expect(deckProblems("modern", [card("Bolt", "maybe", 9)])).toEqual(["A Modern deck needs at least 60 main-deck cards. This one has 0."]);
+  expect(colourPips([card("Side", "side", 4, { manaCost: "{G}" }), card("Colourless", "main", 1, { manaCost: "{C}{2}" })])).toEqual({ W: 0, U: 0, B: 0, R: 0, G: 0, C: 1 });
+});

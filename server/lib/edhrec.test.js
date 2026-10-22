@@ -20,3 +20,8 @@ test("reads EDHREC's lists, and treats a missing page as no suggestions", async 
   expect(await commanderSuggestions(["Nobody Real"])).toBeNull();
   expect(global.fetch).toHaveBeenCalledTimes(2);
 });
+
+test("passes on an EDHREC server error so the page can say it isn't answering", async () => {
+  global.fetch = jest.fn().mockResolvedValueOnce({ ok: false, status: 502 });
+  await expect(commanderSuggestions(["Someone Else"])).rejects.toThrow("EDHREC responded 502");
+});
