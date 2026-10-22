@@ -6,9 +6,10 @@ import { binderPages } from "@/lib/collection";
 import { motionReduced } from "@/lib/display";
 import { cn } from "@/lib/utils";
 
-// The collection as a 9-pocket trade binder you flip through. Two pages side by side on wide screens, one on
-// phones. A turning sheet is cut into thin vertical strips, each hinged to the one before it, so it curls as it
-// turns: the free edge leads and the sheet flattens again as it lands, like a plastic binder page. Drag or swipe a
+// The collection as a 9-pocket card binder you flip through: a ringless zip binder like Vault X's or Ultra PRO's,
+// with the pages bound into the spine (the look is in index.css, "The Binder view"). Two pages side by side on wide
+// screens, one on phones. A turning sheet is cut into thin vertical strips, each angled a little further than the
+// last, so it curls as it turns: the free edge leads and the sheet flattens again as it lands. Drag or swipe a
 // page to turn it by hand, or use the arrow buttons and the arrow keys. Reduced motion turns pages instantly.
 
 const STRIPS = 12;
@@ -80,17 +81,6 @@ function TurningSheet({ front, back, w, h, strips }) {
       {face(back, w - (i + 1) * s, true, "left")}
       <div data-shade className="pointer-events-none absolute inset-0" style={{ background: "rgb(0 0 0)", opacity: 0 }} />
     </div>
-  ));
-}
-
-/** Three binder rings, each passing through a punched hole in the page (both pages when the binder is open). */
-function Rings() {
-  return ["18%", "50%", "82%"].map((top) => (
-    <span key={top} className="binder-ring-slot" style={{ top }}>
-      <span className="binder-hole binder-hole--left" />
-      <span className="binder-hole binder-hole--right" />
-      <span className="binder-ring" />
-    </span>
   ));
 }
 
@@ -287,9 +277,7 @@ export default function BinderView({ groups, siblings }) {
           {spread ? (
             <>
               <Sheet page={shown[0]} siblings={siblings} side="left" />
-              <div className="binder-spine" aria-hidden="true">
-                <Rings />
-              </div>
+              <div className="binder-spine" aria-hidden="true" />
               <div ref={pageBox} className="relative">
                 <Sheet page={shown[1]} siblings={siblings} side="right" />
                 <div ref={cast} className="binder-cast" style={{ opacity: 0 }} />
@@ -297,9 +285,7 @@ export default function BinderView({ groups, siblings }) {
             </>
           ) : (
             <>
-              <div className="binder-spine binder-spine--edge" aria-hidden="true">
-                <Rings />
-              </div>
+              <div className="binder-spine binder-spine--edge" aria-hidden="true" />
               <div ref={pageBox} className="relative">
                 <Sheet page={shown[0]} siblings={siblings} side="right" />
                 <div ref={cast} className="binder-cast" style={{ opacity: 0 }} />
