@@ -437,6 +437,12 @@
   border-bottom-left-radius: 0;
   box-shadow: inset 22px 0 24px -16px rgb(0 0 0 / 0.75), inset 0 0 0 1px rgb(255 255 255 / 0.05), 0 1px 2px rgb(0 0 0 / 0.4);
 }
+/* Safari starts dragging an image as soon as the mouse moves over it, which cancels the page turn: binder
+   images can't be dragged (the onDragStart guard in BinderView.jsx covers the other browsers). */
+.binder img {
+  -webkit-user-drag: none;
+  user-select: none;
+}
 /* A pocket of the clear sheet: almost square corners and a thin welded seam around it, with a faint glare. */
 .binder-pocket {
   position: relative;
