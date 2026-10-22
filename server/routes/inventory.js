@@ -2,6 +2,7 @@ import { Router } from "express";
 import { query, tx, valuesList } from "../db.js";
 import { identifierFor, MAX_ROWS, parseCollection } from "../lib/collectionImport.js";
 import { HttpError, checkFields, idParam, isUuid } from "../lib/http.js";
+import { priceCards } from "../lib/prices.js";
 import { lookupCollection } from "../lib/scryfall.js";
 import { importLimiter, requireAuth } from "../middleware.js";
 import { CONDITIONS, FINISH_LABELS, FINISHES, parseQuantity } from "../../shared/validation.js";
@@ -71,9 +72,60 @@ function checkFinish(finish, finishes) {
 
 const DUPLICATE = "You already list this printing in that condition and finish.";
 
+/**
+ * Printings saved before migration 010 have no type, colours or rarity. Fill in up to 300 of them from Scryfall
+ * so the inventory page can group them. Best effort: if Scryfall is down they stay ungrouped until next time, and
+ * a card Scryfall doesn't know gets an empty type so it isn't asked about again.
+ */
+async function fillCardDetails(items) {
+  const ids = [...new Set(items.filter((i) => i.printing.typeLine === null).map((i) => i.printing.id))].slice(0, 300);
+  if (!ids.length) return false;
+  try {
+    const found = await lookupCollection(ids.map((id) => [id, { id }]));
+    const rows = ids.map((id) => found.get(id) ?? { id, typeLine: "", colors: [], rarity: null });
+    const values = valuesList(rows.map((p) => [p.id, p.typeLine, p.colors, p.rarity]));
+    await query(
+      `UPDATE card_printings p SET type_line = v.type_line, colors = v.colors::text[], rarity = v.rarity
+         FROM (VALUES ${values.sql}) AS v (id, type_line, colors, rarity) WHERE p.id = v.id::uuid`,
+      values.params,
+    );
+    return true;
+  } catch (err) {
+    console.warn(`Card details lookup failed: ${err.message}`);
+    return false;
+  }
+}
+
 // The signed-in user's whole inventory, hidden listings included.
 router.get("/", async (req, res) => {
-  res.json({ items: await listItems(req.user.id) });
+  const items = await listItems(req.user.id);
+  res.json({ items: (await fillCardDetails(items)) ? await listItems(req.user.id) : items });
+});
+
+// Market prices in CAD for every listing, for the collection's value and the price sort. Face to Face Games is
+// only asked one card a second, so it's left out here; the card close-up still shows it.
+router.get("/prices", async (req, res) => {
+  const items = await listItems(req.user.id);
+  if (!items.length) return res.json({ rate: null, prices: {} });
+  try {
+    res.json(await priceCards(items.map((i) => ({ printingId: i.printing.id, finish: i.finish })), { fallback: false }));
+  } catch (err) {
+    console.warn(`Inventory prices unavailable: ${err.message}`);
+    throw new HttpError(503, "Card prices aren't available right now. Please try again later.");
+  }
+});
+
+// Share, hide or delete several listings at once (the inventory page's select mode). Only the owner's rows change.
+router.post("/bulk", async (req, res) => {
+  const ids = Array.isArray(req.body?.ids) ? [...new Set(req.body.ids.map(Number))] : [];
+  const action = req.body?.action;
+  if (!ids.length || ids.length > 5000 || !ids.every((id) => Number.isSafeInteger(id) && id > 0)) throw new HttpError(400, "Choose the cards to change.");
+  if (!["share", "hide", "delete"].includes(action)) throw new HttpError(400, "Choose share, hide or delete.");
+  const { rowCount } =
+    action === "delete"
+      ? await query("DELETE FROM inventory_items WHERE owner_id = $1 AND id = ANY($2::bigint[])", [req.user.id, ids])
+      : await query("UPDATE inventory_items SET available = $3, updated_at = now() WHERE owner_id = $1 AND id = ANY($2::bigint[])", [req.user.id, ids, action === "share"]);
+  res.json({ changed: rowCount });
 });
 
 // Add a card. The printing has to be one the card search already saved, and the finish has to exist for it.
@@ -102,12 +154,13 @@ router.post("/", async (req, res) => {
 /**
  * Collection import from Moxfield, Archidekt, ManaBox, Deckbox, TCGplayer, Dragon Shield and others,
  * or a plain text list. Cards already listed in the same printing, condition and finish are added to
- * (capped at 9999); new listings get the chosen visibility. Unmatched rows come back in `skipped`.
+ * (capped at 9999) and keep their visibility; new listings are private unless `available: true` is sent.
+ * Unmatched rows come back in `skipped`.
  */
 router.post("/import", importLimiter, async (req, res) => {
   const text = typeof req.body?.text === "string" ? req.body.text : "";
   if (!text.trim()) throw new HttpError(400, "Choose a file or paste your list first.");
-  const available = req.body?.available !== false;
+  const available = req.body?.available === true; // private unless the player chose to share them
   const { format, rows, skipped } = parseCollection(text);
   if (rows.length > MAX_ROWS) throw new HttpError(400, `Imports are limited to ${MAX_ROWS} rows. Split the file and import it in parts.`);
   if (!rows.length) throw new HttpError(400, "We couldn't find any cards in that. Check it's a collection export or a list like \"4 Lightning Bolt\".");

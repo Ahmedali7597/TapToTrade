@@ -24,6 +24,10 @@ export function toPrinting(card) {
     collectorNumber: card.collector_number,
     imageUrl: images?.normal ?? null,
     finishes: finishes.length ? finishes : ["nonfoil"],
+    // For grouping a collection. Double-faced cards keep their colours on the faces.
+    typeLine: card.type_line ?? card.card_faces?.[0]?.type_line ?? "",
+    colors: card.colors ?? card.card_faces?.[0]?.colors ?? [],
+    rarity: card.rarity ?? null,
   };
 }
 

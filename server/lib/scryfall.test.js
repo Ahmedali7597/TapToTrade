@@ -7,6 +7,9 @@ const card = {
   set_name: "Magic 2010",
   collector_number: "146",
   image_uris: { normal: "https://cards.scryfall.io/normal/bolt.jpg" },
+  type_line: "Instant",
+  colors: ["R"],
+  rarity: "common",
 };
 
 describe("toPrinting", () => {
@@ -19,7 +22,15 @@ describe("toPrinting", () => {
       collectorNumber: "146",
       imageUrl: "https://cards.scryfall.io/normal/bolt.jpg",
       finishes: ["nonfoil"],
+      typeLine: "Instant",
+      colors: ["R"],
+      rarity: "common",
     });
+  });
+
+  test("takes type and colours from the front face of double-faced cards", () => {
+    const dfc = { ...card, type_line: undefined, colors: undefined, card_faces: [{ type_line: "Creature — Human", colors: ["G"] }, { type_line: "Creature — Werewolf", colors: ["G"] }] };
+    expect(toPrinting(dfc)).toMatchObject({ typeLine: "Creature — Human", colors: ["G"] });
   });
 
   test("keeps the finishes we support and drops the rest", () => {

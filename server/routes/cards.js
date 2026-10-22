@@ -13,7 +13,7 @@ import { requireAuth } from "../middleware.js";
 const router = Router();
 
 // Order of the fields when we bulk-insert printings below.
-const COLS = ["id", "name", "setCode", "setName", "collectorNumber", "imageUrl", "finishes"];
+const COLS = ["id", "name", "setCode", "setName", "collectorNumber", "imageUrl", "finishes", "typeLine", "colors", "rarity"];
 
 // Saves printings locally (multi-row upserts, 1000 at a time) so listings can reference them by id.
 // Also used by collection import.
@@ -22,10 +22,12 @@ export async function cachePrintings(printings) {
     const chunk = printings.slice(start, start + 1000);
     const values = valuesList(chunk.map((p) => COLS.map((c) => p[c])));
     await query(
-      `INSERT INTO card_printings (id, name, set_code, set_name, collector_number, image_url, finishes)
+      `INSERT INTO card_printings (id, name, set_code, set_name, collector_number, image_url, finishes, type_line, colors, rarity)
        VALUES ${values.sql}
        ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name, set_name = EXCLUDED.set_name,
-         image_url = EXCLUDED.image_url, finishes = EXCLUDED.finishes, updated_at = now()`,
+         image_url = EXCLUDED.image_url, finishes = EXCLUDED.finishes,
+         type_line = COALESCE(EXCLUDED.type_line, card_printings.type_line), colors = COALESCE(EXCLUDED.colors, card_printings.colors),
+         rarity = COALESCE(EXCLUDED.rarity, card_printings.rarity), updated_at = now()`,
       values.params,
     );
   }

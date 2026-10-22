@@ -17,7 +17,7 @@ jest.mock("../lib/google.js", () => ({ ...jest.requireActual("../lib/google.js")
 jest.mock("../lib/prices.js", () => ({ ...jest.requireActual("../lib/prices.js"), priceCards: jest.fn() }));
 jest.mock("../lib/scryfall.js", () => ({
   ...jest.requireActual("../lib/scryfall.js"),
-  lookupCollection: jest.fn(),
+  lookupCollection: jest.fn().mockResolvedValue(new Map()),
   searchPrintings: jest.fn(),
   autocompleteNames: jest.fn(),
   cardDetails: jest.fn(),
@@ -836,6 +836,48 @@ describe("collection import and export", () => {
     expect(bolt).toMatchObject({ quantity: 4, finish: "foil", available: true }); // 1 already listed + 3 imported; visibility kept
     // Sol Ring doesn't come in plain foil, so the import used its first finish, and kept the new listing hidden.
     expect(items.find((i) => i.printing.id === RING)).toMatchObject({ quantity: 3, finish: "nonfoil", condition: "MP", available: false });
+  });
+
+  test("keeps imported cards private unless the player chooses to share them", async () => {
+    const q = await newPlayer("importer_private");
+    lookupCollection.mockImplementationOnce(async (entries) => new Map(entries.map(([k]) => [k, printing(LOTUS, "Black Lotus", "lea", "232", ["nonfoil"])])));
+    expect((await q.send("post", "/api/inventory/import", { text: "1 Black Lotus" })).status).toBe(200);
+    expect((await q.get("/api/inventory")).body.items).toEqual([expect.objectContaining({ available: false })]);
+  });
+
+  test("fills in card type, colours and rarity for printings saved before they were kept", async () => {
+    await pool.query("UPDATE card_printings SET type_line = NULL, colors = NULL, rarity = NULL WHERE id = ANY($1::uuid[])", [[BOLT, RING]]);
+    lookupCollection.mockResolvedValueOnce(new Map([[BOLT, { id: BOLT, typeLine: "Instant", colors: ["R"], rarity: "uncommon" }]]));
+    const items = (await p.get("/api/inventory")).body.items;
+    expect(items.find((i) => i.printing.id === BOLT).printing).toMatchObject({ typeLine: "Instant", colors: ["R"], rarity: "uncommon" });
+    // Scryfall didn't know this one: marked as asked, so it isn't looked up on every visit.
+    expect(items.find((i) => i.printing.id === RING).printing).toMatchObject({ typeLine: "", colors: [] });
+    lookupCollection.mockClear();
+    await p.get("/api/inventory");
+    expect(lookupCollection).not.toHaveBeenCalled();
+  });
+
+  test("shares, hides and deletes several listings at once, only the player's own", async () => {
+    const other = await newPlayer("bulk_other");
+    const theirs = await other.add(LOTUS, 1);
+    const items = (await p.get("/api/inventory")).body.items;
+    const ids = items.map((i) => i.id);
+    expect((await p.send("post", "/api/inventory/bulk", { ids: [...ids, theirs.id], action: "hide" })).body).toEqual({ changed: ids.length });
+    expect((await p.get("/api/inventory")).body.items.every((i) => !i.available)).toBe(true);
+    expect((await other.get("/api/inventory")).body.items[0].available).toBe(true);
+    expect((await p.send("post", "/api/inventory/bulk", { ids, action: "share" })).body).toEqual({ changed: ids.length });
+    expect((await p.send("post", "/api/inventory/bulk", { ids: [theirs.id], action: "delete" })).body).toEqual({ changed: 0 });
+    expect((await p.send("post", "/api/inventory/bulk", { ids, action: "sell" })).status).toBe(400);
+    expect((await p.send("post", "/api/inventory/bulk", { ids: [], action: "share" })).status).toBe(400);
+    // Put back the private ones, for the export test below.
+    await p.send("post", "/api/inventory/bulk", { ids: items.filter((i) => !i.available).map((i) => i.id), action: "hide" });
+  });
+
+  test("prices the whole collection at market price, without the slow store fallback", async () => {
+    priceCards.mockResolvedValueOnce({ rate: { usdCad: 1.4, date: "2026-10-21" }, prices: {} });
+    const res = await p.get("/api/inventory/prices");
+    expect(res.status).toBe(200);
+    expect(priceCards).toHaveBeenLastCalledWith(expect.arrayContaining([{ printingId: BOLT, finish: "foil" }]), { fallback: false });
   });
 
   test("rejects empty input and explains when Scryfall is down", async () => {

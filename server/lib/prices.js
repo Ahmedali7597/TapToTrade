@@ -102,12 +102,14 @@ const remember = (key, value) => {
  * { cad, source: "market" | "store", marketUsd, marketCad, store: { cad, condition, url } | null }, with cad null
  * when neither source has one. `store: true` (the card close-up) also asks Face to Face when there's a market price.
  */
-export async function priceCards(cards, { store = false } = {}) {
+export async function priceCards(cards, { store = false, fallback = true } = {}) {
   const { usdCad, date } = await usdToCad();
   const keys = [...new Set(cards.map((c) => `${c.printingId}:${c.finish}`))];
   const fresh = (key) => {
     const hit = cache.get(key);
-    return hit && Date.now() - hit.at < DAY && (!store || hit.value.storeChecked) ? hit.value : null;
+    // A card priced without the store fallback (the inventory's value) is asked again when the fallback is wanted.
+    const enough = (!store || hit?.value.storeChecked) && (!fallback || hit?.value.marketUsd != null || hit?.value.storeChecked);
+    return hit && Date.now() - hit.at < DAY && enough ? hit.value : null;
   };
   const missing = keys.filter((k) => !fresh(k));
   if (missing.length) {
@@ -124,7 +126,7 @@ export async function priceCards(cards, { store = false } = {}) {
       const card = found.get(id);
       const marketUsd = card?.usd[finish] ? Number(card.usd[finish]) : null;
       // The store is asked when it's the only source, or when the close-up wants both. A failure there just means no store price.
-      const askStore = card && (store || marketUsd == null);
+      const askStore = card && (store || (fallback && marketUsd == null));
       const storeHit = askStore ? await storePrice(card, finish).catch(() => null) : null;
       remember(key, { marketUsd, store: storeHit, storeChecked: Boolean(askStore) });
     }
