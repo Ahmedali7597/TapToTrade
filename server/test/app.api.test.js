@@ -873,6 +873,18 @@ describe("collection import and export", () => {
     await p.send("post", "/api/inventory/bulk", { ids: items.filter((i) => !i.available).map((i) => i.id), action: "hide" });
   });
 
+  test("deletes a whole collection only when confirmed, and only the player's own", async () => {
+    const q = await newPlayer("empty_collection");
+    const other = await newPlayer("empty_collection_other");
+    await q.add(BOLT, 2);
+    await q.add(RING, 1);
+    await other.add(BOLT, 1);
+    expect((await q.send("delete", "/api/inventory", {})).status).toBe(400);
+    expect((await q.send("delete", "/api/inventory", { confirm: "delete" })).body).toEqual({ deleted: 2 });
+    expect((await q.get("/api/inventory")).body.items).toEqual([]);
+    expect((await other.get("/api/inventory")).body.items).toHaveLength(1);
+  });
+
   test("prices the whole collection at market price, without the slow store fallback", async () => {
     priceCards.mockResolvedValueOnce({ rate: { usdCad: 1.4, date: "2026-10-21" }, prices: {} });
     const res = await p.get("/api/inventory/prices");

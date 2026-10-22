@@ -349,6 +349,67 @@ function Totals({ summary, pricesReady }) {
   );
 }
 
+/** "Delete collection": empties the inventory after the player types "delete". Offers the CSV export first. */
+function DeleteCollection({ count, onDeleted }) {
+  const [open, setOpen] = useState(false);
+  const [typed, setTyped] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState(null);
+  const remove = async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      await api("/inventory", { method: "DELETE", body: { confirm: "delete" } });
+      setOpen(false);
+      onDeleted();
+    } catch (err) {
+      setError(err);
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <AlertDialog
+      open={open}
+      onOpenChange={(o) => {
+        setOpen(o);
+        setTyped("");
+        setError(null);
+      }}
+    >
+      <AlertDialogTrigger asChild>
+        <Button variant="outline" className="gap-2 text-destructive">
+          <Trash2 className="size-4" aria-hidden="true" /> Delete collection
+        </Button>
+      </AlertDialogTrigger>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>Delete your whole collection?</AlertDialogTitle>
+          <AlertDialogDescription>
+            This removes all {count.toLocaleString("en-CA")} listings from your inventory and can't be undone. Proposals that already include them keep a
+            snapshot. You may want to{" "}
+            <a href="/api/inventory/export" download className="font-medium text-primary underline underline-offset-4">
+              download a CSV copy
+            </a>{" "}
+            first.
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <div className="grid gap-1.5">
+          <Label htmlFor="confirm-delete-all">Type delete to confirm</Label>
+          <Input id="confirm-delete-all" value={typed} onChange={(e) => setTyped(e.target.value)} autoComplete="off" />
+        </div>
+        {error && <p className="text-sm font-medium text-destructive">{error.message}</p>}
+        <AlertDialogFooter>
+          <AlertDialogCancel>Cancel</AlertDialogCancel>
+          <Button variant="destructive" disabled={busy || typed.trim().toLowerCase() !== "delete"} onClick={remove}>
+            {busy ? "Deleting…" : "Delete everything"}
+          </Button>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+  );
+}
+
 export default function Inventory() {
   const { data, error, loading, reload } = useApi("/inventory");
   const [items, setItems] = useState(null);
@@ -466,6 +527,15 @@ export default function Inventory() {
                 <Download className="size-4" aria-hidden="true" /> Export CSV
               </a>
             </Button>
+          )}
+          {list.length > 0 && (
+            <DeleteCollection
+              count={list.length}
+              onDeleted={() => {
+                setItems([]);
+                stopSelecting();
+              }}
+            />
           )}
         </div>
       </PageHeader>

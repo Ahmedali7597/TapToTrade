@@ -273,6 +273,14 @@ router.patch("/:id", async (req, res) => {
   res.json({ item: itemView(await getItem(id, req.user.id)) });
 });
 
+// Empty the whole inventory. The body must say { confirm: "delete" }, so a stray request can't do it.
+// Trade snapshots keep their copies, as with single deletes.
+router.delete("/", async (req, res) => {
+  if (req.body?.confirm !== "delete") throw new HttpError(400, 'Type "delete" to confirm.');
+  const { rowCount } = await query("DELETE FROM inventory_items WHERE owner_id = $1", [req.user.id]);
+  res.json({ deleted: rowCount });
+});
+
 // Remove a listing. Trade snapshots keep their copy of the card, so old proposals still read fine.
 router.delete("/:id", async (req, res) => {
   const { rowCount } = await query("DELETE FROM inventory_items WHERE id = $1 AND owner_id = $2", [idParam(req), req.user.id]);
