@@ -15,6 +15,16 @@ export function progressFor(sectionTop, sectionHeight, viewportHeight) {
   return scrollable <= 0 ? 1 : clamp(-sectionTop / scrollable, 0, 1);
 }
 
+/**
+ * Moves the film's position part of the way toward where the scroll is, for `dt` ms. A mouse wheel scrolls in
+ * ~100 px jumps, and painting each jump's frame straight away skips the frames between and looks jittery; easing
+ * plays them all, at any frame rate. `tau` is how quickly it catches up (about 3 tau to get there).
+ */
+export function easeToward(current, target, dt, tau = 90) {
+  const next = current + (target - current) * (1 - Math.exp(-dt / tau));
+  return Math.abs(target - next) < 0.0004 ? target : next;
+}
+
 // Maps 0..1 progress to a frame index, never going past the last frame.
 export const frameFor = (progress, count = FRAME_COUNT) => clamp(Math.floor(progress * count), 0, count - 1);
 
@@ -64,6 +74,10 @@ export default function ScrollHero({ captions = [], finale, intro, hint }) {
     let shown = -1;
     let wanted = 0;
     let raf = 0;
+    // Where the scroll is (target) and where the film is (at), both 0..1; `last` is the previous tick's time.
+    let target = 0;
+    let at = 0;
+    let last = 0;
 
     // Draw the wanted frame, or the nearest earlier frame that has finished loading.
     const paint = () => {
@@ -79,18 +93,35 @@ export default function ScrollHero({ captions = [], finale, intro, hint }) {
       }
     };
 
-    // Work out how far through the section we are and paint the matching frame.
-    const update = () => {
-      raf = 0;
+    const measure = () => {
       const rect = section.getBoundingClientRect();
-      const p = progressFor(rect.top, rect.height, window.innerHeight);
-      setProgress(p);
-      wanted = frameFor(p);
-      paint();
+      target = progressFor(rect.top, rect.height, window.innerHeight);
     };
-    // Scroll can fire many times per frame; only schedule one update per animation frame.
+    // One animation frame: ease the film toward the scroll position and paint that frame, then keep going
+    // until it has caught up. React only re-renders (captions, progress bar) in 1/400 steps.
+    const tick = (now) => {
+      raf = 0;
+      at = easeToward(at, target, last ? Math.min(64, now - last) : 16);
+      wanted = frameFor(at);
+      paint();
+      setProgress(Math.round(at * 400) / 400);
+      if (at !== target) {
+        last = now;
+        raf = requestAnimationFrame(tick);
+      } else last = 0;
+    };
+    // Scroll can fire many times per frame; only schedule one tick per animation frame.
     const onScroll = () => {
-      raf ||= requestAnimationFrame(update);
+      measure();
+      raf ||= requestAnimationFrame(tick);
+    };
+    // Jump straight to the scroll position (first paint, resizes): nothing to play through.
+    const update = () => {
+      measure();
+      at = target;
+      wanted = frameFor(at);
+      paint();
+      setProgress(at);
     };
     // Match the canvas to its on-screen size (capped at 2x for high-DPI screens) so frames stay sharp.
     const resize = () => {

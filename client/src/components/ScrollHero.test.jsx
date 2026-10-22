@@ -1,5 +1,5 @@
 import { render, screen } from "@testing-library/react";
-import ScrollHero, { drawCover, FRAME_COUNT, frameFor, frameSrc, progressFor } from "./ScrollHero";
+import ScrollHero, { drawCover, easeToward, FRAME_COUNT, frameFor, frameSrc, progressFor } from "./ScrollHero";
 
 describe("scroll-to-frame mapping", () => {
   test("progress runs 0 → 1 across the section's scrollable height", () => {
@@ -17,6 +17,19 @@ describe("scroll-to-frame mapping", () => {
     expect(frameFor(1)).toBe(FRAME_COUNT - 1);
     expect(frameFor(1.2)).toBe(FRAME_COUNT - 1);
     expect(frameFor(-1)).toBe(0);
+  });
+
+  test("the film eases toward the scroll position instead of jumping, whatever the frame rate", () => {
+    const after16 = easeToward(0, 0.1, 16);
+    expect(after16).toBeGreaterThan(0);
+    expect(after16).toBeLessThan(0.1); // part of the way, so the frames in between get painted
+    let p = 0;
+    for (let i = 0; i < 2; i++) p = easeToward(p, 0.1, 16);
+    expect(p).toBeCloseTo(easeToward(0, 0.1, 32), 10); // two 16 ms ticks = one 32 ms tick
+    let t = 0;
+    for (let i = 0; i < 60; i++) t = easeToward(t, 0.1, 16);
+    expect(t).toBe(0.1); // and it settles exactly, so the animation loop stops
+    expect(easeToward(0.5, 0.2, 16)).toBeLessThan(0.5); // scrolling back up works too
   });
 
   test("frame file names are 1-based and zero-padded", () => {
