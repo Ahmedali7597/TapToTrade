@@ -19,12 +19,12 @@ const NAME = SITE_NAME;
 // Public pages worth finding in search, in sitemap order.
 export const PUBLIC_PAGES = {
   "/": {
-    // The exact spelling people search for ("taptotrade") goes in the title, description and heading, and so does
-    // "MTG", the short name most players search with.
-    title: `${NAME} (TapToTrade.ca) · Trade MTG cards locally in Canada`,
+    // Leads with "MTG trading", what players type into Google, then the exact brand spelling ("TapToTrade").
+    // The title stays under ~65 characters and the description under ~155 so search results don't cut them off.
+    title: "MTG Trading in Canada: Trade Magic Cards Locally · TapToTrade.ca",
     description:
-      "TapToTrade.ca: trade Magic: The Gathering (MTG) cards locally. Find cards in nearby players' binders across Canada and trade in person at a game store. Free, no shipping.",
-    heading: "Tap to Trade (TapToTrade.ca): trade Magic: The Gathering (MTG) cards locally with players near you",
+      "MTG trading across Canada: find Magic: The Gathering cards in nearby players' binders and trade in person at a local game store. Free, no shipping.",
+    heading: "Tap to Trade (TapToTrade.ca): local MTG trading across Canada, in person",
     text: "List the exact printings you own, search other players' shared binders by card and distance, and send a trade request. Meet in person at a public place or a partner game store. Tap to Trade never handles money or shipping.",
   },
   "/search": {
@@ -83,6 +83,52 @@ const PRIVATE_TITLES = {
   "/moderation": `Moderation · ${NAME}`,
   "/admin": `Admin · ${NAME}`,
 };
+
+/**
+ * The home page's questions and answers: shown on the page, written into the server HTML, and marked up as an
+ * FAQPage for search engines (the same words in all three, as Google asks). `links` are [path, label] pairs.
+ */
+export const HOME_FAQ = [
+  {
+    q: "How does MTG trading on Tap to Trade work?",
+    a: "List the Magic: The Gathering cards you own, down to the exact printing. Search for a card and see which players near you have it, then send a trade request offering cards of your own. When the other player accepts, you agree on a public place and time and trade in person.",
+  },
+  {
+    q: "Is Tap to Trade free?",
+    a: "Yes. There are no fees and no subscriptions. Tap to Trade never handles money or shipping: you trade cards for cards, face to face.",
+  },
+  {
+    q: "Where in Canada can I trade Magic cards?",
+    a: "Anywhere in Canada. Set your city and search from 10 to 250 km around it, on a list or a map. Each city has its own page with nearby players and partner game stores.",
+    links: [
+      ["/trade/toronto-on", "Toronto"],
+      ["/trade/montreal-qc", "Montréal"],
+      ["/trade/vancouver-bc", "Vancouver"],
+      ["/trade/calgary-ab", "Calgary"],
+      ["/trade/ottawa-on", "Ottawa"],
+      ["/trade/edmonton-ab", "Edmonton"],
+      ["/trade/winnipeg-mb", "Winnipeg"],
+      ["/trade/hamilton-on", "Hamilton"],
+      ["/trade/halifax-ns", "Halifax"],
+    ],
+  },
+  {
+    q: "Can I import my collection from Moxfield or Archidekt?",
+    a: "Yes. Upload the collection CSV from Moxfield, Archidekt, ManaBox, Deckbox, TCGplayer or Dragon Shield, or paste a card list. Imported cards stay private until you choose which ones to share for trade.",
+  },
+  {
+    q: "How do I know what my cards are worth?",
+    a: "Every card shows a reference price in Canadian dollars: the TCGplayer market price converted at the Bank of Canada's daily rate, or Face to Face Games' price when there's no market price. Trades show the total on each side.",
+  },
+  {
+    q: "Is it safe to trade cards with players I don't know?",
+    a: "You only ever meet in public, often at a partner game store. Players rate each other after a trade, anyone can report a problem to the moderators, and your email and exact location are never shown.",
+  },
+  {
+    q: "Can I build decks and find the cards I'm missing?",
+    a: "Yes. The deck builder checks Commander, Modern, Standard and other format rules, suggests cards for your commander from EDHREC, and shows which cards you already own. Add the rest to your want list to find players nearby who have them.",
+  },
+];
 
 /** The browser tab title for a path: the page's own title, or just the site name. */
 export function pageTitle(path) {

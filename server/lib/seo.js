@@ -12,6 +12,7 @@ import {
   NOT_FOUND_TITLE,
   pageTitle,
   profileTitle,
+  HOME_FAQ,
   PUBLIC_PAGES as PUBLIC,
   SITE_NAME as NAME,
   storeTitle,
@@ -136,8 +137,12 @@ export function renderPage(template, meta) {
     process.env.GOOGLE_MAPS_API_KEY && `<meta name="google-maps-map-id" content="${escape(process.env.GOOGLE_MAPS_MAP_ID || "DEMO_MAP_ID")}" />`,
     ld && `<script type="application/ld+json">${JSON.stringify(ld).replace(/</g, "\\u003c")}</script>`,
   ].filter(Boolean);
+  // The home page's questions and answers, so they're in the HTML before any script runs.
+  const faq = meta.home
+    ? `<section><h2>MTG trading questions</h2>${HOME_FAQ.map((f) => `<h3>${escape(f.q)}</h3><p>${escape(f.a)}</p>${links(f.links)}`).join("")}</section>`
+    : "";
   const body = meta.heading
-    ? `<main class="seo-shell"><h1>${escape(meta.heading)}</h1><p>${escape(meta.text)}</p>${links(meta.links)}<nav><ul>${NAV.map(
+    ? `<main class="seo-shell"><h1>${escape(meta.heading)}</h1><p>${escape(meta.text)}</p>${faq}${links(meta.links)}<nav><ul>${NAV.map(
         ([href, label]) => `<li><a href="${href}">${escape(label)}</a></li>`,
       ).join("")}</ul></nav></main>`
     : "";
@@ -187,6 +192,12 @@ export const structuredData = (site) => ({
         { "@type": "ContactPoint", contactType: "customer support", email: EMAILS.support, availableLanguage: "en" },
         { "@type": "ContactPoint", contactType: "privacy", email: EMAILS.privacy, availableLanguage: "en" },
       ],
+    },
+    // The same questions the home page shows.
+    {
+      "@type": "FAQPage",
+      "@id": `${site}/#faq`,
+      mainEntity: HOME_FAQ.map((f) => ({ "@type": "Question", name: f.q, acceptedAnswer: { "@type": "Answer", text: f.a } })),
     },
   ],
 });

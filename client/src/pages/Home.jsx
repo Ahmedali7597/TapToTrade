@@ -1,5 +1,5 @@
 import { Link } from "react-router";
-import { ArrowDown, ArrowRight, BadgeCheck, Gift, Handshake, Layers, MapPin, Search, ShieldCheck } from "lucide-react";
+import { ArrowDown, ArrowRight, BadgeCheck, Gift, Handshake, Layers, MapPin, Plus, Search, ShieldCheck } from "lucide-react";
 import { BlurFade } from "@/components/ui/blur-fade";
 import { Button } from "@/components/ui/button";
 import { Marquee } from "@/components/ui/marquee";
@@ -8,6 +8,7 @@ import TapToTradeLogo from "@/components/TapToTradeLogo";
 import { useAuth } from "@/lib/auth";
 import { CardImage, useApi } from "@/components/common";
 import { useShowcase } from "@/lib/showcase";
+import { HOME_FAQ } from "@shared/pages";
 import { tagLabel } from "@shared/stores";
 import TradeNearYou from "@/components/TradeNearYou";
 
@@ -183,8 +184,11 @@ export default function Home() {
       <ScrollHero
         intro={
           <div className="max-w-2xl text-white drop-shadow-[0_2px_12px_rgba(0,0,0,0.45)]">
-            <p className="text-sm font-semibold uppercase tracking-[0.2em] text-teal-100">Local Magic: The Gathering (MTG) trading</p>
-            <h1 className="mt-3 text-4xl font-extrabold leading-[1.05] tracking-tight sm:text-6xl">Your bulk is someone's missing piece.</h1>
+            {/* Both lines are the heading, so the page's main heading says what the site is (search engines read it). */}
+            <h1>
+              <span className="block text-sm font-semibold uppercase tracking-[0.2em] text-teal-100">Local MTG trading across Canada</span>
+              <span className="mt-3 block text-4xl font-extrabold leading-[1.05] tracking-tight sm:text-6xl">Your bulk is someone's missing piece.</span>
+            </h1>
           </div>
         }
         hint={
@@ -279,6 +283,35 @@ export default function Home() {
               </div>
             ))}
           </dl>
+        </div>
+      </section>
+
+      {/* Questions people search for, answered (the server writes the same ones into the page and its FAQ data). */}
+      <section className="border-t py-16" aria-labelledby="faq-heading">
+        <div className="mx-auto grid max-w-6xl gap-8 px-4 sm:px-6 md:grid-cols-[1fr_2fr]">
+          <h2 id="faq-heading" className="text-2xl font-bold md:text-3xl">
+            MTG trading questions
+          </h2>
+          <div className="divide-y rounded-xl border bg-card">
+            {HOME_FAQ.map((f) => (
+              <details key={f.q} className="group px-5 py-4 [&_summary::-webkit-details-marker]:hidden">
+                <summary className="flex cursor-pointer list-none items-center justify-between gap-4 font-semibold">
+                  {f.q}
+                  <Plus className="size-4 shrink-0 text-muted-foreground transition-transform group-open:rotate-45" aria-hidden="true" />
+                </summary>
+                <p className="mt-2 text-muted-foreground">{f.a}</p>
+                {f.links && (
+                  <p className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-sm">
+                    {f.links.map(([to, label]) => (
+                      <Link key={to} to={to} className="font-medium text-primary underline-offset-4 hover:underline">
+                        {label}
+                      </Link>
+                    ))}
+                  </p>
+                )}
+              </details>
+            ))}
+          </div>
         </div>
       </section>
 

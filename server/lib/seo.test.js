@@ -155,9 +155,10 @@ describe("rendered page", () => {
   });
 });
 
-test("structured data names the site and its organisation", () => {
+test("structured data names the site and its organisation, and carries the home page's questions", () => {
   const data = structuredData("https://taptotrade.ca");
-  expect(data["@graph"].map((n) => n["@type"])).toEqual(["WebSite", "Organization"]);
+  expect(data["@graph"].map((n) => n["@type"])).toEqual(["WebSite", "Organization", "FAQPage"]);
+  expect(data["@graph"][2].mainEntity[0]).toMatchObject({ "@type": "Question", name: "How does MTG trading on Tap to Trade work?", acceptedAnswer: { "@type": "Answer" } });
   expect(data["@graph"][0]).toMatchObject({ name: "Tap to Trade", url: "https://taptotrade.ca/" });
 });
 
