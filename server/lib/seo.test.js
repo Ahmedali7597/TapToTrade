@@ -65,6 +65,31 @@ describe("page metadata", () => {
     expect(prerelease.eventStatus).toBe("https://schema.org/EventCancelled");
   });
 
+  test("the FAQ page has every question with FAQPage data; the home page has the first few and a link", async () => {
+    const { FAQ, HOME_FAQ_COUNT } = await import("../../shared/pages.js");
+    const faq = await pageMeta("/faq");
+    expect(faq).toMatchObject({ status: 200, robots: "index, follow", canonical: "/faq", title: "MTG trading FAQ · Tap to Trade" });
+    expect(faq.jsonLd).toMatchObject({ "@type": "FAQPage" });
+    expect(faq.jsonLd.mainEntity).toHaveLength(FAQ.length);
+    const faqHtml = renderPage(TEMPLATE, faq);
+    for (const f of FAQ) expect(faqHtml).toContain(`<h3>${f.q.replace(/'/g, "&#39;")}</h3>`);
+    const home = renderPage(TEMPLATE, await pageMeta("/"));
+    expect(home.match(/<h3>/g)).toHaveLength(HOME_FAQ_COUNT);
+    expect(home).toContain('<a href="/faq">All questions</a>');
+    expect(home).not.toContain('"FAQPage"'); // marked up once, on /faq
+  });
+
+  test("decks: the deck builder page is indexed; public decks too, unlisted ones open by link only, private ones hidden", async () => {
+    expect(await pageMeta("/decks")).toMatchObject({ status: 200, robots: "index, follow", canonical: "/decks" });
+    const deck = (visibility) => ({ deck: async () => ({ name: "Krenko tokens", format: "commander", visibility, username: "decker", cards: 100, commanders: ["Krenko, Mob Boss"] }) });
+    const shown = await pageMeta("/decks/12", {}, deck("public"));
+    expect(shown).toMatchObject({ status: 200, robots: "index, follow", canonical: "/decks/12", title: "Krenko tokens · Commander deck · Tap to Trade" });
+    expect(shown.description).toContain("a Commander deck by decker on Tap to Trade, with 100 cards, led by Krenko, Mob Boss");
+    expect(await pageMeta("/decks/12", {}, deck("unlisted"))).toMatchObject({ status: 200, robots: "noindex, follow" });
+    expect((await pageMeta("/decks/12", {}, deck("private"))).status).toBe(404);
+    expect((await pageMeta("/decks/12", {}, { deck: async () => null })).status).toBe(404);
+  });
+
   test("signed-in pages stay out of search; unknown paths are real 404s", async () => {
     for (const p of ["/dashboard", "/wants", "/trades", "/trades/12", "/trades/12/counter", "/trades/new", "/settings", "/admin", "/login"]) {
       expect(await pageMeta(p)).toMatchObject({ status: 200, robots: "noindex, nofollow" });
@@ -155,10 +180,9 @@ describe("rendered page", () => {
   });
 });
 
-test("structured data names the site and its organisation, and carries the home page's questions", () => {
+test("structured data names the site and its organisation", () => {
   const data = structuredData("https://taptotrade.ca");
-  expect(data["@graph"].map((n) => n["@type"])).toEqual(["WebSite", "Organization", "FAQPage"]);
-  expect(data["@graph"][2].mainEntity[0]).toMatchObject({ "@type": "Question", name: "How does MTG trading on Tap to Trade work?", acceptedAnswer: { "@type": "Answer" } });
+  expect(data["@graph"].map((n) => n["@type"])).toEqual(["WebSite", "Organization"]);
   expect(data["@graph"][0]).toMatchObject({ name: "Tap to Trade", url: "https://taptotrade.ca/" });
 });
 
@@ -172,12 +196,16 @@ test("robots.txt and sitemap.xml use the public address", () => {
   expect(sitemap).toContain("<loc>https://taptotrade.ca/</loc>");
   expect(sitemap).toContain("<loc>https://taptotrade.ca/cards</loc>");
   expect(sitemap).not.toContain("/dashboard");
+  expect(sitemap).not.toContain("/register"); // a form, not content
+  expect(sitemap).toContain("<loc>https://taptotrade.ca/faq</loc>");
+  expect(sitemap).toContain("<loc>https://taptotrade.ca/decks</loc>");
+  expect(robots).not.toContain("Disallow: /decks"); // public decks are crawlable
   expect(sitemapXml(["/stores/7-the-mana-vault"])).toContain("<loc>https://taptotrade.ca/stores/7-the-mana-vault</loc>");
 });
 
 test("every page has its own tab title, including signed-in pages", async () => {
   const { pageTitle, SITE_NAME } = await import("../../shared/pages.js");
-  const paths = ["/", "/search", "/cards", "/stores", "/login", "/register", "/forgot-password", "/reset-password", "/verify-email", "/privacy", "/terms",
+  const paths = ["/", "/search", "/cards", "/stores", "/decks", "/faq", "/login", "/register", "/forgot-password", "/reset-password", "/verify-email", "/privacy", "/terms",
     "/dashboard", "/inventory", "/wants", "/trades", "/trades/new", "/trades/12", "/trades/12/counter", "/settings", "/suggestions", "/moderation", "/admin", "/register/google"];
   const titles = paths.map(pageTitle);
   expect(titles.filter((t) => t === SITE_NAME)).toEqual([]); // none fall back to the bare site name

@@ -1,3 +1,4 @@
+import { PUBLIC_PAGES } from "../shared/pages.js";
 import fs from "node:fs";
 import path from "node:path";
 import express from "express";
@@ -77,13 +78,23 @@ export function createApp() {
     next();
   });
 
+  // /FAQ, /Decks and the like: one address per page, so send other spellings of a public page to the lower-case one.
+  app.get("/{*path}", (req, res, next) => {
+    const lower = req.path.toLowerCase().replace(/\/+$/, "");
+    if (req.path === lower || !(lower in PUBLIC_PAGES)) return next();
+    res.redirect(301, `${lower || "/"}${req.originalUrl.slice(req.path.length)}`);
+  });
+
   // Crawler files, built from the page list in lib/seo.js.
   app.get("/robots.txt", (req, res) => res.type("text/plain").send(robotsTxt()));
   app.get("/sitemap.xml", async (req, res, next) => {
     try {
       const { rows } = await pool.query("SELECT id, name FROM stores WHERE active ORDER BY id");
       const cities = await activeCities();
-      res.type("application/xml").send(sitemapXml([...cities.map((c) => c.path), ...rows.map(storePath)]));
+      const { rows: decks } = await pool.query(
+        "SELECT d.id FROM decks d JOIN users u ON u.id = d.owner_id WHERE d.visibility = 'public' AND u.status = 'active' ORDER BY d.updated_at DESC LIMIT 1000",
+      );
+      res.type("application/xml").send(sitemapXml([...cities.map((c) => c.path), ...rows.map(storePath), ...decks.map((d) => `/decks/${d.id}`)]));
     } catch (err) {
       next(err);
     }
@@ -150,6 +161,16 @@ export function createApp() {
         store: async (id) => (await pool.query("SELECT * FROM stores WHERE id = $1 AND active", [id])).rows[0] ?? null,
         events: (storeId) => upcomingEvents(storeId, 20),
         city: cityStats,
+        deck: async (id) =>
+          (
+            await pool.query(
+              `SELECT d.name, d.format, d.visibility, u.username,
+                      COALESCE((SELECT sum(c.quantity) FROM deck_cards c WHERE c.deck_id = d.id AND c.board IN ('commander', 'main')), 0)::int AS cards,
+                      ARRAY(SELECT p.name FROM deck_cards c JOIN card_printings p ON p.id = c.printing_id WHERE c.deck_id = d.id AND c.board = 'commander' ORDER BY p.name) AS commanders
+                 FROM decks d JOIN users u ON u.id = d.owner_id WHERE d.id = $1 AND u.status = 'active'`,
+              [id],
+            )
+          ).rows[0] ?? null,
       };
       const meta = await pageMeta(req.path, req.query, find);
       // no-cache: the page is checked on every visit, so a new deploy shows up straight away.

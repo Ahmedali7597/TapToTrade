@@ -91,10 +91,10 @@ async function checkRoom(deckId, adding = 1) {
 
 // ---- Decks ----
 
-// The signed-in player's decks, newest first, with card counts, a cover card and the commander's colours.
-router.get("/", requireAuth, async (req, res) => {
+/** Deck tiles (name, format, card count, a cover card and the commander's colours) for decks matching `where`. */
+async function deckTiles(where, params, limit = 200) {
   const { rows } = await query(
-    `SELECT d.id, d.name, d.format, d.visibility, d.updated_at,
+    `SELECT d.id, d.name, d.format, d.visibility, d.updated_at, u.username,
             COALESCE(sum(c.quantity) FILTER (WHERE c.board IN ('commander', 'main')), 0)::int AS cards,
             (array_agg(p.image_url ORDER BY c.board = 'commander' DESC, c.id) FILTER (WHERE p.image_url IS NOT NULL))[1] AS cover,
             array_remove(array_agg(DISTINCT ci.color) FILTER (WHERE c.board = 'commander'), NULL) AS colors
@@ -102,13 +102,33 @@ router.get("/", requireAuth, async (req, res) => {
        LEFT JOIN deck_cards c ON c.deck_id = d.id
        LEFT JOIN card_printings p ON p.id = c.printing_id
        LEFT JOIN LATERAL unnest(p.color_identity) AS ci (color) ON c.board = 'commander'
-      WHERE d.owner_id = $1
-      GROUP BY d.id ORDER BY d.updated_at DESC`,
-    [req.user.id],
+       JOIN users u ON u.id = d.owner_id
+      WHERE ${where}
+      GROUP BY d.id, u.username ORDER BY d.updated_at DESC LIMIT ${Number(limit)}`,
+    params,
   );
-  res.json({
-    decks: rows.map((d) => ({ id: d.id, name: d.name, format: d.format, visibility: d.visibility, updatedAt: d.updated_at, cards: d.cards, cover: d.cover, colors: d.colors })),
-  });
+  return rows.map((d) => ({
+    id: d.id,
+    name: d.name,
+    format: d.format,
+    visibility: d.visibility,
+    updatedAt: d.updated_at,
+    owner: { username: d.username },
+    cards: d.cards,
+    cover: d.cover,
+    colors: d.colors,
+  }));
+}
+
+// The signed-in player's decks, newest first.
+router.get("/", requireAuth, async (req, res) => {
+  res.json({ decks: await deckTiles("d.owner_id = $1", [req.user.id]) });
+});
+
+// Recently updated public decks with at least one card, for anyone (the /decks page). Must come before /:id.
+router.get("/public", async (req, res) => {
+  const decks = await deckTiles("d.visibility = 'public' AND u.status = 'active' AND EXISTS (SELECT 1 FROM deck_cards x WHERE x.deck_id = d.id)", [], 24);
+  res.json({ decks });
 });
 
 router.post("/", requireAuth, async (req, res) => {

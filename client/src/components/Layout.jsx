@@ -33,6 +33,7 @@ const FOOTER_LINKS = [
   { title: "Trades", href: "/trades" },
   { title: "Account", href: "/settings" },
   { title: "Suggestions", href: "/suggestions" },
+  { title: "FAQ", href: "/faq" },
   { title: "Privacy", href: "/privacy" },
   { title: "Terms", href: "/terms" },
   { title: "Accessibility", href: "/terms#accessibility" },
@@ -48,6 +49,7 @@ function navItems(user) {
     return [
       { to: "/search", label: "Search" },
       { to: "/cards", label: "Cards" },
+      { to: "/decks", label: "Decks" },
       { to: "/stores", label: "Stores" },
     ];
   }

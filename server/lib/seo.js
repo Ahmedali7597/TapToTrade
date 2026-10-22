@@ -2,6 +2,7 @@
 // canonical link, share tags and robots rule, plus a little real HTML for crawlers that don't run JavaScript.
 // React replaces that HTML as soon as the app starts. robots.txt and sitemap.xml are built here too.
 
+import { FORMAT_LABELS } from "../../shared/decks.js";
 import { escape } from "../../shared/html.js";
 import {
   cityHeading,
@@ -12,7 +13,9 @@ import {
   NOT_FOUND_TITLE,
   pageTitle,
   profileTitle,
-  HOME_FAQ,
+  deckTitle,
+  FAQ,
+  HOME_FAQ_COUNT,
   PUBLIC_PAGES as PUBLIC,
   SITE_NAME as NAME,
   storeTitle,
@@ -32,13 +35,15 @@ const NAV = [
   ["/search", "Find cards near you"],
   ["/cards", "Card browser"],
   ["/stores", "Partner game stores"],
+  ["/decks", "Deck builder"],
+  ["/faq", "FAQ"],
   ["/register", "Create a free account"],
   ["/privacy", "Privacy policy"],
   ["/terms", "Terms and trading rules"],
 ];
 
 // Pages that exist but don't belong in search results: sign-in steps and everything behind a login.
-const PRIVATE = /^\/(login|forgot-password|reset-password|verify-email|register\/google|dashboard|inventory|wants|decks(\/\d+)?|settings|suggestions|moderation|admin|trades(\/new|\/\d+(\/counter)?)?)$/;
+const PRIVATE = /^\/(login|forgot-password|reset-password|verify-email|register\/google|dashboard|inventory|wants|settings|suggestions|moderation|admin|trades(\/new|\/\d+(\/counter)?)?)$/;
 
 const clip = (s, n) => (s.length > n ? `${s.slice(0, n - 1).trimEnd()}…` : s);
 
@@ -54,7 +59,27 @@ export async function pageMeta(path, query = {}, find = {}) {
   if (page) {
     // Search results and card lookups with a query are endless variations of one page: crawl, don't index.
     const filtered = (clean === "/search" || clean === "/cards") && Object.keys(query).length > 0;
-    return { status: 200, ...page, robots: filtered ? "noindex, follow" : "index, follow", canonical: clean, home: clean === "/" };
+    // The FAQ page has every question (and their FAQPage markup); the home page shows the first few.
+    const faq = clean === "/faq" ? { faq: FAQ, jsonLd: faqData(FAQ) } : clean === "/" ? { faq: FAQ.slice(0, HOME_FAQ_COUNT), faqMore: true } : {};
+    return { status: 200, ...page, ...faq, robots: filtered ? "noindex, follow" : "index, follow", canonical: clean, home: clean === "/" };
+  }
+  const deckPath = /^\/decks\/(\d{1,12})$/.exec(clean);
+  if (deckPath) {
+    // Public decks are indexed; unlisted ones open by link but stay out of search; private ones aren't revealed.
+    const deck = await find.deck?.(Number(deckPath[1]));
+    if (!deck || deck.visibility === "private") return notFound();
+    const format = FORMAT_LABELS[deck.format];
+    const led = deck.commanders?.length ? `, led by ${deck.commanders.join(" and ")}` : "";
+    return {
+      status: 200,
+      title: deckTitle(deck),
+      description: clip(`${deck.name}: a ${format} deck by ${deck.username} on Tap to Trade, with ${deck.cards} cards${led}. See the list and mana curve, and trade for the cards.`, 160),
+      robots: deck.visibility === "public" ? "index, follow" : "noindex, follow",
+      canonical: clean,
+      heading: deck.name,
+      text: `A ${format} deck by ${deck.username}, ${deck.cards} cards${led}.`,
+      jsonLd: breadcrumbs(siteUrl(), [["/", NAME], ["/decks", "Decks"], [clean, deck.name]]),
+    };
   }
   const profile = /^\/u\/([A-Za-z0-9_]{3,24})$/.exec(clean);
   if (profile) {
@@ -137,9 +162,11 @@ export function renderPage(template, meta) {
     process.env.GOOGLE_MAPS_API_KEY && `<meta name="google-maps-map-id" content="${escape(process.env.GOOGLE_MAPS_MAP_ID || "DEMO_MAP_ID")}" />`,
     ld && `<script type="application/ld+json">${JSON.stringify(ld).replace(/</g, "\\u003c")}</script>`,
   ].filter(Boolean);
-  // The home page's questions and answers, so they're in the HTML before any script runs.
-  const faq = meta.home
-    ? `<section><h2>MTG trading questions</h2>${HOME_FAQ.map((f) => `<h3>${escape(f.q)}</h3><p>${escape(f.a)}</p>${links(f.links)}`).join("")}</section>`
+  // Questions and answers (the FAQ page, and the first few on the home page), in the HTML before any script runs.
+  const faq = meta.faq
+    ? `<section><h2>FAQ</h2>${meta.faq.map((f) => `<h3>${escape(f.q)}</h3><p>${escape(f.a)}</p>${links(f.links)}`).join("")}${
+        meta.faqMore ? '<p><a href="/faq">All questions</a></p>' : ""
+      }</section>`
     : "";
   const body = meta.heading
     ? `<main class="seo-shell"><h1>${escape(meta.heading)}</h1><p>${escape(meta.text)}</p>${faq}${links(meta.links)}<nav><ul>${NAV.map(
@@ -193,13 +220,14 @@ export const structuredData = (site) => ({
         { "@type": "ContactPoint", contactType: "privacy", email: EMAILS.privacy, availableLanguage: "en" },
       ],
     },
-    // The same questions the home page shows.
-    {
-      "@type": "FAQPage",
-      "@id": `${site}/#faq`,
-      mainEntity: HOME_FAQ.map((f) => ({ "@type": "Question", name: f.q, acceptedAnswer: { "@type": "Answer", text: f.a } })),
-    },
   ],
+});
+
+/** schema.org FAQPage for the FAQ page: the same questions and answers it shows. */
+const faqData = (list) => ({
+  "@context": "https://schema.org",
+  "@type": "FAQPage",
+  mainEntity: list.map((f) => ({ "@type": "Question", name: f.q, acceptedAnswer: { "@type": "Answer", text: f.a } })),
 });
 
 /**
@@ -247,14 +275,16 @@ export const robotsTxt = () =>
     "User-agent: *",
     "Allow: /",
     "Disallow: /api/",
-    ...["/dashboard", "/inventory", "/wants", "/decks", "/trades", "/settings", "/suggestions", "/moderation", "/admin"].map((p) => `Disallow: ${p}`),
+    ...["/dashboard", "/inventory", "/wants", "/trades", "/settings", "/suggestions", "/moderation", "/admin"].map((p) => `Disallow: ${p}`),
     "",
     `Sitemap: ${siteUrl()}/sitemap.xml`,
     "",
   ].join("\n");
 
 /** sitemap.xml with every public page, plus `extra` paths (the partner store pages). */
+// The sign-up form is left out: there's nothing on it to search for, and a new site's crawl budget is small.
+const SITEMAP_SKIP = new Set(["/register"]);
 export const sitemapXml = (extra = []) =>
-  `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${[...Object.keys(PUBLIC), ...extra]
+  `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${[...Object.keys(PUBLIC).filter((p) => !SITEMAP_SKIP.has(p)), ...extra]
     .map((p) => `  <url><loc>${escape(`${siteUrl()}${p}`)}</loc></url>`)
     .join("\n")}\n</urlset>\n`;

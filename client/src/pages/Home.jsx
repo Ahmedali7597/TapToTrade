@@ -1,5 +1,5 @@
 import { Link } from "react-router";
-import { ArrowDown, ArrowRight, BadgeCheck, Gift, Handshake, Layers, MapPin, Plus, Search, ShieldCheck } from "lucide-react";
+import { ArrowDown, ArrowRight, BadgeCheck, Gift, Handshake, Layers, MapPin, Search, ShieldCheck } from "lucide-react";
 import { BlurFade } from "@/components/ui/blur-fade";
 import { Button } from "@/components/ui/button";
 import { Marquee } from "@/components/ui/marquee";
@@ -8,7 +8,8 @@ import TapToTradeLogo from "@/components/TapToTradeLogo";
 import { useAuth } from "@/lib/auth";
 import { CardImage, useApi } from "@/components/common";
 import { useShowcase } from "@/lib/showcase";
-import { HOME_FAQ } from "@shared/pages";
+import { FAQ, HOME_FAQ_COUNT } from "@shared/pages";
+import FaqList from "@/components/FaqList";
 import { tagLabel } from "@shared/stores";
 import TradeNearYou from "@/components/TradeNearYou";
 
@@ -286,32 +287,19 @@ export default function Home() {
         </div>
       </section>
 
-      {/* Questions people search for, answered (the server writes the same ones into the page and its FAQ data). */}
+      {/* The first few questions; the rest are on /faq (the server writes the same ones into the page). */}
       <section className="border-t py-16" aria-labelledby="faq-heading">
         <div className="mx-auto grid max-w-6xl gap-8 px-4 sm:px-6 md:grid-cols-[1fr_2fr]">
-          <h2 id="faq-heading" className="text-2xl font-bold md:text-3xl">
-            MTG trading questions
-          </h2>
-          <div className="divide-y rounded-xl border bg-card">
-            {HOME_FAQ.map((f) => (
-              <details key={f.q} className="group px-5 py-4 [&_summary::-webkit-details-marker]:hidden">
-                <summary className="flex cursor-pointer list-none items-center justify-between gap-4 font-semibold">
-                  {f.q}
-                  <Plus className="size-4 shrink-0 text-muted-foreground transition-transform group-open:rotate-45" aria-hidden="true" />
-                </summary>
-                <p className="mt-2 text-muted-foreground">{f.a}</p>
-                {f.links && (
-                  <p className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-sm">
-                    {f.links.map(([to, label]) => (
-                      <Link key={to} to={to} className="font-medium text-primary underline-offset-4 hover:underline">
-                        {label}
-                      </Link>
-                    ))}
-                  </p>
-                )}
-              </details>
-            ))}
+          <div>
+            <h2 id="faq-heading" className="text-2xl font-bold md:text-3xl">
+              FAQ
+            </h2>
+            <p className="mt-2 text-muted-foreground">Questions about trading Magic cards on Tap to Trade.</p>
+            <Link to="/faq" className="mt-3 inline-flex items-center gap-1 font-medium text-primary underline-offset-4 hover:underline">
+              All questions <ArrowRight className="size-4" aria-hidden="true" />
+            </Link>
           </div>
+          <FaqList items={FAQ.slice(0, HOME_FAQ_COUNT)} />
         </div>
       </section>
 

@@ -1,6 +1,8 @@
 // Titles and descriptions of the public pages, shared by the server (search engines, share previews) and the
 // React app (the browser tab title as people move between pages).
 
+import { FORMAT_LABELS } from "./decks.js";
+
 export const SITE_NAME = "Tap to Trade";
 
 // The date shown on the terms and privacy pages. Change it whenever their wording changes: every sign-up
@@ -45,6 +47,20 @@ export const PUBLIC_PAGES = {
     heading: "Partner game stores",
     text: "Find a local game store to meet at and see what each one offers: trade nights, Commander, drafts, singles and perks for Tap to Trade players. Run a store? Partner with us.",
   },
+  "/decks": {
+    title: `MTG deck builder for Commander and more · ${NAME}`,
+    description:
+      "Build Magic: The Gathering decks for Commander, Modern, Standard and more. Check the format's rules, get EDHREC suggestions and find missing cards nearby.",
+    heading: "MTG deck builder",
+    text: "Build a deck by name or paste a list from Moxfield, Archidekt or Arena. See the mana curve, colours and price, check it against the format's rules, get card ideas for your commander from EDHREC, and find the cards you're missing from players near you.",
+  },
+  "/faq": {
+    title: `MTG trading FAQ · ${NAME}`,
+    description:
+      "Answers about trading Magic: The Gathering cards on Tap to Trade: how it works, cost, cities, collection imports, card prices, safety and decks.",
+    heading: "Frequently asked questions",
+    text: "How trading Magic: The Gathering cards in person works on Tap to Trade, from listing your collection to meeting at a game store.",
+  },
   "/register": {
     title: `Create a free account · ${NAME}`,
     description: "Join Tap to Trade for free to list your Magic: The Gathering cards and trade with players in your city.",
@@ -75,7 +91,6 @@ const PRIVATE_TITLES = {
   "/dashboard": `Dashboard · ${NAME}`,
   "/inventory": `Your inventory · ${NAME}`,
   "/wants": `Your want list · ${NAME}`,
-  "/decks": `Your decks · ${NAME}`,
   "/trades": `Trades · ${NAME}`,
   "/trades/new": `New trade · ${NAME}`,
   "/settings": `Account settings · ${NAME}`,
@@ -85,10 +100,12 @@ const PRIVATE_TITLES = {
 };
 
 /**
- * The home page's questions and answers: shown on the page, written into the server HTML, and marked up as an
- * FAQPage for search engines (the same words in all three, as Google asks). `links` are [path, label] pairs.
+ * The site's questions and answers. All of them are on /faq, written into its server HTML and marked up there as
+ * an FAQPage (the same words on the page and in the markup, as Google asks, and on one page only); the home page
+ * shows the first HOME_FAQ_COUNT with a link to the rest. `links` are [path, label] pairs.
  */
-export const HOME_FAQ = [
+export const HOME_FAQ_COUNT = 4;
+export const FAQ = [
   {
     q: "How does MTG trading on Tap to Trade work?",
     a: "List the Magic: The Gathering cards you own, down to the exact printing. Search for a card and see which players near you have it, then send a trade request offering cards of your own. When the other player accepts, you agree on a public place and time and trade in person.",
@@ -127,8 +144,25 @@ export const HOME_FAQ = [
   {
     q: "Can I build decks and find the cards I'm missing?",
     a: "Yes. The deck builder checks Commander, Modern, Standard and other format rules, suggests cards for your commander from EDHREC, and shows which cards you already own. Add the rest to your want list to find players nearby who have them.",
+    links: [["/decks", "Deck builder"]],
+  },
+  {
+    q: "What happens to my inventory after a trade?",
+    a: "When you confirm the trade happened, the cards you gave are taken off your inventory and the cards you got are added as private listings, so your collection stays up to date without retyping anything.",
+  },
+  {
+    q: "Do I need an account to look around?",
+    a: "No. Anyone can search the cards players have shared, browse cards with their rules and legality, look at partner game stores and see public decks. You need a free account to list cards, send trade requests and build decks.",
+  },
+  {
+    q: "What are partner game stores?",
+    a: "Local game stores that welcome Tap to Trade players as a safe, public place to meet. Their pages show where they are, what they run (trade nights, Commander, drafts) and their upcoming events.",
+    links: [["/stores", "Partner game stores"]],
   },
 ];
+
+/** A deck's tab and search title, e.g. "Krenko tokens · Commander deck · Tap to Trade". */
+export const deckTitle = (deck) => `${deck.name} · ${FORMAT_LABELS[deck.format] ?? "MTG"} deck · ${NAME}`;
 
 /** The browser tab title for a path: the page's own title, or just the site name. */
 export function pageTitle(path) {

@@ -1029,6 +1029,17 @@ describe("decks", () => {
     expect((await owner.get(`/api/decks/${deck.id}/suggestions`)).status).toBe(503);
   });
 
+  test("lists recent public decks for anyone, and puts them in the sitemap", async () => {
+    const anon = await new Player().init();
+    const res = await anon.get("/api/decks/public");
+    expect(res.status).toBe(200);
+    expect(res.body.decks).toEqual([expect.objectContaining({ id: deck.id, owner: { username: "deck_owner" } })]);
+    expect((await anon.get("/sitemap.xml")).text).toContain(`/decks/${deck.id}</loc>`);
+    await owner.send("patch", `/api/decks/${deck.id}`, { visibility: "unlisted" });
+    expect((await anon.get("/api/decks/public")).body.decks).toEqual([]);
+    expect((await anon.get("/sitemap.xml")).text).not.toContain(`/decks/${deck.id}</loc>`);
+  });
+
   test("deletes a card and then the whole deck", async () => {
     const [first] = (await owner.get(`/api/decks/${deck.id}`)).body.cards;
     expect((await owner.send("delete", `/api/decks/${deck.id}/cards/${first.id}`)).status).toBe(204);
@@ -1540,6 +1551,16 @@ describe("trade messages and meetups", () => {
     expect(rows[0].n).toBe(0);
     expect((await ana.get(`/api/trades/${trade.id}`)).body).toMatchObject({ meetup: null });
   });
+});
+
+test("other spellings of a public page redirect to its one address, keeping the query", async () => {
+  const p = await new Player().init();
+  const res = await p.get("/FAQ?ref=card");
+  expect(res.status).toBe(301);
+  expect(res.headers.location).toBe("/faq?ref=card");
+  expect((await p.get("/Decks/")).headers.location).toBe("/decks");
+  expect((await p.get("/faq")).status).toBe(200);
+  expect((await p.get("/u/SomeUser")).status).not.toBe(301); // only public pages, never usernames
 });
 
 test("robots.txt and sitemap.xml are real files, not the app page", async () => {

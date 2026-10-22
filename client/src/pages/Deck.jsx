@@ -31,7 +31,7 @@ import { groupItems, sortItems } from "@/lib/collection";
 import { cad, priceOf, usePrices } from "@/lib/prices";
 import { cn } from "@/lib/utils";
 import { BOARD_LABELS, BOARDS, colourPips, countOn, deckProblems, deckText, FORMAT_LABELS, manaCurve } from "@shared/decks";
-import { SITE_NAME } from "@shared/pages";
+import { deckTitle } from "@shared/pages";
 
 // One deck, after Moxfield: the cards as deck-style stacks (or a grid, or the text list), with the commander
 // first and the sideboard and maybeboard after; a stats panel (size, value, mana curve, colours, format
@@ -503,7 +503,7 @@ export default function Deck() {
   const prices = usePrices(list.map((c) => ({ printingId: c.printing.id, finish: "nonfoil" })));
 
   useEffect(() => {
-    if (deck) document.title = `${deck.name} · ${FORMAT_LABELS[deck.format]} deck · ${SITE_NAME}`;
+    if (deck) document.title = deckTitle(deck);
   }, [deck]);
 
   if (loading && !data) return <Spinner label="Loading the deck" />;
