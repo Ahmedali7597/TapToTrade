@@ -838,6 +838,16 @@ describe("collection import and export", () => {
     expect(items.find((i) => i.printing.id === RING)).toMatchObject({ quantity: 3, finish: "nonfoil", condition: "MP", available: false });
   });
 
+  test("matches a card by name when its set code isn't one Scryfall uses, and says so", async () => {
+    const q = await newPlayer("importer_odd_set");
+    lookupCollection
+      .mockResolvedValueOnce(new Map()) // "sc:xyz:7" isn't a Scryfall printing
+      .mockImplementationOnce(async (entries) => new Map(entries.map(([k]) => [k, printing(BOLT, "Lightning Bolt", "m10", "146", ["nonfoil", "foil"])])));
+    const res = await q.send("post", "/api/inventory/import", { text: "Count,Name,Edition,Collector Number\n2,Lightning Bolt,xyz,7" });
+    expect(res.body).toMatchObject({ listings: 1, cards: 2, setGuessed: 2, skippedCount: 0 });
+    expect(lookupCollection.mock.calls.at(-1)[0]).toEqual([["n:lightning bolt", { name: "Lightning Bolt" }]]);
+  });
+
   test("keeps imported cards private unless the player chooses to share them", async () => {
     const q = await newPlayer("importer_private");
     lookupCollection.mockImplementationOnce(async (entries) => new Map(entries.map(([k]) => [k, printing(LOTUS, "Black Lotus", "lea", "232", ["nonfoil"])])));

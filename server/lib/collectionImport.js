@@ -19,6 +19,7 @@ const HEADERS = {
   scryfallId: ["scryfallid", "scryfalluuid", "id"],
   finish: ["finish", "foil", "printing", "premium", "isfoil", "foiling"],
   condition: ["condition", "cond"],
+  proxy: ["proxy", "isproxy"],
 };
 const norm = (h) => h.toLowerCase().replace(/[^a-z0-9]/g, "");
 
@@ -62,11 +63,11 @@ export function toCondition(raw, format = "CSV") {
   return Object.keys(grades).find((g) => grades[g].includes(c)) ?? null;
 }
 
-/** Maps foil columns ("foil", "Yes", "TRUE", "1", "etched", "foil_etched", blank...) onto our finishes. */
+/** Maps foil columns ("foil", "Yes", "TRUE", "1", "etched", "foil_etched", "Holofoil", blank...) onto our finishes. */
 export function toFinish(raw) {
   const f = norm(String(raw ?? ""));
   if (f.includes("etched")) return "etched";
-  if (["foil", "yes", "true", "1", "y", "premium"].includes(f)) return "foil";
+  if (["foil", "yes", "true", "1", "y", "premium", "holofoil", "foiled", "f"].includes(f)) return "foil";
   if (["", "normal", "nonfoil", "regular", "no", "false", "0", "n"].includes(f)) return "nonfoil";
   return null;
 }
@@ -117,7 +118,7 @@ function mapHeaders(header) {
   };
   const cols = {};
   // Claim specific columns first so a generic alias ("set", "edition", "id") can't steal them.
-  for (const key of ["scryfallId", "quantity", "name", "collectorNumber", "finish", "condition", "setCode"]) {
+  for (const key of ["scryfallId", "quantity", "name", "collectorNumber", "finish", "condition", "proxy", "setCode"]) {
     const i = pick(HEADERS[key]);
     if (i !== -1) {
       cols[key] = i;
@@ -188,11 +189,15 @@ export function parseCollection(input) {
     const scryfallId = isUuid(get("scryfallId")) ? get("scryfallId").toLowerCase() : null;
     const qtyRaw = get("quantity");
     const quantity = qtyRaw === "" ? 1 : Number(qtyRaw);
-    const condition = toCondition(get("condition"), format);
-    const finish = toFinish(get("finish"));
+    // TCGplayer writes the finish into the condition, e.g. "Lightly Played Foil".
+    const [, condRaw, condFoil] = /^(.*?)\s*(holofoil|foil)?$/i.exec(get("condition"));
+    const condition = toCondition(condRaw, format);
+    let finish = toFinish(get("finish"));
+    if (condFoil && finish === "nonfoil") finish = "foil";
     if (!name && !scryfallId) return skipped.push({ line, name: "", reason: "No card name." });
     if (!Number.isInteger(quantity) || quantity < 0 || quantity > 9999) return skipped.push({ line, name, reason: "Quantity isn't a whole number from 1 to 9999." });
     if (quantity === 0) return; // some exports list wanted or traded-away cards with a zero count
+    if (/^(true|yes|y|1)$/i.test(get("proxy"))) return skipped.push({ line, name, reason: "It's marked as a proxy, and proxies can't be listed for trade." });
     if (!condition) return skipped.push({ line, name, reason: `Unknown condition "${get("condition")}".` });
     if (!finish) return skipped.push({ line, name, reason: `Unknown finish "${get("finish")}".` });
     const setRaw = get("setCode");

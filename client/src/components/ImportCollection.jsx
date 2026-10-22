@@ -81,6 +81,12 @@ export default function ImportCollection({ onImported }) {
             </p>
             <ul className="list-disc space-y-1 pl-5 text-sm text-muted-foreground">
               {result.nameOnly > 0 && <li>{result.nameOnly} card(s) had no set, so the newest printing was used. Edit them if yours differ.</li>}
+              {result.setGuessed > 0 && (
+                <li>
+                  {result.setGuessed} card(s) had a set or collector number Scryfall doesn't use, so they were matched by name to the newest printing. Edit them
+                  if yours differ.
+                </li>
+              )}
               {result.adjustedFinish > 0 && <li>{result.adjustedFinish} card(s) were listed in a finish their printing doesn't come in, so it was corrected.</li>}
               <li>Cards you already listed in the same printing, condition and finish were added to those listings, which stay shared or private as they were.</li>
               {!available && (

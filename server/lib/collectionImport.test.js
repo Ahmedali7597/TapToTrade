@@ -51,6 +51,18 @@ describe("collection import parsing", () => {
     expect(parseCollection(TCGPLAYER)).toMatchObject({ format: "TCGplayer", rows: [{ name: "Sol Ring", setCode: "c21", finish: "nonfoil" }] });
   });
 
+  test("TCGplayer's foil-in-the-condition wording, Holofoil printings, and Moxfield proxies", () => {
+    const tcg = `Quantity,Name,Simple Name,Set,Card Number,Set Code,Printing,Condition,Language,Rarity,Product ID,SKU
+2,"Opt","Opt","Throne of Eldraine",59,ELD,Normal,Lightly Played Foil,English,Common,1,2
+1,"Opt","Opt","Throne of Eldraine",59,ELD,Holofoil,Near Mint,English,Common,1,3`;
+    expect(parseCollection(tcg).rows.map((r) => [r.condition, r.finish])).toEqual([
+      ["LP", "foil"],
+      ["NM", "foil"],
+    ]);
+    const proxied = MOXFIELD.split("\n").slice(0, 2).join("\n").replace(/"False",""$/, '"True",""');
+    expect(parseCollection(proxied)).toMatchObject({ rows: [], skipped: [{ line: 2, reason: expect.stringMatching(/proxy/) }] });
+  });
+
   test("plain text lists, with tags, sections and foil markers", () => {
     const { format, rows, skipped } = parseCollection("Deck\n4 Lightning Bolt\n1x Sol Ring (C21) 263 [Ramp]\n2 Opt (ELD) 59 *F*\n\nSideboard\n1 Fable of the Mirror-Breaker // Reflection of Kiki-Jiki (NEO) 141 *E*\nnot a card line");
     expect(format).toBe("Text list");
