@@ -436,6 +436,7 @@
 /* A clear pocket: the card sits behind a faint glare, with the pocket's opening along its top. */
 .binder-pocket {
   position: relative;
+  isolation: isolate; /* keeps the ×N badge inside the pocket, so it can't show through a page turning over it */
   aspect-ratio: 488 / 680;
   border-radius: 5% / 3.6%;
   background: rgb(0 0 0 / 0.07);

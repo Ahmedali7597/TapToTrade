@@ -298,7 +298,7 @@ export default function BinderView({ groups, siblings }) {
           {flip && size.w > 0 && (
             <div
               className="pointer-events-none absolute top-0 right-0"
-              style={{ width: size.w, height: size.h, transformStyle: "preserve-3d", transform: "translateZ(1px)" }}
+              style={{ width: size.w, height: size.h, transformStyle: "preserve-3d", transform: "translateZ(1px)", zIndex: 20 }}
               aria-hidden="true"
             >
               <TurningSheet front={sheetFront} back={sheetBack} w={size.w} h={size.h} strips={strips} shades={shades} />
