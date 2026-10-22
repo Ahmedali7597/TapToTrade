@@ -97,7 +97,7 @@ function CardPrices({ card }) {
       <dl className="grid gap-1.5">
         {rows.map(([finish, p]) => (
           <div key={finish} className="flex items-baseline justify-between gap-3">
-            <dt className="text-muted-foreground">{FINISH_LABELS[finish]}</dt>
+            <dt className="shrink-0 text-muted-foreground">{FINISH_LABELS[finish]}</dt>
             <dd className="text-right tabular-nums">
               {p.marketCad != null && (
                 <span className="block">
