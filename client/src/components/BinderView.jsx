@@ -51,39 +51,47 @@ function Sheet({ page, siblings, still = false, side }) {
   );
 }
 
-/** The turning sheet: STRIPS nested hinges, each showing its slice of the front page and of the back page. */
-function TurningSheet({ front, back, w, h, strips, shades }) {
+/**
+ * The turning sheet: STRIPS side-by-side strips of the page, each placed and angled by `pose` so together they
+ * curl. They're siblings in one 3D layer (no strip inside another) and each shows its front or its back depending
+ * on which way it faces, worked out in `pose`: Safari and iOS draw nested 3D and hidden back faces unreliably,
+ * which showed as flickering stripes. Each strip is ~0.75 px wider than its slot so no hairline shows between them.
+ */
+function TurningSheet({ front, back, w, h, strips }) {
   const s = w / STRIPS;
-  const face = (page, x0, i, isBack) => (
-    <div
-      className="absolute inset-y-0 left-0 overflow-hidden"
-      style={{ width: s + 0.75, backfaceVisibility: "hidden", WebkitBackfaceVisibility: "hidden", transform: isBack ? "rotateY(180deg)" : undefined }}
-    >
-      <div className="absolute top-0" style={{ left: -x0, width: w, height: h }}>
-        <Sheet page={page} still side={isBack ? "left" : "right"} />
+  const face = (page, x0, mirrored, side) => (
+    <div className="absolute inset-0 overflow-hidden" data-face={mirrored ? "back" : "front"} style={{ visibility: mirrored ? "hidden" : "visible" }}>
+      {/* Seen from behind, a strip shows its content mirrored, so the back page is drawn pre-mirrored. */}
+      <div className="absolute inset-0" style={mirrored ? { transform: "scaleX(-1)" } : undefined}>
+        <div className="absolute top-0" style={{ left: -x0, width: w, height: h }}>
+          <Sheet page={page} still side={side} />
+        </div>
       </div>
-      <div
-        ref={(el) => (shades.current[i * 2 + (isBack ? 1 : 0)] = el)}
-        className="pointer-events-none absolute inset-0"
-        style={{ background: "rgb(0 0 0)", opacity: 0 }}
-      />
     </div>
   );
-  let node = null;
-  for (let i = STRIPS - 1; i >= 0; i--) {
-    node = (
-      <div
-        ref={(el) => (strips.current[i] = el)}
-        className="absolute top-0"
-        style={{ left: i ? s : 0, width: s, height: h, transformOrigin: "left center", transformStyle: "preserve-3d" }}
-      >
-        {face(front, i * s, i, false)}
-        {face(back, w - (i + 1) * s, i, true)}
-        {node}
-      </div>
-    );
-  }
-  return node;
+  return Array.from({ length: STRIPS }, (_, i) => (
+    <div
+      key={i}
+      ref={(el) => (strips.current[i] = el)}
+      className="absolute top-0 left-0"
+      style={{ width: s + 0.75, height: h, transformOrigin: "left center", willChange: "transform" }}
+    >
+      {face(front, i * s, false, "right")}
+      {face(back, w - (i + 1) * s, true, "left")}
+      <div data-shade className="pointer-events-none absolute inset-0" style={{ background: "rgb(0 0 0)", opacity: 0 }} />
+    </div>
+  ));
+}
+
+/** Three binder rings, each passing through a punched hole in the page (both pages when the binder is open). */
+function Rings() {
+  return ["18%", "50%", "82%"].map((top) => (
+    <span key={top} className="binder-ring-slot" style={{ top }}>
+      <span className="binder-hole binder-hole--left" />
+      <span className="binder-hole binder-hole--right" />
+      <span className="binder-ring" />
+    </span>
+  ));
 }
 
 export default function BinderView({ groups, siblings }) {
@@ -100,7 +108,6 @@ export default function BinderView({ groups, siblings }) {
   // While a sheet turns: { base } is the page on the sheet's front side (spread: the page left of it).
   const [flip, setFlip] = useState(null);
   const strips = useRef([]);
-  const shades = useRef([]);
   const cast = useRef(null);
   const raf = useRef(0);
   const drag = useRef(null);
@@ -141,19 +148,27 @@ export default function BinderView({ groups, siblings }) {
   const canPrev = first > 0;
 
   // Pose the turning sheet at t (0 = flat on the right, 1 = turned over onto the left).
+  // Each strip's left edge follows the one before along the curl: the first is hinged at the spine, and every
+  // strip turns a little further than the last, so the free edge leads and the sheet flattens as it lands.
   const pose = (t) => {
     const turn = 180 * t;
     const bend = BEND * Math.sin(Math.PI * t);
-    let total = 0;
+    const s = size.w / STRIPS;
+    let x = 0;
+    let z = 0;
+    let angle = -(turn - bend / 2);
     strips.current.forEach((el, i) => {
       if (!el) return;
-      const a = i === 0 ? -(turn - bend / 2) : -bend / (STRIPS - 1);
-      total += a;
-      el.style.transform = `rotateY(${a}deg)`;
-      // A strip turned edge-on to the light is darker; an even tint per strip keeps the curve smooth.
-      const shade = String(Math.abs(Math.sin((total * Math.PI) / 180)) * 0.38);
-      if (shades.current[i * 2]) shades.current[i * 2].style.opacity = shade;
-      if (shades.current[i * 2 + 1]) shades.current[i * 2 + 1].style.opacity = shade;
+      if (i) angle -= bend / (STRIPS - 1);
+      const rad = (angle * Math.PI) / 180;
+      el.style.transform = `translate3d(${x}px, 0, ${z}px) rotateY(${angle}deg)`;
+      // Show whichever side faces the viewer; tint strips turned edge-on to the light, evenly per strip.
+      const facing = Math.cos(rad) >= 0;
+      el.children[0].style.visibility = facing ? "visible" : "hidden";
+      el.children[1].style.visibility = facing ? "hidden" : "visible";
+      el.children[2].style.opacity = String(Math.abs(Math.sin(rad)) * 0.38);
+      x += s * Math.cos(rad);
+      z -= s * Math.sin(rad);
     });
     if (cast.current) cast.current.style.opacity = String(Math.sin(Math.PI * t) * 0.8);
   };
@@ -273,9 +288,7 @@ export default function BinderView({ groups, siblings }) {
             <>
               <Sheet page={shown[0]} siblings={siblings} side="left" />
               <div className="binder-spine" aria-hidden="true">
-                <span />
-                <span />
-                <span />
+                <Rings />
               </div>
               <div ref={pageBox} className="relative">
                 <Sheet page={shown[1]} siblings={siblings} side="right" />
@@ -285,9 +298,7 @@ export default function BinderView({ groups, siblings }) {
           ) : (
             <>
               <div className="binder-spine binder-spine--edge" aria-hidden="true">
-                <span />
-                <span />
-                <span />
+                <Rings />
               </div>
               <div ref={pageBox} className="relative">
                 <Sheet page={shown[0]} siblings={siblings} side="right" />
@@ -301,7 +312,7 @@ export default function BinderView({ groups, siblings }) {
               style={{ width: size.w, height: size.h, transformStyle: "preserve-3d", transform: "translateZ(1px)", zIndex: 20 }}
               aria-hidden="true"
             >
-              <TurningSheet front={sheetFront} back={sheetBack} w={size.w} h={size.h} strips={strips} shades={shades} />
+              <TurningSheet front={sheetFront} back={sheetBack} w={size.w} h={size.h} strips={strips} />
             </div>
           )}
         </div>

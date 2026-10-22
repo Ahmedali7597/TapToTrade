@@ -498,28 +498,62 @@
 [data-theme="dark"] .binder-tab {
   color: rgb(255 255 255 / 0.6);
 }
-/* The spine between the pages, with three metal rings. */
+/* The spine between the pages (or down the left edge of a single page), with three metal D-rings. Each ring is
+   a steel band (a gradient masked to its outline, so the middle is see-through) passing through a punched hole
+   in the page on either side. */
 .binder-spine {
-  display: flex;
-  width: clamp(1.25rem, 4%, 2.5rem);
-  flex-direction: column;
-  justify-content: space-around;
-  align-items: center;
+  position: relative;
+  z-index: 2;
+  /* vw, not %: the spine's grid column sizes to it, so a percentage would collapse to nothing */
+  width: clamp(1.5rem, 2.6vw, 2.75rem);
   background: linear-gradient(90deg, rgb(0 0 0 / 0.4), rgb(0 0 0 / 0.1) 35%, rgb(255 255 255 / 0.06) 50%, rgb(0 0 0 / 0.1) 65%, rgb(0 0 0 / 0.4));
 }
-.binder-spine span {
-  width: 140%;
-  height: clamp(0.45rem, 1.4vw, 0.75rem);
-  border-radius: 999px;
-  background: linear-gradient(180deg, #f4f6f6, #9aa5a3 45%, #5e6866 55%, #c9d0ce);
-  box-shadow: 0 2px 3px rgb(0 0 0 / 0.45);
-}
 .binder-spine--edge {
-  width: clamp(0.9rem, 5%, 1.5rem);
+  width: clamp(1rem, 4vw, 1.6rem);
   margin-right: 0.35rem;
 }
-.binder-spine--edge span {
-  width: 120%;
+.binder-ring-slot {
+  position: absolute;
+  left: 50%;
+  width: calc(100% + 2.6rem);
+  height: clamp(1.05rem, 2.1vw, 1.55rem);
+  transform: translate(-50%, -50%);
+}
+/* One page: the rings come out of the cover's edge and through the page beside it. */
+.binder-spine--edge .binder-ring-slot {
+  left: 0.3rem;
+  width: calc(100% + 1.4rem);
+  transform: translateY(-50%);
+}
+.binder-ring {
+  position: absolute;
+  inset: 0;
+  border-radius: 999px;
+  padding: clamp(3px, 0.38vw, 5px);
+  background: linear-gradient(180deg, #fbfdfd 0%, #c9d1cf 22%, #7d8886 48%, #4f5856 58%, #a8b1af 78%, #e6ebea 100%);
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask: linear-gradient(#000 0 0) content-box exclude, linear-gradient(#000 0 0);
+  filter: drop-shadow(0 1.5px 1.5px rgb(0 0 0 / 0.55));
+}
+.binder-hole {
+  position: absolute;
+  top: 50%;
+  width: clamp(0.5rem, 1vw, 0.8rem);
+  aspect-ratio: 1;
+  border-radius: 999px;
+  transform: translateY(-50%);
+  background: radial-gradient(circle at 40% 35%, #0b1513 55%, #26332f);
+  box-shadow: inset 0 1px 2px rgb(0 0 0 / 0.8), 0 0 0 1px rgb(255 255 255 / 0.25);
+}
+.binder-hole--left {
+  left: 0.25rem;
+}
+.binder-hole--right {
+  right: 0.25rem;
+}
+.binder-spine--edge .binder-hole--left {
+  display: none;
 }
 /* The shadow a turning page throws on the page under it. */
 .binder-cast {
