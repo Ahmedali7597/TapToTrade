@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import { ChevronLeft, ChevronRight, EyeOff } from "lucide-react";
+import { ChevronLeft, ChevronRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { CardImage } from "@/components/common";
 import { binderPages } from "@/lib/collection";
@@ -41,12 +41,6 @@ function Sheet({ page, siblings, still = false, side }) {
                     className="w-full"
                   />
                   {item.quantity > 1 && <span className="binder-count">×{item.quantity}</span>}
-                  {!item.available && (
-                    <span className="binder-private" title="Private">
-                      <EyeOff className="size-3" aria-hidden="true" />
-                      <span className="sr-only">Private</span>
-                    </span>
-                  )}
                 </>
               )}
             </div>

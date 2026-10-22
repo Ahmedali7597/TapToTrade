@@ -456,8 +456,7 @@
 .binder-pocket .sleeve {
   box-shadow: none;
 }
-.binder-count,
-.binder-private {
+.binder-count {
   position: absolute;
   z-index: 3;
   top: 4%;
@@ -475,10 +474,6 @@
 }
 .binder-count {
   left: 5%;
-}
-.binder-private {
-  right: 5%;
-  padding: 0.2rem;
 }
 /* The page tab: which group this page belongs to. */
 .binder-tab {
