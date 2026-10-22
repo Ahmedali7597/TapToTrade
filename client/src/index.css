@@ -474,7 +474,10 @@
   background: rgb(0 0 0 / 0.72);
 }
 .binder-count {
-  left: 5%;
+  /* the pocket's outside corner, clear of the card's name */
+  top: -0.35rem;
+  left: -0.35rem;
+  box-shadow: 0 0 0 2px rgb(255 255 255 / 0.7);
 }
 /* The page tab: which group this page belongs to. */
 .binder-tab {

@@ -29,6 +29,7 @@ const FOOTER_LINKS = [
   { title: "Game stores", href: "/stores" },
   { title: "Inventory", href: "/inventory" },
   { title: "Want list", href: "/wants" },
+  { title: "Decks", href: "/decks" },
   { title: "Trades", href: "/trades" },
   { title: "Account", href: "/settings" },
   { title: "Suggestions", href: "/suggestions" },
@@ -55,6 +56,7 @@ function navItems(user) {
     { to: "/search", label: "Search" },
     { to: "/cards", label: "Cards" },
     { to: "/inventory", label: "Inventory" },
+    { to: "/decks", label: "Decks" },
     { to: "/wants", label: "Wants" },
     { to: "/trades", label: "Trades" },
     { to: "/stores", label: "Stores" },
@@ -101,16 +103,17 @@ export default function Layout() {
             </Link>
 
             {/* Desktop nav. On small screens the same links live in the menu button on the right. */}
-            <nav aria-label="Main" className="ml-4 hidden items-center gap-1 lg:flex">
+            <nav aria-label="Main" className="ml-2 hidden items-center gap-0.5 lg:flex xl:ml-4 xl:gap-1">
               {items.map((item) => (
                 <NavLink
                   key={item.to}
                   to={item.to}
                   className={({ isActive }) =>
                     cn(
-                      "relative rounded-md px-3 py-2 text-sm font-semibold text-muted-foreground transition-colors hover:text-foreground",
+                      // Tighter between 1024 and 1280 px, so all eight links fit beside the account menu.
+                      "relative rounded-md px-2 py-2 text-sm font-semibold text-muted-foreground transition-colors hover:text-foreground xl:px-3",
                       // Current page: a teal index tab along the bottom edge of the header.
-                      "after:absolute after:inset-x-3 after:-bottom-[13px] after:h-[3px] after:rounded-t-full after:bg-primary after:opacity-0 after:transition-opacity",
+                      "after:absolute after:inset-x-2 after:-bottom-[13px] xl:after:inset-x-3 after:h-[3px] after:rounded-t-full after:bg-primary after:opacity-0 after:transition-opacity",
                       isActive && "text-foreground after:opacity-100",
                     )
                   }
@@ -171,7 +174,7 @@ export default function Layout() {
                         <span className="flex size-7 items-center justify-center rounded-md bg-primary text-xs font-bold uppercase text-primary-foreground" aria-hidden="true">
                           {user.username.slice(0, 2)}
                         </span>
-                        <span className="hidden max-w-36 truncate sm:inline">{user.username}</span>
+                        <span className="hidden max-w-36 truncate sm:inline lg:max-w-28 xl:max-w-36">{user.username}</span>
                         <ChevronDown aria-hidden="true" />
                       </Button>
                     </DropdownMenuTrigger>

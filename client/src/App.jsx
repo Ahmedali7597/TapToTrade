@@ -31,6 +31,8 @@ const Profile = page(() => import("@/pages/Profile"));
 const Dashboard = page(() => import("@/pages/Dashboard"));
 const Inventory = page(() => import("@/pages/Inventory"));
 const Wants = page(() => import("@/pages/Wants"));
+const Decks = page(() => import("@/pages/Decks"));
+const DeckPage = page(() => import("@/pages/Deck"));
 const TradesPage = page(trades, "TradesPage");
 const NewTrade = page(trades, "NewTrade");
 const TradeDetail = page(trades, "TradeDetail");
@@ -98,10 +100,12 @@ export default function App() {
           <Route path="stores/:slug" element={<StorePage />} />
           <Route path="trade/:slug" element={<CityPage />} />
           <Route path="u/:username" element={<Profile />} />
+          <Route path="decks/:id" element={<DeckPage />} />
           <Route element={<RequireAuth />}>
             <Route path="dashboard" element={<Dashboard />} />
             <Route path="inventory" element={<Inventory />} />
             <Route path="wants" element={<Wants />} />
+            <Route path="decks" element={<Decks />} />
             <Route path="trades" element={<TradesPage />} />
             <Route path="trades/new" element={<NewTrade />} />
             <Route path="trades/:id" element={<TradeDetail />} />

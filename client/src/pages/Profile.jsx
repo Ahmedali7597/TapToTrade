@@ -6,6 +6,7 @@ import { EmptyState, ErrorAlert, PageMessage, Reputation, Spinner, StoreBadge, u
 import ReportDialog from "@/components/ReportDialog";
 import { useAuth } from "@/lib/auth";
 import { distanceLabel, ListingCard, RequestTradeButton } from "@/components/ListingCard";
+import { FORMAT_LABELS } from "@shared/decks";
 import { profileTitle } from "@shared/pages";
 
 /** Public profile (4.2.1): username, chosen city, trade record and intentionally shared inventory. Nothing else. */
@@ -22,7 +23,7 @@ export default function Profile() {
   if (error?.status === 404) return <PageMessage title="Player not found" body="This profile doesn't exist or isn't available." />;
   if (error) return <div className="mx-auto max-w-5xl px-4 py-10"><ErrorAlert error={error} onRetry={reload} /></div>;
 
-  const { user, inventory } = data;
+  const { user, inventory, decks = [] } = data;
   // On your own profile, show a settings link instead of report and trade buttons. Visitors can't report.
   const isMe = me?.id === user.id;
   const ids = inventory.map((i) => i.printing.id);
@@ -58,6 +59,26 @@ export default function Profile() {
           me && <ReportDialog user={user} />
         )}
       </div>
+
+      {decks.length > 0 && (
+        <section aria-labelledby="decks-heading" className="mb-10">
+          <h2 id="decks-heading" className="mb-3 text-xl font-semibold">
+            Decks ({decks.length})
+          </h2>
+          <ul className="flex flex-wrap gap-2">
+            {decks.map((d) => (
+              <li key={d.id}>
+                <Link to={`/decks/${d.id}`} className="inline-flex items-center gap-2 rounded-lg border bg-card px-3 py-2 text-sm font-medium shadow-xs hover:border-primary/50">
+                  {d.name}
+                  <span className="font-normal text-muted-foreground">
+                    {FORMAT_LABELS[d.format]} · {d.cards}
+                  </span>
+                </Link>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
 
       <h2 className="mb-4 text-xl font-semibold">Shared inventory ({inventory.length})</h2>
       {inventory.length === 0 ? (

@@ -75,6 +75,7 @@ const PRIVATE_TITLES = {
   "/dashboard": `Dashboard · ${NAME}`,
   "/inventory": `Your inventory · ${NAME}`,
   "/wants": `Your want list · ${NAME}`,
+  "/decks": `Your decks · ${NAME}`,
   "/trades": `Trades · ${NAME}`,
   "/trades/new": `New trade · ${NAME}`,
   "/settings": `Account settings · ${NAME}`,
@@ -90,6 +91,7 @@ export function pageTitle(path) {
   // One proposal (/trades/12) or its counter-offer page (/trades/12/counter).
   if (/^\/trades\/\d+\/counter$/.test(path)) return `Counter-offer · ${NAME}`;
   if (/^\/trades\/\d+$/.test(path)) return `Trade proposal · ${NAME}`;
+  if (/^\/decks\/\d+$/.test(path)) return `Deck · ${NAME}`;
   return SITE_NAME;
 }
 

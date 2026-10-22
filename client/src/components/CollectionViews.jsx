@@ -4,8 +4,10 @@ import { CardImage, FinishBadge, printingLabel } from "@/components/common";
 import { cad } from "@/lib/prices";
 import { cn } from "@/lib/utils";
 
-// The inventory page's picture views, after Moxfield and Archidekt: a grid of card images, and "stacks", where each
-// group is a column of overlapping cards showing just their title bars, the way deck sites show a Commander deck.
+// The picture views for the inventory and deck pages, after Moxfield and Archidekt: a grid of card images, and
+// "stacks", where each group is a column of overlapping cards showing just their title bars, the way deck sites show
+// a Commander deck. Leave out onQuantity / onEdit for a read-only view. Badges sit on the card's outside corner or
+// below it, so they never cover its name or mana cost.
 
 const priceFor = (prices, item) => prices?.prices[`${item.printing.id}:${item.finish}`]?.cad ?? null;
 const countOf = (items) => items.reduce((n, i) => n + i.quantity, 0);
@@ -30,6 +32,15 @@ function GroupHeading({ group, prices, grouped }) {
   );
 }
 
+/** "×3" on the card's top-left outside corner, clear of the name. */
+function CountBadge({ n, inline = false }) {
+  return (
+    <span className={cn("pointer-events-none z-10 rounded-full bg-black/80 px-1.5 text-xs leading-5 font-bold text-white ring-2 ring-background tabular-nums", !inline && "absolute -top-1.5 -left-2")}>
+      ×{n}
+    </span>
+  );
+}
+
 // Tile widths for the S / M / L card size switch.
 const GRID_MIN = { s: "7.5rem", m: "10rem", l: "13.5rem" };
 const STACK_W = { s: "9rem", m: "11.5rem", l: "14.5rem" };
@@ -51,12 +62,7 @@ function CardTile({ item, prices, siblings, selecting, selected, onToggle, onEdi
     <li className="group grid min-w-0 content-start gap-1.5">
       <div className="relative">
         <CardImage name={p.name} setCode={p.setCode} imageUrl={p.imageUrl} finish={item.finish} printingId={p.id} siblings={siblings} className="w-full" />
-        {item.quantity > 1 && <span className="pointer-events-none absolute top-1.5 left-1.5 z-10 rounded-full bg-black/75 px-2 text-xs leading-5 font-bold text-white">×{item.quantity}</span>}
-        {!item.available && (
-          <span className="pointer-events-none absolute right-1.5 bottom-1.5 z-10 inline-flex items-center gap-1 rounded-full bg-black/75 px-2 text-xs leading-5 font-semibold text-white">
-            <EyeOff className="size-3" aria-hidden="true" /> Private
-          </span>
-        )}
+        {item.quantity > 1 && <CountBadge n={item.quantity} />}
         {selecting && <SelectBox item={item} selected={selected} onToggle={onToggle} />}
       </div>
       <div className="min-w-0 px-0.5">
@@ -69,10 +75,15 @@ function CardTile({ item, prices, siblings, selecting, selected, onToggle, onEdi
           </span>
           <span>{item.condition}</span>
           <FinishBadge finish={item.finish} />
+          {item.available === false && (
+            <span className="inline-flex items-center gap-0.5">
+              <EyeOff className="size-3" aria-hidden="true" /> Private
+            </span>
+          )}
         </p>
         <div className="mt-1 flex items-center justify-between gap-1">
-          <span className="text-sm tabular-nums">{price != null ? cad(price) : <span className="text-muted-foreground">No price</span>}</span>
-          {!selecting && (
+          <span className="text-sm whitespace-nowrap tabular-nums">{price != null ? cad(price) : <span className="text-muted-foreground">No price</span>}</span>
+          {!selecting && (onQuantity || onEdit) && (
             <span className="flex items-center">
               <Button size="icon" variant="ghost" className="size-7" disabled={busy || item.quantity <= 1} onClick={() => onQuantity(item, -1)} aria-label={`One fewer ${p.name}`}>
                 <Minus aria-hidden="true" />
@@ -101,7 +112,7 @@ export function GridView({ groups, size = "m", ...tile }) {
           <GroupHeading group={g} prices={tile.prices} grouped={grouped} />
           <ul className="grid gap-x-3 gap-y-5" style={{ gridTemplateColumns: `repeat(auto-fill, minmax(min(${GRID_MIN[size]}, 100%), 1fr))` }}>
             {g.items.map((item) => (
-              <CardTile key={item.id} item={item} selected={tile.selection.has(item.id)} busy={tile.busyIds.has(item.id)} {...tile} />
+              <CardTile key={item.id} item={item} selected={tile.selection?.has(item.id)} busy={tile.busyIds?.has(item.id)} {...tile} />
             ))}
           </ul>
         </section>
@@ -132,18 +143,19 @@ export function StacksView({ groups, size = "m", prices, siblings, selecting, se
                   siblings={siblings}
                   className="w-full"
                 />
-                <span className="pointer-events-none absolute top-[2.5%] right-[18%] z-10 flex gap-1">
-                  {!item.available && (
-                    <span className="inline-flex items-center rounded-full bg-black/75 px-1.5 leading-5 text-white" title="Private">
+                <span className="pointer-events-none absolute -top-1.5 -left-2 z-10 flex gap-0.5">
+                  {item.quantity > 1 && <CountBadge n={item.quantity} inline />}
+                  {item.available === false && (
+                    <span className="inline-flex items-center rounded-full bg-black/80 px-1.5 leading-5 text-white ring-2 ring-background" title="Private">
                       <EyeOff className="size-3" aria-hidden="true" />
                       <span className="sr-only">Private</span>
                     </span>
                   )}
-                  {item.quantity > 1 && <span className="rounded-full bg-black/75 px-1.5 text-xs leading-5 font-bold text-white">×{item.quantity}</span>}
                 </span>
                 {selecting ? (
                   <SelectBox item={item} selected={selection.has(item.id)} onToggle={onToggle} />
                 ) : (
+                  onEdit && (
                   <Button
                     size="icon"
                     variant="secondary"
@@ -153,6 +165,7 @@ export function StacksView({ groups, size = "m", prices, siblings, selecting, se
                   >
                     <Pencil aria-hidden="true" />
                   </Button>
+                  )
                 )}
               </li>
             ))}
