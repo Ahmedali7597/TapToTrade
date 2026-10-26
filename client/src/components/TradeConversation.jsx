@@ -7,6 +7,7 @@ import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select"
 import { Textarea } from "@/components/ui/textarea";
 import { ErrorAlert, Field, SuccessMark, useApi } from "@/components/common";
 import { api, qs } from "@/lib/api";
+import { useTradeLive } from "@/lib/live";
 import { useAuth } from "@/lib/auth";
 import { cn } from "@/lib/utils";
 import { timeZoneFor } from "@shared/events";
@@ -43,6 +44,9 @@ export function MeetupPlanner({ tradeId, initial, other }) {
       setBusy(false);
     }
   };
+
+  // The other player suggesting, changing or confirming the meetup shows up straight away.
+  useTradeLive(tradeId, { meetup: setMeetup, reconnect: () => api(`/trades/${tradeId}`).then((d) => setMeetup(d.meetup), () => {}) });
 
   const mine = meetup?.proposedBy.id === user.id;
   // Also show the time on the viewer's own clock if they're in a different zone (players can be in different provinces).
@@ -206,14 +210,18 @@ export function TradeMessages({ tradeId, initial, canMessage, other }) {
   const [busy, setBusy] = useState(false);
   const list = useRef(null);
 
-  // Check for new messages every 30 seconds while this tab is visible, without reloading the rest of the page.
+  // New messages arrive the moment they're sent (a live connection, lib/live.js); a message already shown,
+  // like your own coming back over the connection, isn't added twice.
+  const addMessage = (m) => setMessages((list) => (list.some((x) => x.id === m.id) ? list : [...list, m]));
+  const refresh = () => api(`/trades/${tradeId}`).then((d) => setMessages(d.messages), () => {});
+  const live = useTradeLive(tradeId, { message: addMessage, reconnect: refresh }, canMessage);
+  // Browsers without live updates check every 30 seconds instead, while the tab is visible.
   useEffect(() => {
-    if (!canMessage) return;
-    const timer = setInterval(() => {
-      if (document.visibilityState === "visible") api(`/trades/${tradeId}`).then((d) => setMessages(d.messages), () => {});
-    }, 30_000);
+    if (!canMessage || live) return;
+    const timer = setInterval(() => document.visibilityState === "visible" && refresh(), 30_000);
     return () => clearInterval(timer);
-  }, [tradeId, canMessage]);
+    // refresh only uses tradeId, which is a dependency.
+  }, [tradeId, canMessage, live]);
   // Keep the newest message in view.
   useEffect(() => {
     if (list.current) list.current.scrollTop = list.current.scrollHeight;
@@ -226,7 +234,7 @@ export function TradeMessages({ tradeId, initial, canMessage, other }) {
     try {
       const sent = body;
       const { message } = await api(`/trades/${tradeId}/messages`, { method: "POST", body: { body: sent } });
-      setMessages((m) => [...m, message]);
+      addMessage(message);
       // Clear the box only if it still holds what was sent, so a next message typed meanwhile isn't wiped.
       setBody((current) => (current === sent ? "" : current));
     } catch (err) {

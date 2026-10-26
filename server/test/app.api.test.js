@@ -1472,6 +1472,8 @@ describe("trade messages and meetups", () => {
   test("both players can write while the trade is open; messages are private, checked and emailed once per burst", async () => {
     sendEmail.mockClear();
     expect((await outsider.send("post", `/api/trades/${trade.id}/messages`, { body: "hi" })).status).toBe(404);
+    expect((await outsider.get(`/api/trades/${trade.id}/live`)).status).toBe(404); // only the two players can listen
+    expect((await (await new Player().init()).get(`/api/trades/${trade.id}/live`)).status).toBe(401);
     expect((await ana.send("post", `/api/trades/${trade.id}/messages`, { body: "   " })).status).toBe(400);
     expect((await ana.send("post", `/api/trades/${trade.id}/messages`, { body: "x".repeat(1001) })).status).toBe(400);
     const slur = await ana.send("post", `/api/trades/${trade.id}/messages`, { body: "you retard" });
