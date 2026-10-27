@@ -409,11 +409,11 @@ function Suggestions({ deckId, commanders, inDeck, mine, onAdded }) {
   const [busy, setBusy] = useState(null);
   const [error, setError] = useState(null);
   const { data, error: loadError, loading, reload } = useApi(`/decks/${deckId}/suggestions${qs({ list, c: commanders })}`);
-  const add = async (card) => {
+  const add = async (card, board) => {
     setBusy(card.name);
     setError(null);
     try {
-      const res = await api(`/decks/${deckId}/cards`, { method: "POST", body: { printingId: card.printing.id } });
+      const res = await api(`/decks/${deckId}/cards`, { method: "POST", body: { printingId: card.printing.id, board } });
       onAdded(res.card);
       setAdded((s) => new Set(s).add(card.name));
     } catch (err) {
@@ -423,7 +423,7 @@ function Suggestions({ deckId, commanders, inDeck, mine, onAdded }) {
     }
   };
   // Also drop cards added since the list loaded (here or with the add box above).
-  const cards = (data?.list?.cards ?? []).filter((c) => !added.has(c.name) && !inDeck.has(c.name));
+  const cards = (data?.list?.cards ?? []).filter((c) => !added.has(c.name) && !inDeck.has(c.name.split(" // ")[0]));
   return (
     <section aria-labelledby="edhrec-heading" className="mt-10 rounded-xl border bg-card p-4 shadow-xs sm:p-5">
       <div className="mb-4 flex flex-wrap items-end justify-between gap-3">
@@ -436,7 +436,7 @@ function Suggestions({ deckId, commanders, inDeck, mine, onAdded }) {
             <a href={data?.url ?? "https://edhrec.com"} target="_blank" rel="noopener noreferrer" className="font-medium text-primary underline-offset-4 hover:underline">
               EDHREC
             </a>
-            . Synergy is how much more often a card shows up with this commander than in other decks.
+            . Synergy is how much more often a card shows up with this commander than in other decks. Suggestions only count toward the deck once you add them; Maybe keeps one on the maybeboard, outside the count.
           </p>
         </div>
         {data?.lists?.length > 0 && (
@@ -472,9 +472,15 @@ function Suggestions({ deckId, commanders, inDeck, mine, onAdded }) {
                 {c.inclusion != null && `in ${pct(c.inclusion)} of decks`}
               </p>
               {mine && (
-                <Button size="sm" variant="outline" className="mt-0.5" disabled={busy === c.name} onClick={() => add(c)}>
-                  {busy === c.name ? "Adding…" : "Add to deck"}
-                </Button>
+                <div className="mt-0.5 flex gap-1.5">
+                  <Button size="sm" variant="outline" className="flex-1" disabled={busy === c.name} onClick={() => add(c, "main")} aria-label={`Add ${c.name} to the main deck`}>
+                    {busy === c.name ? "Adding…" : "Add"}
+                  </Button>
+                  {/* The maybeboard isn't counted, so a card can wait there without changing the deck's size. */}
+                  <Button size="sm" variant="ghost" disabled={busy === c.name} onClick={() => add(c, "maybe")} aria-label={`Add ${c.name} to the maybeboard`}>
+                    Maybe
+                  </Button>
+                </div>
               )}
             </li>
           ))}
@@ -790,7 +796,7 @@ export default function Deck() {
             .map((c) => c.printing.name)
             .sort()
             .join("|")}
-          inDeck={new Set(list.map((c) => c.printing.name))}
+          inDeck={new Set(list.map((c) => c.printing.name.split(" // ")[0]))}
           mine={mine}
           onAdded={replaceCard}
         />

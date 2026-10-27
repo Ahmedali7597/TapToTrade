@@ -369,15 +369,18 @@ router.get("/:id/suggestions", async (req, res) => {
     throw new HttpError(503, "EDHREC isn't answering right now. Please try again later.");
   }
   if (!page) return res.json({ url: null, lists: [], list: null });
-  const inDeck = new Set(cards.map((c) => c.printing.name.toLowerCase()));
-  // High synergy and top cards first (EDHREC's own page leads with brand-new cards, which are rarely the best picks).
+  // Matched on the front face too: a double-faced card can be named either way.
+  const front = (name) => name.split(" // ")[0].toLowerCase();
+  const inDeck = new Set(cards.map((c) => front(c.printing.name)));
+  // High synergy and top cards first, brand-new cards last (EDHREC's own page leads with them; rarely the best picks).
   const first = ["highsynergycards", "topcards", "gamechangers"];
-  const rank = (tag) => (first.includes(tag) ? first.indexOf(tag) : first.length);
+  const rank = (tag) => (first.includes(tag) ? first.indexOf(tag) : tag === "newcards" ? first.length + 1 : first.length);
   const lists = page.lists
-    .map((l) => ({ ...l, cards: l.cards.filter((c) => !inDeck.has(c.name.toLowerCase())) }))
+    .map((l) => ({ ...l, cards: l.cards.filter((c) => !inDeck.has(front(c.name))) }))
     .filter((l) => l.cards.length)
     .sort((a, b) => rank(a.tag) - rank(b.tag));
-  const chosen = lists.find((l) => l.tag === req.query.list) ?? lists[0];
+  // By default the first list with a few cards left: a deck that already runs most top cards shouldn't open on one card.
+  const chosen = lists.find((l) => l.tag === req.query.list) ?? lists.find((l) => l.cards.length >= 5) ?? lists[0];
   let list = null;
   if (chosen) {
     let printings;

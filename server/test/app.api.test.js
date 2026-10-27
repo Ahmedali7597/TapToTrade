@@ -1021,7 +1021,8 @@ describe("decks", () => {
     commanderSuggestions.mockResolvedValueOnce({
       slug: "black-lotus",
       url: "https://edhrec.com/commanders/black-lotus",
-      lists: [{ tag: "topcards", header: "Top Cards", cards: [{ name: "Sol Ring", synergy: 0.1, inclusion: 0.9 }, { name: "Lightning Bolt", synergy: 0.4, inclusion: 0.5 }] }],
+      // EDHREC may name a double-faced card by its front face; "Sol Ring" stands in for that here.
+      lists: [{ tag: "topcards", header: "Top Cards", cards: [{ name: "Sol Ring", synergy: 0.1, inclusion: 0.9 }, { name: "Black Lotus // Back", synergy: 0.2, inclusion: 0.8 }, { name: "Lightning Bolt", synergy: 0.4, inclusion: 0.5 }] }],
     });
     lookupCollection.mockResolvedValueOnce(new Map([["Lightning Bolt", printing(BOLT, "Lightning Bolt", "m10", "146", { finishes: ["nonfoil", "foil"], setName: "Magic 2010" })]]));
     const res = await owner.get(`/api/decks/${deck.id}/suggestions`);
