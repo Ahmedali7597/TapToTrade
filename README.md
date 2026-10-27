@@ -99,3 +99,7 @@ docs/       Map styles and the OWASP ZAP report
 ```
 
 To report a vulnerability, see [SECURITY.md](SECURITY.md).
+
+## Contributing
+
+Issues and pull requests are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md) for the workflow.
