@@ -44,3 +44,15 @@ npm run dev
 The site opens at http://localhost:5173, and Vite forwards `/api` to the Express server on port 3000.
 
 Google sign-in, Google Maps and email sending are optional. Without their keys, the Google button is hidden, maps use OpenStreetMap and emails are printed to the server console. `.env.example` explains each setting.
+
+## Scripts
+
+| Command | What it does |
+| --- | --- |
+| `npm run dev` | Starts the API and the web app together, reloading on changes |
+| `npm run build` | Builds the web app into `client/dist` |
+| `npm start` | Starts the server, which serves the built app and the API from one origin |
+| `npm run migrate` | Applies new database migrations (`npm run migrate:down` rolls the last one back) |
+| `npm run seed` | Adds fictional players and inventories for local testing (safe to re-run) |
+| `npm run make-admin -- <email>` | Gives an existing account the admin role |
+| `npm run emails:sync` | Creates the email templates in Resend (add `-- --update` to replace existing ones) |
