@@ -14,3 +14,14 @@ Tap to Trade is a free website that helps Magic: The Gathering players across Ca
 - **Stores and events:** a directory of local game stores and their upcoming events.
 - **Decks:** a deck builder with Commander card suggestions from EDHREC.
 - **Safety:** player reports, a moderation queue and a slur filter on messages and usernames.
+
+## Tech stack
+
+| Layer | Tools |
+| --- | --- |
+| Frontend | React 19, React Router, Vite, Tailwind CSS, Radix UI, Leaflet |
+| Backend | Node.js 24, Express 5, express-session with a PostgreSQL session store |
+| Database | PostgreSQL (Neon in production) with plain SQL migrations |
+| Email | Resend |
+| Testing | Jest, Testing Library, Supertest, Cypress, Postman and Newman, OWASP ZAP |
+| Hosting | Render |
