@@ -1,0 +1,19 @@
+# Opens update pull requests once a month. Minor and patch updates are grouped into one pull request per
+# ecosystem, so CI checks them together; major versions still arrive one at a time.
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: monthly
+    open-pull-requests-limit: 5
+    groups:
+      minor-and-patch:
+        update-types: [minor, patch]
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly
+    groups:
+      actions:
+        patterns: ["*"]
