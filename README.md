@@ -56,3 +56,17 @@ Google sign-in, Google Maps and email sending are optional. Without their keys, 
 | `npm run seed` | Adds fictional players and inventories for local testing (safe to re-run) |
 | `npm run make-admin -- <email>` | Gives an existing account the admin role |
 | `npm run emails:sync` | Creates the email templates in Resend (add `-- --update` to replace existing ones) |
+
+## Testing
+
+| Command | What it covers |
+| --- | --- |
+| `npm test` | Unit and component tests (Jest and Testing Library) |
+| `npm run test:coverage` | Server unit tests with a coverage report |
+| `npm run test:api` | API integration tests against a real PostgreSQL database (`TEST_DATABASE_URL`). Run `npm run build` first. |
+| `npm run test:e2e` | End-to-end browser tests with Cypress. Needs the built app running with seed data (`npm run seed && npm run build && npm start`). |
+| `npm run test:postman` | The Postman collection, run with Newman against a local server |
+| `npm run test:load -- <site>` | Load test with simulated visitors (100 users for 60 seconds by default) |
+| `npm run test:security -- <site>` | Read-only checks of security headers, cookies and CSRF protection |
+
+GitHub Actions runs the unit tests, the build and the API tests on every push and pull request. The latest OWASP ZAP baseline scan is in [`docs/`](docs/).
