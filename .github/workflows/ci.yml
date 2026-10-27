@@ -2,6 +2,15 @@
 name: CI
 on: [push, pull_request]
 
+# The workflow only reads the code, so its token gets read access and nothing more.
+permissions:
+  contents: read
+
+# A newer push to the same branch or pull request cancels the run it replaces.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   test:
     runs-on: ubuntu-latest
