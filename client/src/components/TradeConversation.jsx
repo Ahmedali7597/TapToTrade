@@ -276,24 +276,28 @@ export function TradeMessages({ tradeId, threadId, initial, canMessage, other })
         {canMessage ? (
           <form onSubmit={send} className="grid gap-2 border-t p-4" noValidate>
             <Label htmlFor="trade-reply">Write a message</Label>
-            <Textarea
-              id="trade-reply"
-              rows={2}
-              maxLength={1000}
-              value={body}
-              onChange={(e) => setBody(e.target.value)}
-              aria-invalid={Boolean(error?.fields?.body)}
-              aria-describedby={error ? "trade-reply-error" : undefined}
-              placeholder={`e.g. Does Saturday afternoon work for you?`}
-            />
+            {/* Send sits beside the box: a phone keyboard scrolls only the box into view, and would hide a button below it. */}
+            <div className="flex items-end gap-2">
+              <Textarea
+                id="trade-reply"
+                rows={2}
+                maxLength={1000}
+                value={body}
+                onChange={(e) => setBody(e.target.value)}
+                aria-invalid={Boolean(error?.fields?.body)}
+                aria-describedby={error ? "trade-reply-error" : undefined}
+                placeholder={`e.g. Does Saturday afternoon work for you?`}
+                className="max-h-40 flex-1"
+              />
+              <Button type="submit" className="shrink-0 gap-1.5" disabled={busy || !body.trim()}>
+                <Send aria-hidden="true" /> {busy ? "Sending…" : "Send"}
+              </Button>
+            </div>
             {error && (
               <p id="trade-reply-error" className="text-sm font-medium text-destructive">
                 {error.fields?.body ?? error.message}
               </p>
             )}
-            <Button type="submit" size="sm" className="w-fit gap-1.5" disabled={busy || !body.trim()}>
-              <Send aria-hidden="true" /> {busy ? "Sending…" : "Send"}
-            </Button>
           </form>
         ) : (
           <p className="border-t p-4 text-sm text-muted-foreground">This trade is closed, so it can't get new messages.</p>
