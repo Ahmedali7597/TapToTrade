@@ -70,3 +70,11 @@ Google sign-in, Google Maps and email sending are optional. Without their keys, 
 | `npm run test:security -- <site>` | Read-only checks of security headers, cookies and CSRF protection |
 
 GitHub Actions runs the unit tests, the build and the API tests on every push and pull request. The latest OWASP ZAP baseline scan is in [`docs/`](docs/).
+
+## Security
+
+- Passwords are hashed with Argon2id.
+- Sessions use httpOnly, SameSite cookies stored in PostgreSQL, and every request that changes data needs a CSRF token.
+- Helmet sends a strict Content Security Policy with no inline scripts, along with anti-framing, referrer and permissions headers.
+- API requests are rate limited.
+- Secrets stay in environment variables and are never sent to the browser.
