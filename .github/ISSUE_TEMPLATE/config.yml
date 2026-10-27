@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Report a security vulnerability
+    url: https://github.com/Ahmedali7597/TapToTrade/security/advisories/new
+    about: Please report security problems privately, not in a public issue.
+  - name: Questions about trading on the site
+    url: https://taptotrade.ca/faq
+    about: Answers to common questions about Tap to Trade.
