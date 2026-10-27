@@ -25,3 +25,22 @@ Tap to Trade is a free website that helps Magic: The Gathering players across Ca
 | Email | Resend |
 | Testing | Jest, Testing Library, Supertest, Cypress, Postman and Newman, OWASP ZAP |
 | Hosting | Render |
+
+## Getting started
+
+You need Node.js 24 (see `.nvmrc`) and Docker for the local database.
+
+```bash
+git clone https://github.com/Ahmedali7597/TapToTrade.git
+cd TapToTrade
+npm install
+cp .env.example .env    # then set SESSION_SECRET
+docker compose up -d    # PostgreSQL with the app and test databases
+npm run migrate
+npm run seed            # optional: fictional players and inventories
+npm run dev
+```
+
+The site opens at http://localhost:5173, and Vite forwards `/api` to the Express server on port 3000.
+
+Google sign-in, Google Maps and email sending are optional. Without their keys, the Google button is hidden, maps use OpenStreetMap and emails are printed to the server console. `.env.example` explains each setting.
