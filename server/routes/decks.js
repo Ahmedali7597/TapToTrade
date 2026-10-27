@@ -97,11 +97,12 @@ async function deckTiles(where, params, limit = 200) {
     `SELECT d.id, d.name, d.format, d.visibility, d.updated_at, u.username,
             COALESCE(sum(c.quantity) FILTER (WHERE c.board IN ('commander', 'main')), 0)::int AS cards,
             (array_agg(p.image_url ORDER BY c.board = 'commander' DESC, c.id) FILTER (WHERE p.image_url IS NOT NULL))[1] AS cover,
-            array_remove(array_agg(DISTINCT ci.color) FILTER (WHERE c.board = 'commander'), NULL) AS colors
+            -- A subquery, not a join: joining the colours repeated the commander's row once per colour in the count.
+            COALESCE((SELECT array_agg(DISTINCT col ORDER BY col) FROM deck_cards x JOIN card_printings xp ON xp.id = x.printing_id,
+                             unnest(xp.color_identity) AS col WHERE x.deck_id = d.id AND x.board = 'commander'), '{}') AS colors
        FROM decks d
        LEFT JOIN deck_cards c ON c.deck_id = d.id
        LEFT JOIN card_printings p ON p.id = c.printing_id
-       LEFT JOIN LATERAL unnest(p.color_identity) AS ci (color) ON c.board = 'commander'
        JOIN users u ON u.id = d.owner_id
       WHERE ${where}
       GROUP BY d.id, u.username ORDER BY d.updated_at DESC LIMIT ${Number(limit)}`,

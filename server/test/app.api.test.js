@@ -1014,8 +1014,10 @@ describe("decks", () => {
 
   test("suggests cards from EDHREC for the commander, leaving out cards already in the deck", async () => {
     expect((await owner.get(`/api/decks/${deck.id}/suggestions`)).status).toBe(400); // no commander yet
-    lookupCollection.mockResolvedValueOnce(new Map([["n", printing(LOTUS, "Black Lotus", "lea", "232", { typeLine: "Legendary Creature — Lotus", setName: "Limited Edition Alpha" })]]));
+    lookupCollection.mockResolvedValueOnce(new Map([["n", printing(LOTUS, "Black Lotus", "lea", "232", { typeLine: "Legendary Creature — Lotus", setName: "Limited Edition Alpha", colorIdentity: ["R", "B", "G"] })]]));
     await owner.send("post", `/api/decks/${deck.id}/cards`, { name: "Black Lotus", board: "commander" });
+    // A three-colour commander counts once on the deck tiles (it used to count once per colour).
+    expect((await owner.get("/api/decks")).body.decks[0]).toMatchObject({ cards: 3, colors: ["B", "G", "R"] });
     commanderSuggestions.mockResolvedValueOnce({
       slug: "black-lotus",
       url: "https://edhrec.com/commanders/black-lotus",
