@@ -97,3 +97,5 @@ cypress/    End-to-end tests
 postman/    API collection for Newman
 docs/       Map styles and the OWASP ZAP report
 ```
+
+To report a vulnerability, see [SECURITY.md](SECURITY.md).
