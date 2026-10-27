@@ -1,4 +1,12 @@
+<p align="center">
+  <img src="client/public/brand/icon-512.png" alt="Tap to Trade logo" width="96" height="96">
+</p>
+
 # Tap to Trade
+
+[![CI](https://github.com/Ahmedali7597/TapToTrade/actions/workflows/ci.yml/badge.svg)](https://github.com/Ahmedali7597/TapToTrade/actions/workflows/ci.yml)
+[![Live site](https://img.shields.io/badge/live-taptotrade.ca-2ea44f)](https://taptotrade.ca)
+[![Node.js 24](https://img.shields.io/badge/node-24-339933?logo=node.js&logoColor=white)](.nvmrc)
 
 Tap to Trade is a free website that helps Magic: The Gathering players across Canada trade cards in person. Players list the cards they own, find nearby players who have the cards they need, and send trade requests to meet somewhere public, like a local game store. It's built with React, Express and PostgreSQL, and it's live at [taptotrade.ca](https://taptotrade.ca).
 
