@@ -77,7 +77,7 @@ Google sign-in, Google Maps and email sending are optional. Without their keys, 
 | `npm run test:load -- <site>` | Load test with simulated visitors (100 users for 60 seconds by default) |
 | `npm run test:security -- <site>` | Read-only checks of security headers, cookies and CSRF protection |
 
-GitHub Actions runs the unit tests, the build and the API tests on every push and pull request. The latest OWASP ZAP baseline scan is in [`docs/`](docs/).
+GitHub Actions runs the unit tests, the build and the API tests on every pull request and every push to `main`. The latest OWASP ZAP baseline scan is in [`docs/`](docs/).
 
 ## Security
 

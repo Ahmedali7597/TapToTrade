@@ -1,6 +1,9 @@
-# Runs unit tests (with coverage), API integration tests against PostgreSQL, and the build on every push and PR.
+# Runs unit tests (with coverage), API integration tests against PostgreSQL, and the build for every pull request and every push to main.
 name: CI
-on: [push, pull_request]
+on:
+  push:
+    branches: [main]
+  pull_request:
 
 # The workflow only reads the code, so its token gets read access and nothing more.
 permissions:
