@@ -3,11 +3,11 @@ import { query, tx, valuesList } from "../db.js";
 import { checkFields, HttpError, idParam } from "../lib/http.js";
 import { canTransition, lineShapeError, stockErrors } from "../lib/trades.js";
 import { feedbackError } from "../lib/reputation.js";
-import { tradeNotice, tradeUpdate } from "../lib/notify.js";
+import { background, tradeNotice, tradeUpdate } from "../lib/notify.js";
 import { meetupCalendar, zonedToUtc } from "../lib/events.js";
 import { siteUrl } from "../lib/seo.js";
 import { formatMeetup, MEETUP_DAYS_AHEAD, meetupProblems } from "../../shared/meetups.js";
-import { publish, subscribe } from "../lib/live.js";
+import { notify, publishTo } from "../lib/notifications.js";
 import { hasSlur, SLUR_MESSAGE } from "../lib/slurs.js";
 import { messageLimiter, requireAuth } from "../middleware.js";
 
@@ -239,6 +239,8 @@ router.get("/:id", async (req, res) => {
     thread: await withItems(rows),
     currentId: id,
     feedback,
+    // Live events for this negotiation carry this id (lib/notifications.js), so the page knows which are its own.
+    threadId: root.id,
     messages: await threadMessages(root.id),
     // Players can talk while a trade is pending or accepted; once it's declined it's closed.
     canMessage: latest.status === "pending" || latest.status === "accepted",
@@ -246,7 +248,7 @@ router.get("/:id", async (req, res) => {
   });
 });
 
-// ---- Messages between the two players (for arranging the meetup; Milestone 4 rules out live chat) ----
+// ---- Messages between the two players, for arranging the meetup (pushed live to both; see lib/notifications.js) ----
 
 const messageView = (m) => ({ id: m.id, body: m.body, createdAt: m.created_at, sender: { id: m.sender_id, username: m.username } });
 
@@ -258,13 +260,6 @@ const threadMessages = async (rootId) =>
       [rootId],
     )
   ).rows.map(messageView);
-
-// The trade page's live connection: new messages and meetup changes for this negotiation, pushed as they happen
-// (lib/live.js). Only the two players can open it.
-router.get("/:id/live", async (req, res) => {
-  const { root } = await loadThread(idParam(req, "That proposal"), req.user.id);
-  subscribe(root.id, req, res);
-});
 
 router.post("/:id/messages", messageLimiter, async (req, res) => {
   const { root, latest } = await loadThread(idParam(req, "That proposal"), req.user.id);
@@ -290,8 +285,9 @@ router.post("/:id/messages", messageLimiter, async (req, res) => {
     ]);
     return { ...rows[0], username: req.user.username, wroteRecently };
   });
-  if (!message.wroteRecently) tradeNotice("trade_message", latest.id, other.id, { from: req.user.username });
-  publish(root.id, "message", messageView(message));
+  if (!message.wroteRecently) tradeNotice("trade_message", latest.id, other.id, { from: req.user.username }, req.user.id);
+  else background(() => notify({ userId: other.id, kind: "trade_message", tradeId: latest.id, actorId: req.user.id }));
+  publishTo([req.user.id, other.id], "message", { ...messageView(message), threadId: root.id });
   res.status(201).json({ message: messageView(message) });
 });
 
@@ -364,8 +360,8 @@ router.put("/:id/meetup", async (req, res) => {
     [t.id, m.meetAt, m.timeZone, m.storeId, m.place, req.user.id],
   );
   const meetup = await meetupView(t.id);
-  tradeNotice("trade_meetup", t.id, otherPlayer(t, req.user.id).id, { from: req.user.username, when: meetup.when, place: meetup.place });
-  publish(t.rootId, "meetup", meetup);
+  tradeNotice("trade_meetup", t.id, otherPlayer(t, req.user.id).id, { from: req.user.username, when: meetup.when, place: meetup.place }, req.user.id);
+  publishTo([t.sender_id, t.receiver_id], "meetup", { threadId: t.rootId, meetup });
   res.json({ meetup });
 });
 
@@ -378,8 +374,8 @@ router.post("/:id/meetup/confirm", async (req, res) => {
   );
   if (!rows[0]) throw new HttpError(409, "There's no meetup waiting for you to confirm.");
   const meetup = await meetupView(t.id);
-  tradeNotice("trade_meetup_confirmed", t.id, rows[0].proposed_by, { from: req.user.username, when: meetup.when, place: meetup.place });
-  publish(t.rootId, "meetup", meetup);
+  tradeNotice("trade_meetup_confirmed", t.id, rows[0].proposed_by, { from: req.user.username, when: meetup.when, place: meetup.place }, req.user.id);
+  publishTo([t.sender_id, t.receiver_id], "meetup", { threadId: t.rootId, meetup });
   res.json({ meetup });
 });
 
@@ -490,6 +486,8 @@ router.post("/:id/feedback", async (req, res) => {
       await addReceivedCards(c, id, req.user.id);
     }
   });
+  // Saying it happened prompts the other player to say so too (and rate), in the app only: it isn't urgent.
+  if (completed) background(() => notify({ userId: subjectId, kind: "trade_feedback", tradeId: id, actorId: req.user.id }));
   res.status(201).json({ feedback: { completed, rating: completed ? rating : null } });
 });
 

@@ -7,7 +7,7 @@ import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select"
 import { Textarea } from "@/components/ui/textarea";
 import { ErrorAlert, Field, SuccessMark, useApi } from "@/components/common";
 import { api, qs } from "@/lib/api";
-import { useTradeLive } from "@/lib/live";
+import { useLive } from "@/lib/live";
 import { useAuth } from "@/lib/auth";
 import { cn } from "@/lib/utils";
 import { timeZoneFor } from "@shared/events";
@@ -26,7 +26,7 @@ const nowLocal = () => {
 };
 
 /** Where and when to meet: the current plan, a confirm button for the other player, and the form to suggest one. */
-export function MeetupPlanner({ tradeId, initial, other }) {
+export function MeetupPlanner({ tradeId, threadId, initial, other }) {
   const { user } = useAuth();
   const [meetup, setMeetup] = useState(initial ?? null);
   const [editing, setEditing] = useState(!initial);
@@ -46,7 +46,10 @@ export function MeetupPlanner({ tradeId, initial, other }) {
   };
 
   // The other player suggesting, changing or confirming the meetup shows up straight away.
-  useTradeLive(tradeId, { meetup: setMeetup, reconnect: () => api(`/trades/${tradeId}`).then((d) => setMeetup(d.meetup), () => {}) });
+  useLive({
+    meetup: (e) => e.threadId === threadId && setMeetup(e.meetup),
+    reconnect: () => api(`/trades/${tradeId}`).then((d) => setMeetup(d.meetup), () => {}),
+  });
 
   const mine = meetup?.proposedBy.id === user.id;
   // Also show the time on the viewer's own clock if they're in a different zone (players can be in different provinces).
@@ -202,7 +205,7 @@ function MeetupForm({ tradeId, current, defaultZone, city, onCancel, onSaved }) 
 }
 
 /** Messages between the two players. New ones show up within 30 seconds while the page is open. */
-export function TradeMessages({ tradeId, initial, canMessage, other }) {
+export function TradeMessages({ tradeId, threadId, initial, canMessage, other }) {
   const { user } = useAuth();
   const [messages, setMessages] = useState(initial ?? []);
   const [body, setBody] = useState("");
@@ -214,7 +217,7 @@ export function TradeMessages({ tradeId, initial, canMessage, other }) {
   // like your own coming back over the connection, isn't added twice.
   const addMessage = (m) => setMessages((list) => (list.some((x) => x.id === m.id) ? list : [...list, m]));
   const refresh = () => api(`/trades/${tradeId}`).then((d) => setMessages(d.messages), () => {});
-  const live = useTradeLive(tradeId, { message: addMessage, reconnect: refresh }, canMessage);
+  const live = useLive({ message: (m) => m.threadId === threadId && addMessage(m), reconnect: refresh }, canMessage);
   // Browsers without live updates check every 30 seconds instead, while the tab is visible.
   useEffect(() => {
     if (!canMessage || live) return;

@@ -19,10 +19,12 @@ import { DisplaySettings } from "@/components/DisplayMenu";
 import { ErrorAlert, Field, PageHeader, SuccessMessage } from "@/components/common";
 import { api } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
+import { cn } from "@/lib/utils";
 import { useForm } from "@/lib/useForm";
 import { CitySelect, PasswordChecklist } from "@/components/AccountFields";
 import { parseTravelKm, passwordProblems, usernameMessage } from "@shared/validation";
 import { CITIES, RADII } from "@shared/cities";
+import { EMAIL_CATEGORIES } from "@shared/notifications";
 import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select";
 
 /** One settings card with its own form state, error and success message. */
@@ -63,16 +65,16 @@ function Section({ title, description, initial, submitLabel, onSubmit, children,
   );
 }
 
-/** Trade emails on or off. Saves as soon as the switch flips. */
+/** Trade emails: a master switch, then each kind on its own (EMAIL_CATEGORIES). Saves as soon as a switch flips. */
 function EmailNotifications() {
   const { user, setUser } = useAuth();
   const [error, setError] = useState(null);
   const [busy, setBusy] = useState(false);
-  const change = async (emailTrades) => {
+  const change = async (body) => {
     setBusy(true);
     setError(null);
     try {
-      setUser((await api("/account/notifications", { method: "PATCH", body: { emailTrades } })).user);
+      setUser((await api("/account/notifications", { method: "PATCH", body })).user);
     } catch (err) {
       setError(err);
     } finally {
@@ -83,16 +85,32 @@ function EmailNotifications() {
     <Card>
       <CardHeader>
         <CardTitle>Email notifications</CardTitle>
-        <CardDescription>Account emails, like password resets, always arrive.</CardDescription>
+        <CardDescription>Everything still shows under the bell at the top of the page. Account emails, like password resets, always arrive.</CardDescription>
       </CardHeader>
-      <CardContent className="grid max-w-md gap-3">
+      <CardContent className="grid max-w-md gap-4">
         <ErrorAlert error={error} title="Not saved" />
         <div className="flex items-start justify-between gap-4">
           <Label htmlFor="email-trades" className="grid gap-1 font-normal">
-            <span className="font-medium">Trade updates</span>
-            <span className="text-sm text-muted-foreground">An email when someone sends you a trade request or counter-offer, or accepts yours.</span>
+            <span className="font-medium">Trade emails</span>
+            <span className="text-sm text-muted-foreground">Turn off to get no trade emails at all.</span>
           </Label>
-          <Switch id="email-trades" checked={user.emailTrades} onCheckedChange={change} disabled={busy} />
+          <Switch id="email-trades" checked={user.emailTrades} onCheckedChange={(emailTrades) => change({ emailTrades })} disabled={busy} />
+        </div>
+        <div className="grid gap-4 border-l-2 pl-4" role="group" aria-label="Kinds of trade email">
+          {EMAIL_CATEGORIES.map(([key, label, description]) => (
+            <div key={key} className="flex items-start justify-between gap-4">
+              <Label htmlFor={`email-${key}`} className={cn("grid gap-1 font-normal", !user.emailTrades && "opacity-60")}>
+                <span className="font-medium">{label}</span>
+                <span className="text-sm text-muted-foreground">{description}</span>
+              </Label>
+              <Switch
+                id={`email-${key}`}
+                checked={user.emailTrades && user.emailPrefs?.[key] !== false}
+                onCheckedChange={(on) => change({ emailPrefs: { [key]: on } })}
+                disabled={busy || !user.emailTrades}
+              />
+            </div>
+          ))}
         </div>
       </CardContent>
     </Card>

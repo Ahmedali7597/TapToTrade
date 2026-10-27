@@ -1,43 +1,47 @@
 import { useEffect, useRef } from "react";
 
-// One live connection per trade (server/lib/live.js), shared by everything on the page that listens to it.
-const connections = new Map(); // tradeId -> { source, handlers: Set }
+// The signed-in player's live connection (GET /api/live, server/routes/notifications.js): one per tab, shared by
+// everything on the page that listens. It carries "notification" (the bell), "message" and "meetup" events, each
+// with the threadId of the trade it belongs to.
+let source = null;
+let opened = false;
+const listeners = new Set();
+const TYPES = ["notification", "message", "meetup"];
 
-function connect(tradeId) {
-  let c = connections.get(tradeId);
-  if (c) return c;
-  const source = new EventSource(`/api/trades/${tradeId}/live`);
-  c = { source, handlers: new Set(), opened: false };
-  const fire = (type, data) => c.handlers.forEach((h) => h.current[type]?.(data));
-  for (const type of ["message", "meetup"]) source.addEventListener(type, (e) => fire(type, JSON.parse(e.data)));
+const fire = (type, data) => listeners.forEach((l) => l.current[type]?.(data));
+
+function open() {
+  source = new EventSource("/api/live");
+  for (const type of TYPES) source.addEventListener(type, (e) => fire(type, JSON.parse(e.data)));
   // EventSource reconnects by itself; after a reconnect, listeners catch up on anything sent while it was down.
   source.addEventListener("open", () => {
-    if (c.opened) fire("reconnect");
-    c.opened = true;
+    if (opened) fire("reconnect");
+    opened = true;
   });
-  connections.set(tradeId, c);
-  return c;
 }
 
+export const liveSupported = () => typeof window !== "undefined" && "EventSource" in window;
+
 /**
- * Calls handlers.message(message), handlers.meetup(meetup) and handlers.reconnect() as the other player acts,
- * while `enabled`. Returns false in browsers without EventSource, so the caller can fall back to polling.
+ * Calls handlers.notification(n), handlers.message(m), handlers.meetup({ threadId, meetup }) and handlers.reconnect()
+ * while `enabled` (a signed-in player). Returns false in browsers without EventSource, so callers can poll instead.
  */
-export function useTradeLive(tradeId, handlers, enabled = true) {
+export function useLive(handlers, enabled = true) {
   const ref = useRef(handlers);
   ref.current = handlers;
-  const supported = typeof window !== "undefined" && "EventSource" in window;
+  const supported = liveSupported();
   useEffect(() => {
     if (!enabled || !supported) return;
-    const c = connect(tradeId);
-    c.handlers.add(ref);
+    listeners.add(ref);
+    if (!source) open();
     return () => {
-      c.handlers.delete(ref);
-      if (!c.handlers.size) {
-        c.source.close();
-        connections.delete(tradeId);
+      listeners.delete(ref);
+      if (!listeners.size) {
+        source.close();
+        source = null;
+        opened = false;
       }
     };
-  }, [tradeId, enabled, supported]);
+  }, [enabled, supported]);
   return supported;
 }

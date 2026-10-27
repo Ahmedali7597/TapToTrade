@@ -22,6 +22,7 @@ import cityRoutes, { activeCities, cityStats } from "./routes/cities.js";
 import suggestionRoutes from "./routes/suggestions.js";
 import wantRoutes from "./routes/wants.js";
 import deckRoutes from "./routes/decks.js";
+import notificationRoutes from "./routes/notifications.js";
 import { upcomingEvents } from "./lib/events.js";
 import eventRoutes from "./routes/events.js";
 
@@ -135,6 +136,7 @@ export function createApp() {
   app.use("/api", searchRoutes);
   app.use("/api", moderationRoutes);
   app.use("/api", suggestionRoutes);
+  app.use("/api", notificationRoutes);
   app.use("/api", () => {
     throw new HttpError(404, "Not found.");
   });

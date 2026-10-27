@@ -26,6 +26,7 @@ import { useAuth } from "@/lib/auth";
 import { cn } from "@/lib/utils";
 import LazyMap from "@/components/LazyMap";
 import { MeetupPlanner, TradeMessages } from "@/components/TradeConversation";
+import { useLive } from "@/lib/live";
 import PriceTag from "@/components/PriceTag";
 import { cad, priceOf, totalOf, usePrices } from "@/lib/prices";
 import { meetupArea } from "@shared/cities";
@@ -44,15 +45,20 @@ function TradeList({ trades, viewerId, empty }) {
   );
 }
 
+// Notification kinds that change a trade's status or add a version (messages and meetups update in place).
+const STATUS_KINDS = new Set(["trade_request", "trade_counter", "trade_accepted", "trade_declined", "trade_feedback"]);
+
 /** 4.5.6: sent and received requests, including what was requested and offered. */
 export function TradesPage() {
   const { user } = useAuth();
   const { data, error, loading, reload } = useApi("/trades");
+  // A request, counter-offer or answer from another player shows up here straight away.
+  useLive({ notification: (n) => STATUS_KINDS.has(n.kind) && reload(), reconnect: reload });
   return (
     <div className="mx-auto max-w-5xl px-4 py-10 sm:px-6">
       <PageHeader title="Trades" description="Proposals you've received and sent. Only the player who received a pending proposal can respond." />
       <ErrorAlert error={error} title="Couldn't load trades" onRetry={reload} />
-      {loading && <Spinner label="Loading trades" />}
+      {loading && !data && <Spinner label="Loading trades" />}
       {/* Received first, since those are the ones that might need a reply. */}
       {data && (
         <Tabs defaultValue="received">
@@ -238,8 +244,11 @@ export function TradeDetail() {
   const { data, error, loading, reload } = useApi(`/trades/${id}`);
   const [actionError, setActionError] = useState(null);
   const [busy, setBusy] = useState(false);
+  // The other player accepting, declining, countering or confirming the trade updates this page by itself.
+  useLive({ notification: (n) => data && n.threadId === data.threadId && STATUS_KINDS.has(n.kind) && reload() });
 
-  if (loading) return <Spinner label="Loading proposal" />;
+  // Keep showing the page while it reloads, so a live update doesn't flash a spinner.
+  if (loading && !data) return <Spinner label="Loading proposal" />;
   if (error?.status === 404) return <PageMessage title="Proposal not found" body="It may not exist, or you're not one of its two players." />;
   if (error) return <div className="mx-auto max-w-5xl px-4 py-10"><ErrorAlert error={error} onRetry={reload} /></div>;
 
@@ -367,8 +376,8 @@ export function TradeDetail() {
       </div>
 
       {/* The meetup belongs to the accepted (newest) version; messages cover the whole negotiation. */}
-      {trade.id === latest.id && trade.status === "accepted" && <MeetupPlanner tradeId={trade.id} initial={data.meetup} other={p.other} />}
-      <TradeMessages tradeId={trade.id} initial={data.messages} canMessage={data.canMessage} other={p.other} />
+      {trade.id === latest.id && trade.status === "accepted" && <MeetupPlanner tradeId={trade.id} threadId={data.threadId} initial={data.meetup} other={p.other} />}
+      <TradeMessages tradeId={trade.id} threadId={data.threadId} initial={data.messages} canMessage={data.canMessage} other={p.other} />
 
       {(trade.status === "pending" || trade.status === "accepted") && <MeetupMap trade={trade} viewerId={user.id} />}
 

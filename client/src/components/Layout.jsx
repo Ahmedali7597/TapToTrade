@@ -12,6 +12,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { MinimalFooter } from "@/components/ui/minimal-footer";
 import BrandCredit from "@/components/BrandCredit";
+import NotificationBell from "@/components/NotificationBell";
 import { ThemeToggle } from "@/components/DisplayMenu";
 import { CardViewerProvider } from "@/components/CardDetails";
 import TapToTradeLogo from "@/components/TapToTradeLogo";
@@ -127,6 +128,7 @@ export default function Layout() {
 
             <div className="ml-auto flex items-center gap-1 sm:gap-2">
               <ThemeToggle />
+              {user && <NotificationBell />}
               {/* user is undefined while loading, so neither set of buttons flashes before we know. */}
               {/* Phone and tablet nav: the same links as the desktop bar, in a menu. */}
               {user !== undefined && (

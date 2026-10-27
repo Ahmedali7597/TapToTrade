@@ -1,3 +1,4 @@
+import { EMAIL_CATEGORIES } from "../../shared/notifications.js";
 import { Router } from "express";
 import { query, tx } from "../db.js";
 import { HttpError } from "../lib/http.js";
@@ -87,10 +88,21 @@ router.post("/verify-email", verifyLimiter, async (req, res) => {
   res.json({ message: `We sent a new link to ${req.user.email}. It works for ${VERIFY_HOURS} hours.` });
 });
 
-// Email notifications: whether trade requests, counter-offers and acceptances also arrive by email.
+// Email notifications: { emailTrades } is the master switch for trade emails; { emailPrefs: { requests, updates,
+// messages, meetups } } turns kinds of them on or off (EMAIL_CATEGORIES). Either or both can be sent.
 router.patch("/notifications", async (req, res) => {
-  if (typeof req.body?.emailTrades !== "boolean") throw new HttpError(400, "Choose on or off.");
-  const { rows } = await query("UPDATE users SET email_trades = $1, updated_at = now() WHERE id = $2 RETURNING *", [req.body.emailTrades, req.user.id]);
+  const { emailTrades, emailPrefs } = req.body ?? {};
+  const keys = EMAIL_CATEGORIES.map(([k]) => k);
+  if (emailTrades !== undefined && typeof emailTrades !== "boolean") throw new HttpError(400, "Choose on or off.");
+  if (emailPrefs !== undefined && (typeof emailPrefs !== "object" || emailPrefs === null || Object.entries(emailPrefs).some(([k, v]) => !keys.includes(k) || typeof v !== "boolean"))) {
+    throw new HttpError(400, "Choose on or off for each kind of email.");
+  }
+  if (emailTrades === undefined && emailPrefs === undefined) throw new HttpError(400, "Choose on or off.");
+  const { rows } = await query(
+    `UPDATE users SET email_trades = COALESCE($1, email_trades), email_prefs = email_prefs || COALESCE($2::jsonb, '{}'), updated_at = now()
+      WHERE id = $3 RETURNING *`,
+    [emailTrades ?? null, emailPrefs ? JSON.stringify(emailPrefs) : null, req.user.id],
+  );
   res.json({ user: selfView(rows[0]) });
 });
 

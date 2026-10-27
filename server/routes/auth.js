@@ -1,3 +1,4 @@
+import { emailPrefsFor } from "../../shared/notifications.js";
 import { Router } from "express";
 import { query, tx } from "../db.js";
 import { HttpError, checkFields, logEvent } from "../lib/http.js";
@@ -29,6 +30,7 @@ export const selfView = (u) => ({
   googleLinked: u.google_linked ?? Boolean(u.google_sub),
   emailVerified: u.email_verified ?? Boolean(u.email_verified_at),
   emailTrades: u.email_trades,
+  emailPrefs: emailPrefsFor(u.email_prefs),
 });
 
 // express-session only has a callback API, so wrap regenerate in a promise.

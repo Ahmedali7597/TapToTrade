@@ -1,6 +1,8 @@
 import { query } from "../db.js";
 import { buildEmail, EMAIL_KINDS, emailVariables } from "../../shared/emails.js";
 import { sendEmail } from "./email.js";
+import { notify } from "./notifications.js";
+import { NOTIFICATION_KINDS } from "../../shared/notifications.js";
 import { siteUrl } from "./seo.js";
 import { newToken, sha256 } from "./security.js";
 
@@ -28,12 +30,12 @@ export async function sendTemplate(kind, to, data) {
   return sendEmail({ to, ...buildEmail(kind, full) });
 }
 
-// Background sends: failures are logged (without the address), never thrown at the player.
+// Background sends and notifications: failures are logged (without the address), never thrown at the player.
 const pending = new Set();
 export function background(task) {
   const p = Promise.resolve()
     .then(task)
-    .catch((err) => console.error(`Background email failed: ${err.message}`))
+    .catch((err) => console.error(`Background task failed: ${err.message}`))
     .finally(() => pending.delete(p));
   pending.add(p);
 }
@@ -61,17 +63,20 @@ export function welcome(user, { confirm = true } = {}) {
 
 /**
  * The player's email and name, if they may be emailed: only confirmed addresses get notifications, so a typo
- * never emails a stranger. `trades` also requires their trade emails to be on; `suspended` allows a suspended
- * account (for the suspension notice itself).
+ * never emails a stranger. `trades` also requires their trade emails to be on, and `kind` (a notification kind)
+ * that they haven't turned that kind of email off; `suspended` allows a suspended account (for the suspension
+ * notice itself).
  */
-const reachable = async (id, { trades = false, suspended = false } = {}) =>
-  (
-    await query(
-      `SELECT id, email, username FROM users
-        WHERE id = $1 AND (status = 'active' OR ($3 AND status = 'suspended')) AND email_verified_at IS NOT NULL AND (NOT $2 OR email_trades)`,
-      [id, trades, suspended],
-    )
-  ).rows[0];
+async function reachable(id, { trades = false, suspended = false, kind = null } = {}) {
+  const { rows } = await query(
+    `SELECT id, email, username, email_prefs FROM users
+      WHERE id = $1 AND (status = 'active' OR ($3 AND status = 'suspended')) AND email_verified_at IS NOT NULL AND (NOT $2 OR email_trades)`,
+    [id, trades, suspended],
+  );
+  const category = kind && NOTIFICATION_KINDS[kind]?.email;
+  if (!rows[0] || (category && rows[0].email_prefs?.[category] === false)) return undefined;
+  return rows[0];
+}
 
 /**
  * An account notice to one player (password changed, listing removed, suspended...), in the background.
@@ -93,12 +98,13 @@ export async function promoted(userId) {
 }
 
 /**
- * Emails player `toId` about trade `tradeId` (a new message, or a meetup suggested, changed or confirmed), in the
- * background. Skipped when that player turned trade emails off.
+ * Tells player `toId` that `actorId` did `kind` on trade `tradeId` (a new message, or a meetup suggested, changed
+ * or confirmed), in the background: always in the app, and by email unless they turned that kind of email off.
  */
-export function tradeNotice(kind, tradeId, toId, data) {
+export function tradeNotice(kind, tradeId, toId, data, actorId) {
   background(async () => {
-    const to = await reachable(toId, { trades: true });
+    await notify({ userId: toId, kind, tradeId, actorId });
+    const to = await reachable(toId, { trades: true, kind });
     if (to) await sendTemplate(kind, to.email, { username: to.username, tradeId, ...data });
   });
 }
@@ -106,8 +112,8 @@ export function tradeNotice(kind, tradeId, toId, data) {
 const line = (l) => ({ quantity: l.quantity, cardName: l.card_name, setCode: l.set_code, collectorNumber: l.collector_number, condition: l.condition, finish: l.finish });
 
 /**
- * Emails the other player about trade version `tradeId`: a new request or counter-offer goes to its receiver,
- * an acceptance or a decline to its sender. Skipped when that player turned trade emails off.
+ * Tells the other player about trade version `tradeId`: a new request or counter-offer goes to its receiver,
+ * an acceptance or a decline to its sender. Always in the app; by email unless they turned that kind off.
  */
 export function tradeUpdate(kind, tradeId) {
   background(async () => {
@@ -122,7 +128,8 @@ export function tradeUpdate(kind, tradeId) {
     if (!t) return;
     // Accepted and declined are answers, so they go back to whoever sent this version.
     const answer = kind === "trade_accepted" || kind === "trade_declined";
-    const to = await reachable(answer ? t.sender_id : t.receiver_id, { trades: true });
+    await notify({ userId: answer ? t.sender_id : t.receiver_id, kind, tradeId: t.id, actorId: answer ? t.receiver_id : t.sender_id });
+    const to = await reachable(answer ? t.sender_id : t.receiver_id, { trades: true, kind });
     if (!to) return;
     const { rows: lines } = await query("SELECT * FROM trade_request_items WHERE trade_request_id = $1 ORDER BY card_name, id", [t.id]);
     await sendTemplate(kind, to.email, {

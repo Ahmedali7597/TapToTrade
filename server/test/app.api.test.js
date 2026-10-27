@@ -122,6 +122,7 @@ describe("authentication (4.1)", () => {
       googleLinked: false,
       emailVerified: false,
       emailTrades: true,
+      emailPrefs: { requests: true, updates: true, messages: true, meetups: true },
     });
     // Signing up records which version of the terms and privacy policy the player agreed to (4.2.1).
     const { rows } = await pool.query("SELECT terms_version, terms_accepted_at FROM users WHERE id = $1", [res.body.user.id]);
@@ -1251,6 +1252,51 @@ describe("email confirmation and the site's emails", () => {
     expect(await lastEmailTo(b.email)).toBeUndefined();
   });
 
+  test("the bell lists trade events, folds a chat into one line and marks read; each kind of email can be turned off", async () => {
+    const a = await newPlayer("bell_alice");
+    const b = await newPlayer("bell_bob", "Burlington, ON");
+    const bolt = await b.add(BOLT, 2);
+    expect((await b.send("patch", "/api/account/notifications", { emailPrefs: { spam: true } })).status).toBe(400);
+    expect((await b.send("patch", "/api/account/notifications", { emailPrefs: { messages: "no" } })).status).toBe(400);
+    expect((await b.send("patch", "/api/account/notifications", {})).status).toBe(400);
+    const prefs = await b.send("patch", "/api/account/notifications", { emailPrefs: { requests: false } });
+    expect(prefs.body.user).toMatchObject({ emailTrades: true, emailPrefs: { requests: false, updates: true, messages: true, meetups: true } });
+
+    sendEmail.mockClear();
+    const trade = (await a.send("post", "/api/trades", { receiverId: b.user.id, requested: [{ inventoryItemId: bolt.id, quantity: 1 }] })).body.trade;
+    await settle();
+    expect(await lastEmailTo(b.email)).toBeUndefined(); // Bob turned off request emails...
+    await a.send("post", `/api/trades/${trade.id}/messages`, { body: "Hi!" });
+    await a.send("post", `/api/trades/${trade.id}/messages`, { body: "Still there?" });
+    await settle();
+    expect((await lastEmailTo(b.email)).subject).toBe("bell_alice sent you a message about your trade"); // ...not messages
+
+    // Both still show under the bell; two messages in a row are one line.
+    const bell = (await b.get("/api/notifications")).body;
+    expect(bell.unread).toBe(2);
+    expect(bell.notifications.map((n) => n.kind)).toEqual(["trade_message", "trade_request"]);
+    expect(bell.notifications[0]).toMatchObject({ tradeId: trade.id, actor: { username: "bell_alice" }, read: false });
+    expect((await a.get("/api/notifications")).body.unread).toBe(0); // nobody is told about their own actions
+
+    expect((await b.send("post", "/api/notifications/read", { ids: ["x"] })).status).toBe(400);
+    expect((await b.send("post", "/api/notifications/read", { ids: [bell.notifications[1].id] })).body.unread).toBe(1);
+    expect((await a.send("post", "/api/notifications/read", { ids: [bell.notifications[0].id] })).status).toBe(200); // someone else's: no effect
+    expect((await b.get("/api/notifications")).body.unread).toBe(1);
+    expect((await b.send("post", "/api/notifications/read", {})).body.unread).toBe(0);
+    await a.send("post", `/api/trades/${trade.id}/messages`, { body: "Hello again" });
+    await settle();
+    expect((await b.get("/api/notifications")).body).toMatchObject({ unread: 1, notifications: { length: 3 } }); // a fresh line once read
+
+    // Bob accepts, so Alice hears about it; turning all trade emails off still leaves the bell.
+    await a.send("patch", "/api/account/notifications", { emailTrades: false });
+    sendEmail.mockClear();
+    expect((await b.send("post", `/api/trades/${trade.id}/accept`)).status).toBe(200);
+    await settle();
+    expect(await lastEmailTo(a.email)).toBeUndefined();
+    expect((await a.get("/api/notifications")).body.notifications[0]).toMatchObject({ kind: "trade_accepted", actor: { username: "bell_bob" } });
+    expect((await (await new Player().init()).get("/api/notifications")).status).toBe(401);
+  }, 30_000);
+
   test("a new moderator gets an email", async () => {
     const boss = await newPlayer("email_admin");
     await setRole(boss, "admin");
@@ -1464,6 +1510,7 @@ describe("trade messages and meetups", () => {
     outsider = await newPlayer("meet_outsider", "Halifax, NS");
     const ring = await ben.add(RING, 2);
     trade = (await ana.send("post", "/api/trades", { receiverId: ben.user.id, requested: [{ inventoryItemId: ring.id, quantity: 1 }] })).body.trade;
+    await settle(); // the request email, so it is not counted with the message emails below
     ({ rows: [{ id: storeId }] } = await pool.query(
       "INSERT INTO stores (name, address, city) VALUES ('Harbour Games', '1 Water St, Halifax', 'Halifax, NS') RETURNING id",
     ));
@@ -1472,8 +1519,7 @@ describe("trade messages and meetups", () => {
   test("both players can write while the trade is open; messages are private, checked and emailed once per burst", async () => {
     sendEmail.mockClear();
     expect((await outsider.send("post", `/api/trades/${trade.id}/messages`, { body: "hi" })).status).toBe(404);
-    expect((await outsider.get(`/api/trades/${trade.id}/live`)).status).toBe(404); // only the two players can listen
-    expect((await (await new Player().init()).get(`/api/trades/${trade.id}/live`)).status).toBe(401);
+    expect((await (await new Player().init()).get("/api/live")).status).toBe(401); // the live stream is per player
     expect((await ana.send("post", `/api/trades/${trade.id}/messages`, { body: "   " })).status).toBe(400);
     expect((await ana.send("post", `/api/trades/${trade.id}/messages`, { body: "x".repeat(1001) })).status).toBe(400);
     const slur = await ana.send("post", `/api/trades/${trade.id}/messages`, { body: "you retard" });

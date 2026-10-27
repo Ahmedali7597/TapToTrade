@@ -10,7 +10,7 @@ export async function loadUser(req, res, next) {
   const id = req.session?.userId;
   if (!id) return next();
   const { rows } = await query(
-    `SELECT id, email, username, city, role, status, travel_km, email_trades,
+    `SELECT id, email, username, city, role, status, travel_km, email_trades, email_prefs,
             google_sub IS NOT NULL AS google_linked, password_hash <> '!' AS has_password, email_verified_at IS NOT NULL AS email_verified
        FROM users WHERE id = $1`,
     [id],
