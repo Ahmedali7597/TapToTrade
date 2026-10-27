@@ -78,3 +78,14 @@ GitHub Actions runs the unit tests, the build and the API tests on every push an
 - Helmet sends a strict Content Security Policy with no inline scripts, along with anti-framing, referrer and permissions headers.
 - API requests are rate limited.
 - Secrets stay in environment variables and are never sent to the browser.
+
+## Project structure
+
+```
+client/     React app: pages, components and styles; public/ holds brand images and hero frames
+server/     Express API: routes/, lib/ (logic with its unit tests), migrations/, seed/ and test/
+shared/     Validation and data used by both the client and the server, with tests
+cypress/    End-to-end tests
+postman/    API collection for Newman
+docs/       Map styles and the OWASP ZAP report
+```
