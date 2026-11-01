@@ -61,6 +61,8 @@ export const apiLimiter = limiter(60_000, 300, "Too many requests. Please slow d
 export const authLimiter = limiter(15 * 60_000, 20, "Too many attempts. Please wait a few minutes and try again.");
 // Collection imports can mean dozens of Scryfall calls each, so keep them occasional.
 export const importLimiter = limiter(60 * 60_000, 20, "That's a lot of imports. Please wait a while before importing again.");
+// Deck optimizer analyses: each new commander means a few dozen Scryfall, EDHREC and Spellbook requests.
+export const optimizerLimiter = limiter(60 * 60_000, 30, "That's a lot of deck analyses. Please wait a while before starting another.");
 // Confirmation emails on request: enough for typos, not enough to flood an inbox.
 export const verifyLimiter = limiter(60 * 60_000, 5, "We've sent a few links already. Check your spam folder, or wait a while and try again.");
 // Trade messages: plenty for arranging a meetup, not enough to flood someone.
