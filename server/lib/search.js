@@ -63,7 +63,7 @@ export function buildSearchQuery(filters, viewerId = null, viewerCity = null) {
   // count(*) OVER () gives the total match count on every row, so we don't need a second COUNT query.
   const w = where(filters, viewerId);
   const sql = `
-    SELECT i.id, i.quantity, i.condition, i.finish, i.created_at,
+    SELECT i.id, i.quantity, i.condition, i.finish, i.language, i.created_at,
            ${PRINTING_COLUMNS},
            u.id AS owner_id, u.username, u.city, u.travel_km,
            ${STORE_BADGE_COLUMN},

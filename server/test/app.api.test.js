@@ -830,17 +830,24 @@ describe("collection import and export", () => {
       '"1","0","Lightning Bolt","m10","Near Mint","English","foil","","","146","False","False",""',
       '"3","0","Sol Ring","c21","Played","English","foil","","","263","False","False",""',
       '"1","0","Made Up Card","zzz","Near Mint","English","","","","1","False","False",""',
+      '"1","0","Sol Ring","c21","Near Mint","Japanese","","","","263","False","False",""',
     ].join("\n");
     const res = await p.send("post", "/api/inventory/import", { text: csv, available: false });
     expect(res.status).toBe(200);
-    expect(res.body).toMatchObject({ format: "Moxfield", listings: 2, cards: 6, adjustedFinish: 3, skippedCount: 1 });
+    expect(res.body).toMatchObject({ format: "Moxfield", listings: 3, cards: 7, adjustedFinish: 3, skippedCount: 1 });
     expect(res.body.skipped[0]).toMatchObject({ line: 5, name: "Made Up Card" });
 
     const items = (await p.get("/api/inventory")).body.items;
     const bolt = items.find((i) => i.printing.id === BOLT);
     expect(bolt).toMatchObject({ quantity: 4, finish: "foil", available: true }); // 1 already listed + 3 imported; visibility kept
     // Sol Ring doesn't come in plain foil, so the import used its first finish, and kept the new listing hidden.
-    expect(items.find((i) => i.printing.id === RING)).toMatchObject({ quantity: 3, finish: "nonfoil", condition: "MP", available: false });
+    expect(items.find((i) => i.printing.id === RING && i.language === "en")).toMatchObject({ quantity: 3, finish: "nonfoil", condition: "MP", available: false });
+    // The Japanese copy is its own listing, and its language can be edited like Moxfield's.
+    const japanese = items.find((i) => i.printing.id === RING && i.language === "ja");
+    expect(japanese).toMatchObject({ quantity: 1, condition: "NM" });
+    expect((await p.send("patch", "/api/inventory/" + japanese.id, { language: "Japanese" })).status).toBe(400);
+    expect((await p.send("patch", "/api/inventory/" + japanese.id, { language: "de" })).body.item.language).toBe("de");
+    await p.send("patch", "/api/inventory/" + japanese.id, { language: "ja" });
   });
 
   test("matches a card by name when its set code isn't one Scryfall uses, and says so", async () => {
@@ -922,7 +929,7 @@ describe("collection import and export", () => {
     expect(res.headers["content-disposition"]).toMatch(/attachment; filename="taptotrade-collection.csv"/);
     const lines = res.text.trim().split("\r\n");
     expect(lines[0]).toMatch(/^Count,Tradelist Count,Name,Edition,Condition/);
-    expect(lines).toEqual(expect.arrayContaining(["4,4,Lightning Bolt,m10,Near Mint,English,foil,,,146,False,False,", "3,0,Sol Ring,c21,Played,English,,,,263,False,False,"]));
+    expect(lines).toEqual(expect.arrayContaining(["4,4,Lightning Bolt,m10,Near Mint,English,foil,,,146,False,False,", "3,0,Sol Ring,c21,Played,English,,,,263,False,False,", "1,0,Sol Ring,c21,Near Mint,Japanese,,,,263,False,False,"]));
   });
 });
 

@@ -6,7 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select";
 import { Textarea } from "@/components/ui/textarea";
-import { CardImage, ConditionBadge, EmptyState, ErrorAlert, FinishBadge, printingLabel, shake } from "@/components/common";
+import { CardImage, ConditionBadge, EmptyState, ErrorAlert, FinishBadge, LanguageBadge, printingLabel, shake } from "@/components/common";
 import PriceTag from "@/components/PriceTag";
 import { cad, priceOf, totalOf, usePrices } from "@/lib/prices";
 import { cn } from "@/lib/utils";
@@ -108,7 +108,7 @@ function PickList({ title, description, items, picked, setPicked, verb, emptyTex
                   <div className="min-w-0 flex-1">
                     <p className="truncate text-sm font-semibold">{item.printing.name}</p>
                     <p className="flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
-                      {printingLabel(item.printing)} <ConditionBadge condition={item.condition} /> <FinishBadge finish={item.finish} /> {item.quantity} available
+                      {printingLabel(item.printing)} <ConditionBadge condition={item.condition} /> <FinishBadge finish={item.finish} /> <LanguageBadge language={item.language} /> {item.quantity} available
                       <PriceTag price={priceOf(prices, priceKey(item))} rate={prices?.rate} each />
                     </p>
                   </div>

@@ -18,7 +18,7 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, Di
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select";
-import { CardImage, EmptyState, ErrorAlert, Field, FinishBadge, FinishSelect, PageHeader, printingLabel, Spinner, SuccessMark, SuccessMessage, useApi } from "@/components/common";
+import { CardImage, EmptyState, ErrorAlert, Field, FinishBadge, FinishSelect, LanguageBadge, LanguageSelect, PageHeader, printingLabel, Spinner, SuccessMark, SuccessMessage, useApi } from "@/components/common";
 import { Switch } from "@/components/ui/switch";
 import BinderView from "@/components/BinderView";
 import { GridView, StacksView } from "@/components/CollectionViews";
@@ -48,7 +48,7 @@ function AddCardForm({ onAdded }) {
   const [chosen, setChosen] = useState(null);
   // Bumped after each add so the picker starts fresh for the next card.
   const [round, setRound] = useState(0);
-  const [form, setForm] = useState({ quantity: "1", condition: "NM", finish: "nonfoil", available: true });
+  const [form, setForm] = useState({ quantity: "1", condition: "NM", finish: "nonfoil", language: "en", available: true });
   const [fields, setFields] = useState({});
   const [error, setError] = useState(null);
   const [busy, setBusy] = useState(false);
@@ -120,6 +120,9 @@ function AddCardForm({ onAdded }) {
               onChange={(e) => setForm((f) => ({ ...f, finish: e.target.value }))}
             />
           </Field>
+          <Field id="add-language" label="Language" error={fields.language}>
+            <LanguageSelect id="add-language" value={form.language} onChange={(e) => setForm((f) => ({ ...f, language: e.target.value }))} />
+          </Field>
           <div className="flex items-center gap-3 sm:pt-6">
             <Switch id="available" checked={form.available} onCheckedChange={(available) => setForm((f) => ({ ...f, available }))} />
             <Label htmlFor="available">Share for trade</Label>
@@ -136,7 +139,7 @@ function AddCardForm({ onAdded }) {
 
 // One listing with inline editing. Changes are only sent when the user presses Save.
 function InventoryRow({ item, siblings, onSaved, onDeleted, selecting, selected, onToggle }) {
-  const [draft, setDraft] = useState({ quantity: String(item.quantity), condition: item.condition, finish: item.finish, available: item.available });
+  const [draft, setDraft] = useState({ quantity: String(item.quantity), condition: item.condition, finish: item.finish, language: item.language, available: item.available });
   const [error, setError] = useState(null);
   const [busy, setBusy] = useState(false);
   // Shows a green check beside Save for a moment after a save goes through.
@@ -146,6 +149,7 @@ function InventoryRow({ item, siblings, onSaved, onDeleted, selecting, selected,
     draft.quantity !== String(item.quantity) ||
     draft.condition !== item.condition ||
     draft.finish !== item.finish ||
+    draft.language !== item.language ||
     draft.available !== item.available;
   const idp = `item-${item.id}`;
 
@@ -196,6 +200,7 @@ function InventoryRow({ item, siblings, onSaved, onDeleted, selecting, selected,
           </p>
           <div className="mt-1 flex gap-1.5">
             <FinishBadge finish={item.finish} />
+            <LanguageBadge language={item.language} />
             {!item.available && <Badge variant="outline">Private</Badge>}
           </div>
         </div>
@@ -230,6 +235,12 @@ function InventoryRow({ item, siblings, onSaved, onDeleted, selecting, selected,
               finishes={item.printing.finishes}
               onChange={(e) => setDraft((d) => ({ ...d, finish: e.target.value }))}
             />
+          </div>
+          <div className="grid min-w-28 gap-1">
+            <Label htmlFor={`${idp}-lang`} className="text-xs">
+              Language
+            </Label>
+            <LanguageSelect id={`${idp}-lang`} value={draft.language} onChange={(e) => setDraft((d) => ({ ...d, language: e.target.value }))} />
           </div>
           <div className="flex h-9 items-center gap-2">
             <Switch id={`${idp}-avail`} checked={draft.available} onCheckedChange={(available) => setDraft((d) => ({ ...d, available }))} />
@@ -700,7 +711,7 @@ export default function Inventory() {
         <DialogContent className="sm:max-w-2xl">
           <DialogHeader>
             <DialogTitle>Edit {editing?.printing.name}</DialogTitle>
-            <DialogDescription>Change the quantity, condition, finish or whether it's shared, then press Save.</DialogDescription>
+            <DialogDescription>Change the quantity, condition, finish, language or whether it's shared, then press Save.</DialogDescription>
           </DialogHeader>
           {editing && (
             <ul>

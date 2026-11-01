@@ -16,7 +16,7 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { CardImage, ConditionBadge, EmptyState, ErrorAlert, FinishBadge, PageHeader, PageMessage, Spinner, StatusBadge, SuccessMark, useApi } from "@/components/common";
+import { CardImage, ConditionBadge, EmptyState, ErrorAlert, FinishBadge, LanguageBadge, PageHeader, PageMessage, Spinner, StatusBadge, SuccessMark, useApi } from "@/components/common";
 import ReportDialog from "@/components/ReportDialog";
 import TradeComposer from "@/components/TradeComposer";
 import TradeSentDialog from "@/components/TradeSentDialog";
@@ -97,7 +97,7 @@ function LineList({ lines, emptyText, prices }) {
           <div className="min-w-0 flex-1">
             <p className="font-medium">{l.cardName}</p>
             <p className="flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
-              {l.setCode.toUpperCase()} #{l.collectorNumber} <ConditionBadge condition={l.condition} /> <FinishBadge finish={l.finish} />
+              {l.setCode.toUpperCase()} #{l.collectorNumber} <ConditionBadge condition={l.condition} /> <FinishBadge finish={l.finish} /> <LanguageBadge language={l.language} />
               {l.inventoryItemId == null && <span>(listing since removed)</span>}
               <PriceTag price={priceOf(prices, l)} rate={prices?.rate} each />
             </p>

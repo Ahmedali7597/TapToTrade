@@ -11,7 +11,7 @@ import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select"
 import { api } from "@/lib/api";
 import { motionReduced } from "@/lib/display";
 import { cn } from "@/lib/utils";
-import { CONDITION_LABELS, FINISH_LABELS, FINISHES } from "@shared/validation";
+import { CONDITION_LABELS, FINISH_LABELS, FINISHES, LANGUAGE_LABELS, LANGUAGES } from "@shared/validation";
 
 /** Loads GET /api{path}; returns { data, error, loading, reload }. Pass null to skip. */
 export function useApi(path) {
@@ -269,6 +269,28 @@ export function FinishBadge({ finish }) {
     <Badge variant="outline" className="border-transparent bg-mythic text-mythic-ink">
       {FINISH_LABELS[finish]}
     </Badge>
+  );
+}
+
+// Language tag like "JA". English is the normal case, so it gets no badge (older snapshots have no language).
+export function LanguageBadge({ language }) {
+  if (!language || language === "en") return null;
+  return (
+    <Badge variant="outline" title={LANGUAGE_LABELS[language]}>
+      {language.toUpperCase()}
+    </Badge>
+  );
+}
+
+export function LanguageSelect({ id, value, onChange, className }) {
+  return (
+    <NativeSelect id={id} value={value} onChange={onChange} className={cn("w-full", className)}>
+      {LANGUAGES.map((l) => (
+        <NativeSelectOption key={l} value={l}>
+          {LANGUAGE_LABELS[l]}
+        </NativeSelectOption>
+      ))}
+    </NativeSelect>
   );
 }
 

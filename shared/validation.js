@@ -22,6 +22,29 @@ export const CONDITION_LABELS = {
 export const FINISHES = ["nonfoil", "foil", "etched"];
 export const FINISH_LABELS = { nonfoil: "Non-foil", foil: "Foil", etched: "Etched foil" };
 
+// The languages cards are printed in, by Scryfall's codes, with the names Moxfield and most sites use.
+export const LANGUAGE_LABELS = {
+  en: "English",
+  es: "Spanish",
+  fr: "French",
+  de: "German",
+  it: "Italian",
+  pt: "Portuguese",
+  ja: "Japanese",
+  ko: "Korean",
+  ru: "Russian",
+  zhs: "Chinese Simplified",
+  zht: "Chinese Traditional",
+  he: "Hebrew",
+  la: "Latin",
+  grc: "Ancient Greek",
+  ar: "Arabic",
+  sa: "Sanskrit",
+  ph: "Phyrexian",
+  qya: "Quenya",
+};
+export const LANGUAGES = Object.keys(LANGUAGE_LABELS);
+
 // Matches the CHECK constraint on inventory_items.quantity.
 const MAX_QUANTITY = 9999;
 // Deliberately loose: "something@something.tld". The real check is whether the reset email arrives.

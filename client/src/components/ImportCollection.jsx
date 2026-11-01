@@ -88,7 +88,7 @@ export default function ImportCollection({ onImported }) {
                 </li>
               )}
               {result.adjustedFinish > 0 && <li>{result.adjustedFinish} card(s) were listed in a finish their printing doesn't come in, so it was corrected.</li>}
-              <li>Cards you already listed in the same printing, condition and finish were added to those listings, which stay shared or private as they were.</li>
+              <li>Cards you already listed in the same printing, condition, finish and language were added to those listings, which stay shared or private as they were.</li>
               {!available && (
                 <li>
                   New listings are private. To trade some, choose Show: Private only, then Select cards, pick them (or Select all shown) and press Share.

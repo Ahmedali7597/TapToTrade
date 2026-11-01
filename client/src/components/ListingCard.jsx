@@ -1,7 +1,7 @@
 import { Link } from "react-router";
 import { MapPin } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { CardImage, ConditionBadge, FinishBadge, printingLabel, Reputation, StoreBadge } from "@/components/common";
+import { CardImage, ConditionBadge, FinishBadge, LanguageBadge, printingLabel, Reputation, StoreBadge } from "@/components/common";
 import { qs } from "@/lib/api";
 
 // One shared listing tile, used on the search page, the dashboard, public profiles and want-list matches.
@@ -34,6 +34,7 @@ export function ListingCard({ item, owner, action, distanceKm, siblings }) {
         <div className="mt-2 flex flex-wrap items-center gap-1.5 text-sm">
           <ConditionBadge condition={item.condition} />
           <FinishBadge finish={item.finish} />
+          <LanguageBadge language={item.language} />
           <span className="ml-auto text-muted-foreground">
             <strong className="text-foreground">{item.quantity}</strong> available
           </span>
