@@ -44,6 +44,7 @@ const lineView = (l) => ({
   collectorNumber: l.collector_number,
   condition: l.condition,
   finish: l.finish,
+  language: l.language,
   imageUrl: l.image_url,
 });
 
@@ -126,7 +127,7 @@ async function insertProposal(c, { senderId, receiverId, parentId = null, reques
 
   // Pull every listing the proposal mentions in one query, then check each line against it.
   const { rows: items } = await c.query(
-    `SELECT i.id, i.owner_id, i.quantity, i.condition, i.finish, i.available, i.printing_id,
+    `SELECT i.id, i.owner_id, i.quantity, i.condition, i.finish, i.language, i.available, i.printing_id,
             p.name AS card_name, p.set_code, p.collector_number, p.image_url
        FROM inventory_items i JOIN card_printings p ON p.id = i.printing_id
       WHERE i.id = ANY($1)`,
@@ -154,12 +155,12 @@ async function insertProposal(c, { senderId, receiverId, parentId = null, reques
   const values = valuesList(
     lines.map(([side, l]) => {
       const i = byId.get(l.inventoryItemId);
-      return [tradeId, side, i.id, l.quantity, i.owner_id, i.printing_id, i.card_name, i.set_code, i.collector_number, i.condition, i.finish, i.image_url];
+      return [tradeId, side, i.id, l.quantity, i.owner_id, i.printing_id, i.card_name, i.set_code, i.collector_number, i.condition, i.finish, i.language, i.image_url];
     }),
   );
   await c.query(
     `INSERT INTO trade_request_items (trade_request_id, side, inventory_item_id, quantity, owner_id, printing_id,
-       card_name, set_code, collector_number, condition, finish, image_url) VALUES ${values.sql}`,
+       card_name, set_code, collector_number, condition, finish, language, image_url) VALUES ${values.sql}`,
     values.params,
   );
   return tradeId;
@@ -512,10 +513,10 @@ async function removeGivenCards(c, tradeId, userId) {
  */
 async function addReceivedCards(c, tradeId, userId) {
   await c.query(
-    `INSERT INTO inventory_items (owner_id, printing_id, quantity, condition, finish, available)
-     SELECT $2, printing_id, LEAST(quantity, 9999), condition, finish, false
+    `INSERT INTO inventory_items (owner_id, printing_id, quantity, condition, finish, language, available)
+     SELECT $2, printing_id, LEAST(quantity, 9999), condition, finish, language, false
        FROM trade_request_items WHERE trade_request_id = $1 AND owner_id <> $2
-     ON CONFLICT (owner_id, printing_id, condition, finish)
+     ON CONFLICT (owner_id, printing_id, condition, finish, language)
      DO UPDATE SET quantity = LEAST(inventory_items.quantity + EXCLUDED.quantity, 9999), updated_at = now()`,
     [tradeId, userId],
   );

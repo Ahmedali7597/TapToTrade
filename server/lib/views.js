@@ -37,6 +37,7 @@ export const itemView = (r) => ({
   quantity: r.quantity,
   condition: r.condition,
   finish: r.finish,
+  language: r.language,
   available: r.available,
   addedAt: r.created_at,
   printing: printingView(r, r.printing_id),

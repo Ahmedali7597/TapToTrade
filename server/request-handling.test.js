@@ -51,7 +51,9 @@ describe("authorization (4.1.8, 4.6, 4.7)", () => {
 
 describe("request parsing", () => {
   test("inventory fields: defaults on create, partial on edit", () => {
-    expect(readItemFields({ quantity: 5 })).toEqual({ quantity: 5, condition: "NM", available: true });
+    expect(readItemFields({ quantity: 5 })).toEqual({ quantity: 5, condition: "NM", language: "en", available: true });
+    expect(readItemFields({ language: "ja" }, true)).toEqual({ language: "ja" });
+    expect(() => readItemFields({ quantity: 1, language: "Japanese" })).toThrow(HttpError);
     expect(readItemFields({ available: false }, true)).toEqual({ available: false });
     expect(() => readItemFields({ quantity: 0 })).toThrow(expect.objectContaining({ status: 400, fields: expect.objectContaining({ quantity: expect.any(String) }) }));
     expect(() => readItemFields({ quantity: 1, condition: "Mint" })).toThrow(HttpError);

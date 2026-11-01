@@ -4,6 +4,7 @@
 // "4 Lightning Bolt (M10) 146 *F*" (Moxfield / Arena / Archidekt text exports).
 
 import { isUuid } from "./http.js";
+import { LANGUAGE_LABELS } from "../../shared/validation.js";
 
 export const MAX_ROWS = 5000;
 
@@ -19,6 +20,7 @@ const HEADERS = {
   scryfallId: ["scryfallid", "scryfalluuid", "id"],
   finish: ["finish", "foil", "printing", "premium", "isfoil", "foiling"],
   condition: ["condition", "cond"],
+  language: ["language", "lang", "languagecode"],
   proxy: ["proxy", "isproxy"],
 };
 const norm = (h) => h.toLowerCase().replace(/[^a-z0-9]/g, "");
@@ -72,6 +74,19 @@ export function toFinish(raw) {
   return null;
 }
 
+// Language names and codes as sites write them ("English", "JP", "zh-CN", "Simplified Chinese"...), normalized.
+const LANGUAGE_ALIASES = {
+  ...Object.fromEntries(Object.entries(LANGUAGE_LABELS).flatMap(([code, label]) => [[code, code], [norm(label), code]])),
+  jp: "ja", kr: "ko", cn: "zhs", tw: "zht", zh: "zhs", zhcn: "zhs", zhtw: "zht", zhhans: "zhs", zhhant: "zht",
+  simplifiedchinese: "zhs", traditionalchinese: "zht", chinese: "zhs", portuguesebrazil: "pt", brazilianportuguese: "pt", ptbr: "pt", sp: "es",
+};
+
+/** Maps a site's language wording onto Scryfall's codes. Blank = English; unknown = null. */
+export function toLanguage(raw) {
+  const l = norm(String(raw ?? ""));
+  return l ? (LANGUAGE_ALIASES[l] ?? null) : "en";
+}
+
 /** RFC 4180 CSV parsing: quoted fields, doubled quotes, newlines inside quotes, CRLF. */
 export function parseCsv(text, delimiter = ",") {
   const rows = [];
@@ -118,7 +133,7 @@ function mapHeaders(header) {
   };
   const cols = {};
   // Claim specific columns first so a generic alias ("set", "edition", "id") can't steal them.
-  for (const key of ["scryfallId", "quantity", "name", "collectorNumber", "finish", "condition", "proxy", "setCode"]) {
+  for (const key of ["scryfallId", "quantity", "name", "collectorNumber", "finish", "condition", "language", "proxy", "setCode"]) {
     const i = pick(HEADERS[key]);
     if (i !== -1) {
       cols[key] = i;
@@ -154,6 +169,7 @@ function parseTextList(lines) {
       scryfallId: null,
       finish: m[5]?.toUpperCase() === "E" ? "etched" : m[5] ? "foil" : "nonfoil",
       condition: "NM",
+      language: "en",
     });
   });
   return { format: "Text list", rows, skipped };
@@ -161,7 +177,7 @@ function parseTextList(lines) {
 
 /**
  * Parses an export into { format, rows, skipped }. Each row is
- * { line, quantity, name, setCode, collectorNumber, scryfallId, finish, condition }.
+ * { line, quantity, name, setCode, collectorNumber, scryfallId, finish, condition, language }.
  */
 export function parseCollection(input) {
   let text = String(input ?? "").replace(/^﻿/, "");
@@ -200,6 +216,8 @@ export function parseCollection(input) {
     if (/^(true|yes|y|1)$/i.test(get("proxy"))) return skipped.push({ line, name, reason: "It's marked as a proxy, and proxies can't be listed for trade." });
     if (!condition) return skipped.push({ line, name, reason: `Unknown condition "${get("condition")}".` });
     if (!finish) return skipped.push({ line, name, reason: `Unknown finish "${get("finish")}".` });
+    const language = toLanguage(get("language"));
+    if (!language) return skipped.push({ line, name, reason: `Unknown language "${get("language")}".` });
     const setRaw = get("setCode");
     rows.push({
       line,
@@ -210,6 +228,7 @@ export function parseCollection(input) {
       scryfallId,
       finish,
       condition,
+      language,
     });
   });
   return { format, rows, skipped };

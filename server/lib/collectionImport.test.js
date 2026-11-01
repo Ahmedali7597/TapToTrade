@@ -1,10 +1,10 @@
-import { identifierFor, matchesIdentifier, parseCollection, parseCsv, toCondition, toFinish } from "./collectionImport.js";
+import { identifierFor, matchesIdentifier, parseCollection, parseCsv, toCondition, toFinish, toLanguage } from "./collectionImport.js";
 
 // Trimmed real-world header rows from each site's collection export.
 const MOXFIELD = `"Count","Tradelist Count","Name","Edition","Condition","Language","Foil","Tags","Last Modified","Collector Number","Alter","Proxy","Purchase Price"
 "4","4","Lightning Bolt","m10","Near Mint","English","","","2026-09-01 10:00:00.000000","146","False","False",""
 "1","0","Sol Ring","c21","Good (Lightly Played)","English","etched","","2026-09-01 10:00:00.000000","263","False","False",""
-"2","0","Delver of Secrets // Insectile Aberration","isd","Played","English","foil","","","51","False","False",""`;
+"2","0","Delver of Secrets // Insectile Aberration","isd","Played","Japanese","foil","","","51","False","False",""`;
 
 const ARCHIDEKT = `Quantity,Name,Finish,Condition,Date Added,Language,Purchase Price,Tags,Edition Name,Edition Code,Multiverse Id,Scryfall ID,Collector Number
 3,Opt,Foil,LP,2026-09-01,EN,0.25,,Eldraine,eld,0,4c1ef8a2-1b23-4c9a-9d0e-0123456789ab,59`;
@@ -23,15 +23,23 @@ Folder Name,Quantity,Trade Quantity,Card Name,Set Code,Set Name,Card Number,Cond
 Binder,1,0,Lightning Bolt,M10,Magic 2010,146,Played,Foil,English,1.00,2026-09-01,1,1,1`;
 
 describe("collection import parsing", () => {
-  test("Moxfield: codes, long condition names, foil and etched, double-faced names", () => {
+  test("Moxfield: codes, long condition names, foil and etched, languages, double-faced names", () => {
     const { format, rows, skipped } = parseCollection(MOXFIELD);
     expect(format).toBe("Moxfield");
     expect(skipped).toEqual([]);
-    expect(rows.map((r) => [r.quantity, r.name, r.setCode, r.collectorNumber, r.condition, r.finish])).toEqual([
-      [4, "Lightning Bolt", "m10", "146", "NM", "nonfoil"],
-      [1, "Sol Ring", "c21", "263", "LP", "etched"],
-      [2, "Delver of Secrets // Insectile Aberration", "isd", "51", "MP", "foil"],
+    expect(rows.map((r) => [r.quantity, r.name, r.setCode, r.collectorNumber, r.condition, r.finish, r.language])).toEqual([
+      [4, "Lightning Bolt", "m10", "146", "NM", "nonfoil", "en"],
+      [1, "Sol Ring", "c21", "263", "LP", "etched", "en"],
+      [2, "Delver of Secrets // Insectile Aberration", "isd", "51", "MP", "foil", "ja"],
     ]);
+  });
+
+  test("languages by name or code, as each site writes them", () => {
+    expect(["English", "EN", "", "Japanese", "JP", "ja", "Chinese Simplified", "zh-TW", "Portuguese (Brazil)", "Phyrexian"].map(toLanguage)).toEqual(["en", "en", "en", "ja", "ja", "ja", "zhs", "zht", "pt", "ph"]);
+    expect(toLanguage("Klingon")).toBeNull();
+    const odd = parseCollection(MOXFIELD.replace('"Japanese"', '"Klingon"'));
+    expect(odd.skipped).toEqual([{ line: 4, name: "Delver of Secrets // Insectile Aberration", reason: 'Unknown language "Klingon".' }]);
+    expect(parseCollection(MANABOX).rows[0].language).toBe("en");
   });
 
   test("Archidekt: prefers the Scryfall id", () => {

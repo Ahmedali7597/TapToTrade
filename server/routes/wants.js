@@ -101,7 +101,7 @@ router.delete("/:id", async (req, res) => {
 });
 
 // Listing columns plus the owner's city, for both directions of matching.
-const LISTING_COLUMNS = `i.id, i.quantity, i.condition, i.finish, i.created_at, ${PRINTING_COLUMNS}, u.city`;
+const LISTING_COLUMNS = `i.id, i.quantity, i.condition, i.finish, i.language, i.created_at, ${PRINTING_COLUMNS}, u.city`;
 
 /**
  * Matches within the player's meetup range (or ?radius=, or 100 km): who nearby lists cards on your want list,

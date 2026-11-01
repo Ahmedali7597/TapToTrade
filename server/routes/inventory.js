@@ -5,7 +5,7 @@ import { HttpError, checkFields, idParam, isUuid } from "../lib/http.js";
 import { priceCards } from "../lib/prices.js";
 import { lookupCollection } from "../lib/scryfall.js";
 import { importLimiter, requireAuth } from "../middleware.js";
-import { CONDITIONS, FINISH_LABELS, FINISHES, parseQuantity } from "../../shared/validation.js";
+import { CONDITIONS, FINISH_LABELS, FINISHES, LANGUAGE_LABELS, LANGUAGES, parseQuantity } from "../../shared/validation.js";
 import { itemView, PRINTING_COLUMNS } from "../lib/views.js";
 import { cachePrintings, fillCardDetails } from "./cards.js";
 
@@ -14,14 +14,14 @@ const router = Router();
 router.use(requireAuth);
 
 // Columns every inventory query selects, so the list, add and edit responses all look the same.
-const ITEM_COLUMNS = `i.id, i.quantity, i.condition, i.finish, i.available, i.created_at, ${PRINTING_COLUMNS}`;
+const ITEM_COLUMNS = `i.id, i.quantity, i.condition, i.finish, i.language, i.available, i.created_at, ${PRINTING_COLUMNS}`;
 
 // A player's listings, sorted like a binder. Profiles pass availableOnly so hidden cards stay private.
 export async function listItems(ownerId, { availableOnly = false } = {}) {
   const { rows } = await query(
     `SELECT ${ITEM_COLUMNS} FROM inventory_items i JOIN card_printings p ON p.id = i.printing_id
       WHERE i.owner_id = $1 AND (NOT $2 OR i.available)
-      ORDER BY p.name, p.set_code, i.condition, i.finish, i.id`,
+      ORDER BY p.name, p.set_code, i.condition, i.finish, i.language, i.id`,
     [ownerId, availableOnly],
   );
   return rows.map(itemView);
@@ -49,6 +49,10 @@ export function readItemFields(body = {}, partial = false) {
     out.condition = body.condition ?? "NM";
     if (!CONDITIONS.includes(out.condition)) fields.condition = "Choose a valid condition.";
   }
+  if (!partial || body.language !== undefined) {
+    out.language = body.language ?? "en";
+    if (!LANGUAGES.includes(out.language)) fields.language = "Choose a language.";
+  }
   // Finish is optional on create: when it's left out, the route picks the printing's first finish.
   if (body.finish !== undefined) {
     out.finish = body.finish;
@@ -70,7 +74,7 @@ function checkFinish(finish, finishes) {
   }
 }
 
-const DUPLICATE = "You already list this printing in that condition and finish.";
+const DUPLICATE = "You already list this printing in that condition, finish and language.";
 
 // The signed-in user's whole inventory, hidden listings included.
 router.get("/", async (req, res) => {
@@ -106,7 +110,7 @@ router.post("/bulk", async (req, res) => {
 
 // Add a card. The printing has to be one the card search already saved, and the finish has to exist for it.
 router.post("/", async (req, res) => {
-  const { quantity, condition, finish: chosen, available } = readItemFields(req.body);
+  const { quantity, condition, language, finish: chosen, available } = readItemFields(req.body);
   const printingId = req.body?.printingId;
   const notChosen = new HttpError(400, "Choose a card printing from the search results.", { printingId: "Choose a printing." });
   if (!isUuid(printingId)) throw notChosen;
@@ -116,11 +120,11 @@ router.post("/", async (req, res) => {
   checkFinish(finish, printing[0].finishes);
 
   const { rows } = await query(
-    `INSERT INTO inventory_items (owner_id, printing_id, quantity, condition, finish, available)
-     VALUES ($1, $2, $3, $4, $5, $6) RETURNING id`,
-    [req.user.id, printingId, quantity, condition, finish, available],
+    `INSERT INTO inventory_items (owner_id, printing_id, quantity, condition, finish, language, available)
+     VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id`,
+    [req.user.id, printingId, quantity, condition, finish, language, available],
   ).catch((err) => {
-    // 23505 = unique violation: same printing, condition and finish already listed.
+    // 23505 = unique violation: same printing, condition, finish and language already listed.
     if (err.code === "23505") throw new HttpError(409, `${DUPLICATE} Edit its quantity instead.`);
     throw err;
   });
@@ -129,7 +133,7 @@ router.post("/", async (req, res) => {
 
 /**
  * Collection import from Moxfield, Archidekt, ManaBox, Deckbox, TCGplayer, Dragon Shield and others,
- * or a plain text list. Cards already listed in the same printing, condition and finish are added to
+ * or a plain text list. Cards already listed in the same printing, condition, finish and language are added to
  * (capped at 9999) and keep their visibility; new listings are private unless `available: true` is sent.
  * Unmatched rows come back in `skipped`.
  */
@@ -177,20 +181,20 @@ router.post("/import", importLimiter, async (req, res) => {
       finish = printing.finishes[0];
       adjustedFinish += row.quantity;
     }
-    const key = `${printing.id}|${row.condition}|${finish}`;
+    const key = `${printing.id}|${row.condition}|${finish}|${row.language}`;
     const quantity = Math.min(9999, (listings.get(key)?.quantity ?? 0) + row.quantity);
-    listings.set(key, { printingId: printing.id, condition: row.condition, finish, quantity });
+    listings.set(key, { printingId: printing.id, condition: row.condition, finish, language: row.language, quantity });
   }
 
   const all = [...listings.values()];
   await tx(async (c) => {
     for (let start = 0; start < all.length; start += 500) {
       const chunk = all.slice(start, start + 500);
-      const values = valuesList(chunk.map((l) => [req.user.id, l.printingId, l.quantity, l.condition, l.finish, available]));
+      const values = valuesList(chunk.map((l) => [req.user.id, l.printingId, l.quantity, l.condition, l.finish, l.language, available]));
       await c.query(
-        `INSERT INTO inventory_items (owner_id, printing_id, quantity, condition, finish, available)
+        `INSERT INTO inventory_items (owner_id, printing_id, quantity, condition, finish, language, available)
          VALUES ${values.sql}
-         ON CONFLICT (owner_id, printing_id, condition, finish)
+         ON CONFLICT (owner_id, printing_id, condition, finish, language)
          DO UPDATE SET quantity = LEAST(9999, inventory_items.quantity + EXCLUDED.quantity), updated_at = now()`,
         values.params,
       );
@@ -227,7 +231,7 @@ router.get("/export", async (req, res) => {
       i.printing.name,
       i.printing.setCode,
       EXPORT_CONDITIONS[i.condition],
-      "English",
+      LANGUAGE_LABELS[i.language],
       i.finish === "nonfoil" ? "" : i.finish,
       "",
       "",
@@ -240,7 +244,7 @@ router.get("/export", async (req, res) => {
   res.attachment("taptotrade-collection.csv").type("text/csv").send([header.join(","), ...lines].join("\r\n") + "\r\n");
 });
 
-// Edit quantity, condition, finish or visibility. COALESCE keeps any field the request left out.
+// Edit quantity, condition, finish, language or visibility. COALESCE keeps any field the request left out.
 router.patch("/:id", async (req, res) => {
   const id = idParam(req);
   const f = readItemFields(req.body, true);
@@ -250,9 +254,9 @@ router.patch("/:id", async (req, res) => {
   if (f.finish) checkFinish(f.finish, current.finishes);
   await query(
     `UPDATE inventory_items SET quantity = COALESCE($3, quantity), condition = COALESCE($4, condition),
-            finish = COALESCE($5, finish), available = COALESCE($6, available), updated_at = now()
+            finish = COALESCE($5, finish), available = COALESCE($6, available), language = COALESCE($7, language), updated_at = now()
       WHERE id = $1 AND owner_id = $2`,
-    [id, req.user.id, f.quantity ?? null, f.condition ?? null, f.finish ?? null, f.available ?? null],
+    [id, req.user.id, f.quantity ?? null, f.condition ?? null, f.finish ?? null, f.available ?? null, f.language ?? null],
   ).catch((err) => {
     if (err.code === "23505") throw new HttpError(409, DUPLICATE);
     throw err;

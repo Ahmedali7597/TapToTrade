@@ -1,6 +1,6 @@
 import { EyeOff, Minus, Pencil, Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { CardImage, FinishBadge, printingLabel } from "@/components/common";
+import { CardImage, FinishBadge, LanguageBadge, printingLabel } from "@/components/common";
 import { cad } from "@/lib/prices";
 import { cn } from "@/lib/utils";
 
@@ -75,6 +75,7 @@ function CardTile({ item, prices, siblings, selecting, selected, onToggle, onEdi
           </span>
           <span>{item.condition}</span>
           <FinishBadge finish={item.finish} />
+          <LanguageBadge language={item.language} />
           {item.available === false && (
             <span className="inline-flex items-center gap-0.5">
               <EyeOff className="size-3" aria-hidden="true" /> Private
