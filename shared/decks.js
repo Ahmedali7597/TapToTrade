@@ -129,7 +129,9 @@ export function colourPips(cards) {
 
 /** A decklist in the text format Moxfield, Archidekt and Arena import: sections, then "1 Sol Ring (C21) 263". */
 export function deckText(cards) {
-  const line = (c) => `${c.quantity} ${c.printing.name} (${c.printing.setCode.toUpperCase()}) ${c.printing.collectorNumber}`;
+  // Moxfield's marks for foil (*F*) and etched (*E*) copies.
+  const mark = { foil: " *F*", etched: " *E*" };
+  const line = (c) => `${c.quantity} ${c.printing.name} (${c.printing.setCode.toUpperCase()}) ${c.printing.collectorNumber}${mark[c.finish] ?? ""}`;
   const out = [];
   for (const [board, label] of BOARDS) {
     const rows = cards.filter((c) => c.board === board).sort((a, b) => a.printing.name.localeCompare(b.printing.name));
