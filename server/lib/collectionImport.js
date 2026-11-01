@@ -21,6 +21,7 @@ const HEADERS = {
   finish: ["finish", "foil", "printing", "premium", "isfoil", "foiling"],
   condition: ["condition", "cond"],
   language: ["language", "lang", "languagecode"],
+  setName: ["setname", "editionname"],
   proxy: ["proxy", "isproxy"],
 };
 const norm = (h) => h.toLowerCase().replace(/[^a-z0-9]/g, "");
@@ -29,7 +30,7 @@ const norm = (h) => h.toLowerCase().replace(/[^a-z0-9]/g, "");
 const SIGNATURES = [
   ["ManaBox", ["manaboxid"]],
   ["Moxfield", ["tradelistcount", "alter", "proxy"]],
-  ["Deckbox", ["tradelistcount", "editioncode", "cardnumber"]],
+  ["Deckbox", ["tradelistcount", "cardnumber"]],
   ["Archidekt", ["editioncode", "editionname"]],
   ["Dragon Shield", ["foldername", "cardname"]],
   ["TCGplayer", ["simplename", "productid"]],
@@ -133,7 +134,7 @@ function mapHeaders(header) {
   };
   const cols = {};
   // Claim specific columns first so a generic alias ("set", "edition", "id") can't steal them.
-  for (const key of ["scryfallId", "quantity", "name", "collectorNumber", "finish", "condition", "language", "proxy", "setCode"]) {
+  for (const key of ["scryfallId", "quantity", "name", "collectorNumber", "finish", "condition", "language", "proxy", "setCode", "setName"]) {
     const i = pick(HEADERS[key]);
     if (i !== -1) {
       cols[key] = i;
@@ -219,11 +220,14 @@ export function parseCollection(input) {
     const language = toLanguage(get("language"));
     if (!language) return skipped.push({ line, name, reason: `Unknown language "${get("language")}".` });
     const setRaw = get("setCode");
+    // A set name instead of a code (Deckbox, TCGplayer): kept so the import can look its code up.
+    const setName = SET_CODE.test(setRaw) ? null : setRaw || get("setName") || null;
     rows.push({
       line,
       quantity,
       name,
       setCode: SET_CODE.test(setRaw) ? setRaw.toLowerCase() : null,
+      setName,
       collectorNumber: get("collectorNumber") || null,
       scryfallId,
       finish,
@@ -245,6 +249,46 @@ export function identifierFor(row) {
   }
   if (row.setCode) return [`ns:${row.name.toLowerCase()}:${row.setCode}`, { name: row.name, set: row.setCode }];
   return [`n:${row.name.toLowerCase()}`, { name: row.name }];
+}
+
+/**
+ * Every lookup worth trying for a row, most precise first. When the exact printing misses (a number written with
+ * leading zeros, or one a site numbers its own way), the same card in the same set comes before the card by name
+ * alone: a name alone gets Scryfall's newest printing, which is what made imports land on the wrong set.
+ */
+export function identifiersFor(row) {
+  const out = [identifierFor(row)];
+  const number = row.collectorNumber?.replace(/^0+(?=\d)/, "");
+  if (row.setCode && number && number !== row.collectorNumber) out.push(identifierFor({ ...row, scryfallId: null, collectorNumber: number }));
+  if (row.name && row.setCode && (row.scryfallId || row.collectorNumber)) out.push(identifierFor({ ...row, scryfallId: null, collectorNumber: null }));
+  if (row.name && (row.setCode || row.scryfallId)) out.push(identifierFor({ name: row.name }));
+  return out;
+}
+
+/**
+ * Finds each row's printing with `lookup` (scryfall.lookupCollection), asking again with the next lookup in
+ * identifiersFor for rows the last round missed. Returns a Map of row -> { printing, how }, where `how` is "exact",
+ * "sameSet" (right set, printing guessed) or "nameOnly" (the set couldn't be matched, so the newest printing).
+ */
+export async function findPrintings(rows, lookup) {
+  const found = new Map();
+  const asked = new Set();
+  const result = new Map();
+  let pending = rows.map((row) => ({ row, tries: identifiersFor(row), tier: 0 }));
+  while (pending.length) {
+    const ask = new Map(pending.map((p) => p.tries[p.tier]).filter(([k]) => !asked.has(k)));
+    for (const k of ask.keys()) asked.add(k);
+    if (ask.size) for (const [k, p] of await lookup([...ask])) found.set(k, p);
+    const next = [];
+    for (const p of pending) {
+      const [key] = p.tries[p.tier];
+      const printing = found.get(key);
+      if (printing) result.set(p.row, { printing, how: key.startsWith("n:") && p.tier ? "nameOnly" : key.startsWith("ns:") && p.tier ? "sameSet" : "exact" });
+      else if (p.tier + 1 < p.tries.length) next.push({ ...p, tier: p.tier + 1 });
+    }
+    pending = next;
+  }
+  return result;
 }
 
 /** Does Scryfall card `card` answer lookup `ident`? Double-faced cards also match their front face's name. */

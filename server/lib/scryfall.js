@@ -129,6 +129,25 @@ export async function searchCards(q, { pages = 1 } = {}) {
 const COLLECTION_BATCH = 75;
 
 /**
+ * Fills in setCode for rows that name their set instead ("Magic 2010" -> "m10"), from Scryfall's list of sets,
+ * kept for a day. Names compare ignoring case and punctuation. Rows whose set name isn't found are left as they are.
+ */
+export async function fillSetCodes(rows) {
+  const wanting = rows.filter((r) => !r.setCode && r.setName);
+  if (!wanting.length) return;
+  const norm = (n) => n.toLowerCase().replace(/[^a-z0-9]/g, "");
+  let hit = cache.get("sets");
+  if (!hit || Date.now() - hit.at > DAY_MS) {
+    await throttle();
+    const res = await fetch(`${API}/sets`, { headers: HEADERS, signal: AbortSignal.timeout(10000) });
+    if (!res.ok) throw new Error(`Scryfall responded ${res.status}`);
+    hit = { at: Date.now(), data: new Map((await res.json()).data.map((s) => [norm(s.name), s.code])) };
+    cache.set("sets", hit);
+  }
+  for (const r of wanting) r.setCode = hit.data.get(norm(r.setName)) ?? null;
+}
+
+/**
  * Looks up many cards at once (collection import, prices). `entries` is [[key, identifier], ...] from
  * collectionImport.identifierFor; returns Map(key -> map(card)) for every identifier Scryfall found (a printing by default).
  */
