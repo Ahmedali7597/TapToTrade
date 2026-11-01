@@ -106,6 +106,25 @@ export async function autocompleteNames(q) {
   return data;
 }
 
+/**
+ * Raw Scryfall cards for a search, following up to `pages` pages of 175 (the deck optimizer reads oracle text and
+ * prices). A search with no matches is an empty list.
+ */
+export async function searchCards(q, { pages = 1 } = {}) {
+  const out = [];
+  let url = `${API}/cards/search?q=${encodeURIComponent(q)}`;
+  for (let page = 0; url && page < pages; page++) {
+    await throttle(true);
+    const res = await fetch(url, { headers: HEADERS, signal: AbortSignal.timeout(10000) });
+    if (res.status === 404) break;
+    if (!res.ok) throw new Error(`Scryfall responded ${res.status}: ${(await res.json().catch(() => ({}))).details ?? ""}`);
+    const json = await res.json();
+    out.push(...json.data);
+    url = json.has_more ? json.next_page : null;
+  }
+  return out;
+}
+
 // Scryfall's bulk lookup accepts at most 75 identifiers per request.
 const COLLECTION_BATCH = 75;
 

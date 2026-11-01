@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router";
-import { AlertTriangle, Check, Copy, Download, Layers, LayoutGrid, Pencil, Search, Shuffle, Trash2, Type, Upload } from "lucide-react";
+import { AlertTriangle, Check, Copy, Download, Layers, LayoutGrid, Pencil, RotateCcw, Search, Shuffle, Sparkles, Trash2, Type, Upload } from "lucide-react";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -38,6 +38,15 @@ import { deckTitle } from "@shared/pages";
 // problems); and, for a signed-in viewer, which cards they own and which they'd still need to trade for.
 
 const isBasic = (p) => /\bBasic\b/.test(p.typeLine ?? "");
+/** Where the optimizer keeps a deck's list from before its changes were applied, so either page can undo them. */
+export const undoKey = (deckId) => `ttt-optimizer-undo-${deckId}`;
+function readUndo(deckId) {
+  try {
+    return JSON.parse(localStorage.getItem(undoKey(deckId)) ?? "null");
+  } catch {
+    return null;
+  }
+}
 const GROUPS = [
   ["type", "Card type"],
   ["cmc", "Mana value"],
@@ -502,6 +511,8 @@ export default function Deck() {
   const [group, setGroup] = useChoice("group", "type");
   const [copied, setCopied] = useState(false);
   const [wantResult, setWantResult] = useState(null);
+  const [undo, setUndo] = useState(() => readUndo(id));
+  const [undoError, setUndoError] = useState(null);
   const list = cards ?? data?.cards ?? [];
   const deck = deckInfo ?? data?.deck;
   const mine = Boolean(data?.mine);
@@ -590,6 +601,36 @@ export default function Deck() {
         </div>
         <div className="flex flex-wrap gap-2">
           <SampleHand cards={list} />
+          {deck.format === "commander" && user && list.some((c) => c.board === "commander") && (
+            <Button asChild variant="outline" size="sm" className="gap-1.5">
+              <Link to={`/optimizer${qs({ deck: deck.id })}`}>
+                <Sparkles aria-hidden="true" /> Optimize
+              </Link>
+            </Button>
+          )}
+          {mine && undo && (
+            <Button
+              variant="outline"
+              size="sm"
+              className="gap-1.5"
+              title={`Puts back the list from before the optimization on ${new Date(undo.at).toLocaleString("en-CA")}`}
+              onClick={async () => {
+                setUndoError(null);
+                try {
+                  await api(`/decks/${deck.id}/import`, { method: "POST", body: { text: undo.text, replace: true } });
+                  localStorage.removeItem(undoKey(deck.id));
+                  setUndo(null);
+                  setCards(null);
+                  reload();
+                } catch (err) {
+                  setUndoError(err);
+                }
+              }}
+            >
+              <RotateCcw aria-hidden="true" /> Undo optimization
+            </Button>
+          )}
+          {undoError && <p className="w-full text-sm font-medium text-destructive">{undoError.message}</p>}
           <Button asChild variant="outline" size="sm" className="gap-1.5">
             <a href={`/api/decks/${deck.id}/export`} download>
               <Download aria-hidden="true" /> Export

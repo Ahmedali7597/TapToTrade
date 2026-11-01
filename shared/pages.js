@@ -94,6 +94,7 @@ const PRIVATE_TITLES = {
   "/trades": `Trades · ${NAME}`,
   "/trades/new": `New trade · ${NAME}`,
   "/settings": `Account settings · ${NAME}`,
+  "/optimizer": `Commander deck optimizer · ${NAME}`,
   "/suggestions": `Suggestions · ${NAME}`,
   "/moderation": `Moderation · ${NAME}`,
   "/admin": `Admin · ${NAME}`,

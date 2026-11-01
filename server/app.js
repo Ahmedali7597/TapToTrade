@@ -22,6 +22,7 @@ import cityRoutes, { activeCities, cityStats } from "./routes/cities.js";
 import suggestionRoutes from "./routes/suggestions.js";
 import wantRoutes from "./routes/wants.js";
 import deckRoutes from "./routes/decks.js";
+import optimizerRoutes from "./routes/optimizer.js";
 import notificationRoutes from "./routes/notifications.js";
 import { upcomingEvents } from "./lib/events.js";
 import eventRoutes from "./routes/events.js";
@@ -128,6 +129,7 @@ export function createApp() {
   app.use("/api/inventory", inventoryRoutes);
   app.use("/api/wants", wantRoutes);
   app.use("/api/decks", deckRoutes);
+  app.use("/api/optimizer", optimizerRoutes);
   app.use("/api/cards", cardRoutes);
   app.use("/api/trades", tradeRoutes);
   app.use("/api/stores/:storeId", eventRoutes);
