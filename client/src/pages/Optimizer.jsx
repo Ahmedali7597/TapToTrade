@@ -693,7 +693,7 @@ export function DeckOptimizer({ deck, cards, mine, onApplied }) {
   const listKey = `${req.commanders.join("|")}\n${req.text}`;
   const [state, setState] = useState({ key: null, data: null, error: null });
   const [budget, setBudget] = useState(500);
-  const [mode, setMode] = useState("max");
+  const [mode, setMode] = useState("preserve");
   const [notice, setNotice] = useState(null);
   const [attempt, setAttempt] = useState(0);
   useEffect(() => {
@@ -1034,7 +1034,7 @@ export default function Optimizer() {
   const [error, setError] = useState(null);
   const [busy, setBusy] = useState(false);
   const [budget, setBudget] = useState(500);
-  const [mode, setMode] = useState("max");
+  const [mode, setMode] = useState("preserve");
 
   // Old links (/optimizer?deck=42) open the deck's Optimize tab.
   const deckParam = params.get("deck");

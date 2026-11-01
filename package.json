@@ -18,6 +18,7 @@
     "seed": "node --env-file-if-exists=.env server/seed/seed.js",
     "make-admin": "node --env-file-if-exists=.env server/make-admin.js",
     "emails:sync": "node --env-file-if-exists=.env server/emails-sync.js",
+    "tags": "node server/function-tags.js",
     "test": "jest --selectProjects server client",
     "test:coverage": "jest --selectProjects server --coverage",
     "test:api": "node --env-file-if-exists=.env ./node_modules/jest/bin/jest.js --selectProjects api --runInBand",

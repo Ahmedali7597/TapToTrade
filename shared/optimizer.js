@@ -26,6 +26,35 @@ export const ROLES = {
   land: "land",
   other: "synergy",
 };
+/**
+ * What a card does, finer than its role: Scryfall Tagger's function tags (searched with otag:), most specific first.
+ * A swap only counts as a replacement when the new card does the old card's main job (its first one here).
+ */
+export const JOBS = {
+  "board-wipe": "board wipe",
+  counterspell: "counterspell",
+  "creature-removal": "creature removal",
+  "artifact-removal": "artifact removal",
+  "enchantment-removal": "enchantment removal",
+  "planeswalker-removal": "planeswalker removal",
+  "graveyard-hate": "graveyard hate",
+  ritual: "ritual",
+  "mana-rock": "mana rock",
+  "mana-dork": "mana creature",
+  "land-ramp": "land ramp",
+  tutor: "tutor",
+  wheel: "wheel",
+  cantrip: "cantrip",
+  draw: "card draw",
+  reanimate: "reanimation",
+  recursion: "recursion",
+  "discard-outlet": "discard outlet",
+  "sacrifice-outlet": "sacrifice outlet",
+  burn: "burn",
+};
+/** Removal jobs: a replacement has to hit at least everything the old card hit. */
+export const REMOVAL = ["creature-removal", "artifact-removal", "enchantment-removal", "planeswalker-removal"];
+
 /** How many cards of each role a cEDH deck usually wants; past these the next copy of a role is worth half. */
 export const TARGETS = { fastMana: 10, ramp: 4, tutor: 9, draw: 9, interaction: 12, protection: 4, wincon: 2, other: 12 };
 export const LANDS = 28;
@@ -49,12 +78,111 @@ export function cardValue(c) {
   return v - Math.max(0, (c.manaValue ?? 0) - 2) * 4;
 }
 
+/**
+ * How good a card is for a regular (not cEDH) deck with this commander: how many of its decks on EDHREC play it and
+ * how much more than other decks of its colours (synergy). Used to top up a short list in the preserve and value goals.
+ */
+export function deckValue(c) {
+  if (c.basic) return 5;
+  const v = 8 + (c.edh ?? 0) * 60 + Math.max(0, c.synergy ?? 0) * 30;
+  if (isLand(c)) return v + Math.max(0, (c.produces?.length ?? 1) - 1) * 4 - (c.tapped ? 6 : 0);
+  return v + (mainJob(c) ? 4 : 0) - Math.max(0, castFor(c) - 3) * 2;
+}
+
 /** A card's worth in a deck that already has `counts` of each role: full value up to the role's target, half after. */
-const marginal = (c, counts) => {
+const marginal = (c, counts, worth = cardValue) => {
   const role = primary(c);
   const over = role !== "land" && (counts[role] ?? 0) >= (TARGETS[role] ?? 0);
-  return cardValue(c) * (over ? 0.5 : 1);
+  return worth(c) * (over ? 0.5 : 1);
 };
+
+// Which jobs count as a card's main job for each role. A card with none (a plain creature, a combo piece) has no
+// main job, so nothing is offered as a like-for-like replacement for it.
+const ROLE_JOBS = {
+  interaction: ["board-wipe", "counterspell", ...REMOVAL, "graveyard-hate", "burn"],
+  fastMana: ["ritual", "mana-rock", "mana-dork", "land-ramp"],
+  ramp: ["ritual", "mana-rock", "mana-dork", "land-ramp"],
+  tutor: ["tutor"],
+  draw: ["wheel", "cantrip", "draw"],
+};
+const SYNERGY_JOBS = ["reanimate", "recursion", "discard-outlet", "sacrifice-outlet"];
+
+/** The one job a replacement must also do: the most specific of the card's jobs that fits its role, or null. */
+export function mainJob(c) {
+  const allowed = ROLE_JOBS[primary(c)] ?? SYNERGY_JOBS;
+  return Object.keys(JOBS).find((j) => allowed.includes(j) && c.jobs?.includes(j)) ?? null;
+}
+
+/** Which of the deck's colours a land can make (a fetch land finds a land of any of them). */
+const coloursOf = (c, identity) => (c.fetch ? identity : identity.filter((x) => c.produces?.includes(x)));
+
+/**
+ * Can `x` take `y`'s slot as a like-for-like replacement? It has to do `y`'s main job (and removal has to hit at least
+ * everything `y` hits). A land is replaced by a land that makes at least as many of the deck's colours and doesn't
+ * enter tapped when `y` didn't.
+ */
+export function replaces(x, y, identity = []) {
+  if (isLand(y) || isLand(x)) {
+    return isLand(y) && isLand(x) && coloursOf(x, identity).length >= coloursOf(y, identity).length && !(x.tapped && !y.tapped);
+  }
+  const job = mainJob(y);
+  if (!job || !x.jobs?.includes(job) || primary(x) !== primary(y)) return false;
+  // A synergy piece (reanimation, a sacrifice outlet...) is only replaced by a card of the same type: a deck that
+  // sacrifices creatures needs a creature back, not an enchantment.
+  if (SYNERGY_JOBS.includes(job) && typeOf(x) !== typeOf(y)) return false;
+  // A spell is replaced by a spell and a permanent by a permanent: a draw spell isn't a creature that draws.
+  const spell = (c) => ["instant", "sorcery"].includes(typeOf(c));
+  if (spell(x) !== spell(y)) return false;
+  // A tutor has to put the card where the old one did (a hand tutor may replace one that puts it on top).
+  if (job === "tutor" && (x.tutorTo ?? "hand") !== (y.tutorTo ?? "hand") && !(x.tutorTo === "hand" && y.tutorTo === "top")) return false;
+  return REMOVAL.includes(job) ? y.jobs.filter((j) => REMOVAL.includes(j)).every((j) => x.jobs.includes(j)) : true;
+}
+
+/** Share of the commander's decks on EDHREC playing a card: cEDH decks when building for maximum power, all decks otherwise. */
+const playRate = (c, mode) => (mode === "max" ? c.cedh : c.edh) ?? 0;
+
+/**
+ * What `x` does better and worse than `y`, as short clauses about `x` ("it costs 1 less mana (2 instead of 3)"), and a
+ * score for how much better it is: { gains: [...], losses: [...], score }. Only things we know about both cards count.
+ */
+export function compare(x, y, { mode = "preserve", identity = [], commander = "your commander" } = {}) {
+  const gains = [];
+  const losses = [];
+  let score = 0;
+  // Jobs the old card did that the new one doesn't (Commander's Sphere also draws a card; Bojuka Bog exiles a graveyard).
+  const lost = (isLand(y) ? (y.jobs ?? []) : shownJobs(y)).filter((j) => !x.jobs?.includes(j) && !(REMOVAL.includes(j) && x.jobs?.includes("board-wipe")));
+  if (lost.length) (losses.push(`it gives up ${y.name}'s ${list(lost.map((j) => JOBS[j]), "and")}`), (score -= 5 * lost.length));
+  if (isLand(x) && isLand(y)) {
+    const more = coloursOf(x, identity).length - coloursOf(y, identity).length;
+    if (more > 0) (gains.push(`it makes ${coloursOf(x, identity).length} of your colours instead of ${coloursOf(y, identity).length}`), (score += 8 * more));
+    if (y.tapped && !x.tapped) (gains.push("it enters untapped, so it doesn't cost you a turn's mana"), (score += 6));
+  } else {
+    const mana = castFor(y) - castFor(x);
+    if (mana > 0) gains.push(`it costs ${mana} less mana (${castFor(x)} instead of ${castFor(y)})`);
+    if (mana < 0) losses.push(`it costs ${-mana} more mana (${castFor(x)} instead of ${castFor(y)})`);
+    score += mana * 6;
+    if (x.free && !y.free) (gains.push("it can be cast for free"), (score += 8));
+    if (x.instant && !y.instant) (gains.push("it can be cast at instant speed, on an opponent's turn"), (score += 4));
+    if (y.instant && !x.instant) (losses.push(`it's cast at sorcery speed, where ${y.name} was instant speed`), (score -= 4));
+    const extra = REMOVAL.filter((j) => x.jobs?.includes(j) && !y.jobs?.includes(j)).map((j) => JOBS[j].replace(" removal", "s"));
+    if (extra.length && y.jobs?.some((j) => REMOVAL.includes(j))) (gains.push(`it also hits ${list(extra, "and")}`), (score += 3 * extra.length));
+    if (x.finds === "any" && Array.isArray(y.finds)) (gains.push(`it finds any card, not just ${list(y.finds)} cards`), (score += 5));
+    if ((x.net ?? 0) > (y.net ?? 0) && primary(y) === "fastMana") (gains.push(`it makes ${x.net - y.net} more mana`), (score += 5 * (x.net - y.net)));
+  }
+  // Wizards' Game Changers list names the strongest Commander cards; trading one away for a card that isn't costs power.
+  if (y.gameChanger && !x.gameChanger) (losses.push(`${y.name} is on Wizards' Game Changers list of the strongest Commander cards, and it isn't`), (score -= 15));
+  const rate = playRate(x, mode) - playRate(y, mode);
+  score += rate * 100;
+  const decks = `${mode === "max" ? "cEDH " : ""}${commander} decks on EDHREC`;
+  const plays = `${pct(playRate(x, mode))} of ${decks} play it, against ${pct(playRate(y, mode))} for ${y.name}`;
+  if (rate >= 0.05) gains.push(plays);
+  if (rate <= -0.05) losses.push(plays);
+  const synergy = (x.synergy ?? 0) - (y.synergy ?? 0);
+  if (mode !== "max") score += synergy * 40;
+  // EDHREC synergy: how much more often a card is played with this commander than in other decks of its colours.
+  if (mode !== "max" && synergy >= 0.1) gains.push(`it's ${signed(x.synergy ?? 0)} synergy with ${commander} on EDHREC, against ${signed(y.synergy ?? 0)} for ${y.name}`);
+  return { gains, losses, score };
+}
 
 /** Legal, inside the colour identity and not the commander: the only cards the optimizer may ever add. */
 const playable = (c, commanders) => c.legal && c.inIdentity && !commanders.includes(c.name);
@@ -109,7 +237,7 @@ function basics(pool, chosen, count, byName) {
  * One greedy build: lock `locked`, then fill the remaining nonland slots by marginal value minus `lambda` × price
  * (lambda 0 = power first, higher = cheaper cards), lands the same way, basics last. Never goes over `budget`.
  */
-function build({ pool, byName, commanders, locked, budget, lambda, banned, lands = LANDS, linesOf = new Map() }) {
+function build({ pool, byName, commanders, locked, budget, lambda, banned, lands = LANDS, linesOf = new Map(), worth = cardValue }) {
   const deck = [...locked];
   const counts = {};
   for (const n of deck) {
@@ -117,7 +245,7 @@ function build({ pool, byName, commanders, locked, budget, lambda, banned, lands
     counts[r] = (counts[r] ?? 0) + 1;
   }
   let spent = deckCost(deck, byName, commanders).total;
-  let value = deck.reduce((n, name) => n + cardValue(byName.get(name)), 0);
+  let value = deck.reduce((n, name) => n + worth(byName.get(name)), 0);
   const taken = new Set(deck);
   // Money held back for the slots still to fill: any of them can always become the cheapest basic land.
   const cheapBasic = pool.filter((c) => c.basic && c.legal && c.inIdentity).sort((a, b) => (a.price ?? 0) - (b.price ?? 0))[0];
@@ -144,7 +272,7 @@ function build({ pool, byName, commanders, locked, budget, lambda, banned, lands
     const room = budget - spent - (slotsLeft - 1) * reserveEach - slotsAfter * basicPrice;
     for (const c of list) {
       if (taken.has(c.name) || (c.price ?? 0) > room) continue;
-      const m = marginal(c, counts) + comboBonus(c);
+      const m = marginal(c, counts, worth) + comboBonus(c);
       if (m < floor) continue;
       const score = m - lambda * (c.price ?? 0);
       if (score > bestScore) [best, bestScore] = [c, score];
@@ -154,7 +282,7 @@ function build({ pool, byName, commanders, locked, budget, lambda, banned, lands
   while (spellSlots > 0) {
     const c = pick(spells, spellSlots, basicPrice, landSlots, -Infinity);
     if (!c) break; // nothing affordable left: the slot becomes a basic land
-    value += marginal(c, counts) + comboBonus(c);
+    value += marginal(c, counts, worth) + comboBonus(c);
     deck.push(c.name);
     taken.add(c.name);
     counts[primary(c)] = (counts[primary(c)] ?? 0) + 1;
@@ -163,12 +291,12 @@ function build({ pool, byName, commanders, locked, budget, lambda, banned, lands
   }
   landSlots = 99 - deck.length;
   while (landSlots > 0) {
-    const c = pick(landCards, landSlots, basicPrice, 0, cardValue({ basic: true }) + 1);
+    const c = pick(landCards, landSlots, basicPrice, 0, worth({ basic: true }) + 1);
     if (!c) break;
     deck.push(c.name);
     taken.add(c.name);
     spent += c.price ?? 0;
-    value += cardValue(c);
+    value += worth(c);
     landSlots -= 1;
   }
   const fill = basics(pool, deck, 99 - deck.length, byName);
@@ -180,7 +308,7 @@ function build({ pool, byName, commanders, locked, budget, lambda, banned, lands
     fillCost -= basicCost(fill[i]) - basicPrice;
     fill[i] = cheapBasic.name;
   }
-  for (const b of fill) value += cardValue(byName.get(b));
+  for (const b of fill) value += worth(byName.get(b));
   return { deck: [...deck, ...fill], value };
 }
 
@@ -198,8 +326,11 @@ export function linesIn(names, combos, commanders) {
   return combos.filter((l) => l.pieces.every((p) => have.has(p)));
 }
 
-/** One-for-one swaps that turn `before` into `after` (both multisets of names): same-role pairs first, then the rest. */
-export function pairChanges(before, after, byName) {
+/**
+ * One-for-one swaps that turn `before` into `after` (both multisets of names), each cut paired with the most similar
+ * add: one that does its job, then the same role, then the same card type, then the nearest mana value.
+ */
+export function pairChanges(before, after, byName, identity = [], made = []) {
   const count = (list) => list.reduce((m, n) => m.set(n, (m.get(n) ?? 0) + 1), new Map());
   const a = count(before);
   const b = count(after);
@@ -207,26 +338,39 @@ export function pairChanges(before, after, byName) {
   const added = [];
   for (const [n, k] of a) for (let i = 0; i < k - (b.get(n) ?? 0); i++) removed.push(n);
   for (const [n, k] of b) for (let i = 0; i < k - (a.get(n) ?? 0); i++) added.push(n);
-  const role = (n) => primary(byName.get(n) ?? {});
-  const pairs = [];
-  const unmatched = [];
-  for (const r of removed) {
-    const i = added.findIndex((n) => role(n) === role(r));
-    if (i < 0) unmatched.push(r);
-    else pairs.push({ remove: r, add: added.splice(i, 1)[0] });
+  const similarity = (r, a) => {
+    const x = byName.get(a);
+    const y = byName.get(r);
+    if (!x || !y) return 0;
+    let s = replaces(x, y, identity) ? 100 : 0;
+    if (primary(x) === primary(y)) s += primary(y) === "other" ? 10 : 40;
+    if (typeOf(x) === typeOf(y)) s += 10;
+    return s - Math.min(9, Math.abs(castFor(x) - castFor(y)));
+  };
+  // Best pairs first, so a cut isn't handed a poor match that a later cut needed more.
+  const options = removed.flatMap((r, i) => added.map((a, j) => ({ i, j, s: similarity(r, a) }))).sort((p, q) => q.s - p.s || p.i - q.i || p.j - q.j);
+  const match = new Map();
+  const used = new Set();
+  // Swaps the optimizer actually made come first, exactly as made.
+  for (const m of made) {
+    const i = removed.findIndex((r, k) => r === m.remove && !match.has(k));
+    const j = added.findIndex((a, k) => a === m.add && !used.has(k));
+    if (i >= 0 && j >= 0) (match.set(i, j), used.add(j));
   }
-  for (const r of unmatched) pairs.push({ remove: r, add: added.shift() ?? null });
-  for (const n of added) pairs.push({ remove: null, add: n });
+  for (const o of options) if (!match.has(o.i) && !used.has(o.j)) (match.set(o.i, o.j), used.add(o.j));
+  const pairs = removed.map((r, i) => ({ remove: r, add: match.has(i) ? added[match.get(i)] : null }));
+  for (const [j, n] of added.entries()) if (!used.has(j)) pairs.push({ remove: null, add: n });
   return pairs;
 }
 
 const pct = (x) => `${Math.round(x * 100)}%`;
+const signed = (x) => `${x >= 0 ? "+" : "−"}${Math.round(Math.abs(x) * 100)}%`;
 const money = (n) => `CA$${Math.abs(n).toFixed(2)}`;
 const COLOUR_NAMES = { W: "white", U: "blue", B: "black", R: "red", G: "green" };
-const ROLE_ONE = { fastMana: "fast mana card", ramp: "ramp card", tutor: "tutor", draw: "card-draw card", interaction: "interaction card", protection: "protection card", wincon: "win condition", land: "land", other: "card of another kind" };
-const ROLE_PLURAL = { fastMana: "fast mana", ramp: "ramp", tutor: "tutors", draw: "card draw", interaction: "interaction", protection: "protection", wincon: "win conditions", land: "lands", other: "other cards" };
+const ROLE_ONE = { fastMana: "fast mana card", ramp: "ramp card", tutor: "tutor", draw: "card-draw card", interaction: "interaction card", protection: "protection card", wincon: "win condition", land: "land", other: "card with no other job" };
 const capital = (s) => s[0].toUpperCase() + s.slice(1);
-const list = (xs) => (xs.length < 2 ? xs.join("") : `${xs.slice(0, -1).join(", ")} or ${xs.at(-1)}`);
+const an = (word) => (/^[aeiou]/i.test(word) ? "an" : "a");
+const list = (xs, and = "or") => (xs.length < 2 ? xs.join("") : `${xs.slice(0, -1).join(", ")} ${and} ${xs.at(-1)}`);
 
 /** The card's main type, e.g. "creature", from the front face's type line. */
 function typeOf(c) {
@@ -237,125 +381,170 @@ function typeOf(c) {
 /** What the deck really pays for a card: its madness cost when it has one (Anje-style decks discard them). */
 const castFor = (c) => c.madness ?? c.manaValue ?? 0;
 const manaText = (c) => `${castFor(c)}-mana`;
-const NUMBERS = ["none", "one", "two", "three", "four", "five"];
 
-/** Which of the deck's colours a land can make (a fetch land finds a land of any of them). */
-const coloursOf = (c, identity) => (c.fetch ? identity : identity.filter((x) => c.produces?.includes(x)));
+/** The jobs worth naming for a card: ones that fit its roles, so Hellrider's damage to planeswalkers isn't called removal. */
+function shownJobs(c) {
+  const allowed = new Set([...SYNERGY_JOBS, ...(c.roles ?? []).flatMap((r) => ROLE_JOBS[r] ?? [])]);
+  return (c.jobs ?? []).filter((j) => allowed.has(j));
+}
 
-/** What a card does in the deck, in a few words, from the role data the pool has for it. */
+/** "creature, artifact and planeswalker removal, recursion and burn": a card's jobs in a few words. */
+function jobsText(c) {
+  const jobs = shownJobs(c);
+  const removal = REMOVAL.filter((j) => jobs.includes(j)).map((j) => JOBS[j].replace(" removal", ""));
+  // A board wipe already says what it removes.
+  const parts = [...(removal.length && !jobs.includes("board-wipe") ? [`${list(removal, "and")} removal`] : []), ...jobs.filter((j) => !REMOVAL.includes(j)).map((j) => JOBS[j])];
+  return list(parts.slice(0, 3), "and");
+}
+
+/** What a card does in the deck, in a few words: "a 3-mana instant: creature removal". */
 function jobOf(c, identity) {
   const job = baseJob(c, identity);
   return c.madness != null ? `${job}, cast for its madness cost` : job;
 }
 function baseJob(c, identity) {
   const role = primary(c);
-  const mv = castFor(c);
   if (role === "land") {
     const colours = coloursOf(c, identity).map((x) => COLOUR_NAMES[x]);
     const kind = c.basic ? "a basic land" : c.fetch ? "a fetch land" : "a land";
     const makes = c.fetch ? `that finds a land for ${list(colours)} mana` : colours.length ? `that makes ${list(colours)} mana` : "that makes only colourless mana";
     return `${kind} ${makes}${c.tapped ? " and enters tapped" : ""}`;
   }
-  if (role === "fastMana") return `fast mana: it gives back ${c.net || 1} more mana than it costs`;
-  if (role === "ramp") return `ramp that costs ${mv}`;
-  if (role === "tutor") return c.finds === "any" || !c.finds?.length ? `a ${manaText(c)} tutor that finds any card` : `a ${manaText(c)} tutor for ${list(c.finds)} cards`;
-  if (role === "draw") return `${manaText(c)} card draw`;
-  if (role === "interaction") return `${c.free ? "free" : manaText(c)} interaction (removal, a counterspell or graveyard hate)`;
-  if (role === "protection") return `${c.free ? "free" : manaText(c)} protection for your combo turn`;
-  if (role === "wincon") return "a win condition";
-  return `a ${mv}-mana ${typeOf(c)}`;
+  const type = c.instant && typeOf(c) !== "instant" ? `${typeOf(c)} with flash` : typeOf(c);
+  const what = c.free ? `${an(type)} ${type} you can cast for free` : `a ${manaText(c)} ${type}`;
+  if (role === "fastMana") return `${what}: fast mana that gives back ${c.net || 1} more mana than it costs`;
+  if (role === "tutor") return `${what}: a tutor that finds ${c.finds === "any" || !c.finds?.length ? "any card" : `${list(c.finds)} cards`}`;
+  if (role === "protection") return `${what}: protection for your key turn`;
+  if (role === "wincon" && !shownJobs(c).length) return `${what}: a win condition`;
+  const jobs = jobsText(c);
+  return jobs ? `${what}: ${jobs}` : what;
 }
 
-/** Share of the commander's cEDH decks on EDHREC that play a card. */
-const played = (c) => c.cedh ?? 0;
+/** "it's in 41% of Anje Falkenrath decks on EDHREC (synergy +32%)", or that EDHREC doesn't list it. */
+function statOf(c, commander, mode) {
+  if (mode === "max") return c.cedh ? `it's in ${pct(c.cedh)} of cEDH ${commander} decks on EDHREC` : `none of the cEDH ${commander} decks on EDHREC play it`;
+  if (c.edh == null) return `EDHREC doesn't list it among the cards ${commander} decks play`;
+  const synergy = c.synergy != null && Math.abs(c.synergy) >= 0.05 ? ` (synergy ${signed(c.synergy)}: ${c.synergy > 0 ? "played more" : "played less"} with ${commander} than in other decks of its colours)` : "";
+  return `it's in ${pct(c.edh)} of ${commander} decks on EDHREC${synergy}`;
+}
 
 /**
- * Why one swap is made, built only from what we know about the two cards and the deck:
- * { cut, add, effect } sentences (any may be ""). `counts` are the original deck's role counts.
+ * Why one swap is made, built only from what we know about the two cards and the deck: { cut, add, effect } sentences
+ * (any may be ""). `effect` names the job both cards do and exactly what's better, with any trade-off.
+ * `counts` are the original deck's role counts; `mode` picks cEDH or all of the commander's decks for the numbers.
  */
-export function explain({ remove, add }, { byName, commanders, identity, lines, oldLines, counts }) {
+export function explain({ remove, add }, { byName, commanders, identity, lines, oldLines, counts, mode = "preserve", budget = null }) {
   const out = byName.get(remove);
   const inn = byName.get(add);
   const commander = commanders[0];
   let cut = "";
   if (out) {
-    const role = primary(out);
     if (!out.legal) cut = `${remove} is banned or not legal in Commander, so it has to go.`;
     else if (!out.inIdentity) cut = `${remove} is outside ${commanders.join(" and ")}'s colour identity, so it isn't allowed in this deck.`;
     else if (out.basic) cut = `${remove} is ${jobOf(out, identity)}.`;
-    else {
-      cut = `${remove} is ${jobOf(out, identity)}, and ${played(out) ? `only ${pct(played(out))} of` : "none of"} the cEDH ${commander} decks on EDHREC play it.`;
-      if (role !== "land" && castFor(out) >= 4) cut += ` At ${castFor(out)} mana it's slow for a format where games are often decided by turn 4.`;
-      if (role !== "land" && role !== "other" && (counts[role] ?? 0) > (TARGETS[role] ?? 99)) cut += ` The deck already has ${counts[role]} ${ROLE_PLURAL[role]}, more than the ${TARGETS[role]} a cEDH deck usually runs.`;
-    }
+    else cut = `${remove} is ${jobOf(out, identity)}; ${statOf(out, commander, mode)}.`;
     const lost = oldLines.find((l) => l.pieces.includes(remove) && !lines.some((x) => x.id === l.id));
     if (lost) cut += ` This breaks ${lost.pieces.join(" + ")} (${lost.produces[0] ?? "a combo"}); ${lines.length ? `the new deck wins with ${lines[0].pieces.join(" + ")} instead.` : "the new deck has no combo in its place."}`;
   }
   let addText = "";
   if (inn) {
     const line = lines.find((l) => l.pieces.includes(add));
-    addText = `${add} is ${jobOf(inn, identity)}${inn.cedh ? `, played in ${pct(inn.cedh)} of cEDH ${commander} decks on EDHREC` : ""}.`;
+    addText = `${add} is ${jobOf(inn, identity)}${inn.basic ? "" : `; ${statOf(inn, commander, mode)}`}.`;
     if (line) addText += ` It's part of ${line.pieces.join(" + ")} (${line.produces[0] ?? "a combo"}), a combo the new deck can assemble.`;
   }
   let effect = "";
   if (inn && out) {
-    const a = primary(inn);
-    const r = primary(out);
-    const popularity = `${pct(played(inn))} of cEDH ${commander} decks play ${add}, against ${pct(played(out))} for ${remove}`;
-    if (a === "land" && r === "land") {
-      const now = coloursOf(out, identity).length;
-      const next = coloursOf(inn, identity).length;
-      const all = identity.length === 2 ? "both of your colours" : `all ${NUMBERS[identity.length] ?? identity.length} of your colours`;
-      if (next > now) effect = `Makes ${next === identity.length ? all : `${NUMBERS[next]} of your colours`} instead of ${NUMBERS[now]}, so your opening hands can cast more of their spells.`;
-      else if (out.tapped && !inn.tapped) effect = "Enters untapped, so it doesn't cost you a turn's mana.";
-      else if (next < now) effect = `A utility land that ${pct(played(inn))} of cEDH ${commander} decks play. It makes fewer of your colours than ${remove}, so it costs a little colour consistency.`;
-      else effect = out.basic ? `A utility land that ${pct(played(inn))} of cEDH ${commander} decks play, in place of a basic.` : `${capital(popularity)}.`;
-    } else if (a === r && a !== "other") {
-      const bits = [];
-      const mv = castFor(out) - castFor(inn);
-      if (mv > 0) bits.push(`costs ${mv} less mana`);
-      if (inn.free && !out.free) bits.push("can be cast for free");
-      effect = `Same job (${ROLES[a]})${bits.length ? ` and ${list(bits)}` : ""}. ${capital(popularity)}.`;
-    } else if (a === r) {
-      effect = lines.some((l) => l.pieces.includes(add)) ? `Trades a card cEDH ${commander} decks rarely play for a combo piece.` : `${capital(popularity)}.`;
+    const { gains, losses } = compare(inn, out, { mode, identity, commander });
+    const job = isLand(out) ? "a land" : JOBS[mainJob(out)];
+    if (replaces(inn, out, identity)) {
+      const why = inn.staple && !out.staple
+        ? `${add} is one of the proven cEDH staples the rebuild draws on.`
+        : (inn.price ?? 0) < (out.price ?? 0)
+          ? "Picked because it costs less, leaving money for stronger cards elsewhere."
+          : "The rebuild rated it higher overall (play rate, mana value and role).";
+      effect = `Same job: ${job}. ${gains.length ? `Better because ${gains.join("; ")}.` : why}`;
+      if (losses.length) effect += ` Trade-off: ${losses.join("; ")}.`;
+    } else if (!isLand(out) && !isLand(inn) && !shownJobs(out).length && !shownJobs(inn).length && typeOf(inn) === typeOf(out)) {
+      effect = `Both are ${typeOf(out)}s without a specific job like removal, ramp or card draw.${gains.length ? ` ${capital(gains.join("; "))}.` : ""}`;
+      if (losses.length) effect += ` Trade-off: ${losses.join("; ")}.`;
     } else {
-      const now = (role) => counts[role] ?? 0;
-      effect = `One more ${ROLE_ONE[a]} (${now(a)} to ${now(a) + 1}${TARGETS[a] ? `; cEDH decks run about ${TARGETS[a]}` : ""}) and one ${ROLE_ONE[r]} fewer (${now(r)} to ${now(r) - 1}).`;
+      // Not like-for-like (the deck is rebuilt for maximum power, or the old card had to go): say what's gained and lost.
+      // "a 1-mana sorcery: creature removal", or just "a 4-mana creature" for a card with no listed job.
+      const described = (c) => (isLand(c) ? "a land" : baseJob(c, identity));
+      effect = `A different job: the deck gains ${described(inn)} and gives up ${described(out)}.`;
+      const a = primary(inn);
+      const r = primary(out);
+      if (a !== r && a !== "other" && r !== "other") {
+        const now = (role) => counts[role] ?? 0;
+        effect += ` That makes ${now(a) + 1} ${ROLE_ONE[a]}s${TARGETS[a] && mode === "max" ? ` (cEDH decks run about ${TARGETS[a]})` : ""} and ${now(r) - 1} ${ROLE_ONE[r]}s.`;
+      }
+      if (gains.length) effect += ` Also, ${gains.join("; ")}.`;
     }
     const diff = (inn.price ?? 0) - (out.price ?? 0);
-    if (diff < 0 && cardValue(inn) < cardValue(out)) effect += ` Saves ${money(diff)} to stay in the budget.`;
+    if (budget != null && diff < 0) effect = `Swapped to fit your ${money(budget)} budget: it saves ${money(diff)}. ${effect}`;
+    else if (Math.abs(diff) >= 0.5) effect += diff > 0 ? ` It costs ${money(diff)} more.` : ` It saves ${money(diff)}.`;
   } else if (inn) effect = "Fills an empty slot (your list had fewer than 99 cards).";
   else if (out) effect = "Cut to bring the deck down to 99 cards.";
   return { cut, add: addText, effect };
 }
 
-/** Same-role (or any role, for "value") upgrades to `deck`, best first, kept within the budget. Locked cards stay. */
-function upgrade({ deck, pool, byName, commanders, budget, banned, keep, perDollar, crossRole, maxSwaps }) {
+/** How much better (compare's score) a like-for-like replacement must be to be suggested at all. */
+const MIN_GAIN = 6;
+
+/**
+ * Like-for-like upgrades to `deck`, best first, within the budget: each puts in a card that does the old card's main
+ * job (replaces) and is clearly better (compare), never more than one mana dearer. "value" ranks them by gain per
+ * dollar and may also (`crossRole`) swap a card with no job for one of a role the deck is short of. Locked cards stay.
+ */
+function upgrade({ deck, pool, byName, commanders, budget, banned, keep, perDollar, crossRole, maxSwaps, mode, identity }) {
   const out = [...deck];
   const inDeck = new Set(out);
   let spent = deckCost(out, byName, commanders).total;
   const candidates = pool.filter((c) => playable(c, commanders) && !c.basic && !inDeck.has(c.name) && !banned.has(c.name) && c.price != null);
   const counts = {};
   for (const n of out) counts[primary(byName.get(n))] = (counts[primary(byName.get(n))] ?? 0) + 1;
+  // Each slot's replacements, scored once (copies of a basic share them).
+  const memo = new Map();
+  const optionsFor = (y) => {
+    if (!memo.has(y.name)) {
+      memo.set(
+        y.name,
+        candidates
+          // Never more than a mana dearer, nor played by noticeably fewer of the commander's decks.
+          .filter((x) => replaces(x, y, identity) && castFor(x) <= castFor(y) + 1 && playRate(x, mode) >= playRate(y, mode) - 0.05)
+          .map((x) => ({ x, gain: compare(x, y, { mode, identity }) }))
+          .filter((o) => o.gain.score >= MIN_GAIN && o.gain.gains.length),
+      );
+    }
+    return memo.get(y.name);
+  };
+  // Each slot changes at most once, so every suggestion is measured against the player's own card.
+  const changed = new Set();
   for (let swaps = 0; swaps < maxSwaps; swaps++) {
     let best = null;
+    const consider = (i, x, y, gain) => {
+      const cost = (x.price ?? 0) - (y.price ?? 0);
+      if (inDeck.has(x.name) || spent + cost > budget) return;
+      const score = perDollar ? gain / Math.max(0.5, cost) : gain;
+      if (!best || score > best.score) best = { i, x, y, cost, score };
+    };
     for (let i = 0; i < out.length; i++) {
       const y = byName.get(out[i]);
-      if (keep.has(out[i])) continue;
-      for (const x of candidates) {
-        if (inDeck.has(x.name)) continue;
-        const sameRole = primary(x) === primary(y);
-        if (!sameRole && !(crossRole && !isLand(x) && !isLand(y) && (counts[primary(x)] ?? 0) < (TARGETS[primary(x)] ?? 0))) continue;
-        const cost = (x.price ?? 0) - (y.price ?? 0);
-        if (spent + cost > budget) continue;
-        const gain = cardValue(x) - cardValue(y);
-        if (gain < 3) continue;
-        const score = perDollar ? gain / Math.max(0.5, cost) : gain;
-        if (!best || score > best.score) best = { i, x, y, cost, score };
+      if (keep.has(out[i]) || changed.has(i)) continue;
+      for (const o of optionsFor(y)) consider(i, o.x, y, o.gain.score);
+      // A card with no job (a plain creature, say) can make room for a role the deck is short of.
+      if (crossRole && !mainJob(y) && !isLand(y)) {
+        for (const x of candidates) {
+          const role = primary(x);
+          if (role === "other" || isLand(x) || (counts[role] ?? 0) >= (TARGETS[role] ?? 0)) continue;
+          const gain = cardValue(x) - cardValue(y);
+          if (gain >= 3) consider(i, x, y, gain);
+        }
       }
     }
     if (!best) break;
     out[best.i] = best.x.name;
+    changed.add(best.i);
     inDeck.delete(best.y.name);
     inDeck.add(best.x.name);
     counts[primary(best.y)] -= 1;
@@ -365,8 +554,11 @@ function upgrade({ deck, pool, byName, commanders, budget, banned, keep, perDoll
   return out;
 }
 
-/** Cheaper same-role replacements (or basics, for lands) until `deck` fits the budget, losing as little value as possible. */
-function downgrade({ deck, pool, byName, commanders, budget, banned, keep }) {
+/**
+ * Cheaper replacements until `deck` fits the budget, losing as little as possible per dollar saved: a card that does
+ * the same job, a basic for a land, and for a card with no job a cheaper card of the same type that has none either.
+ */
+function downgrade({ deck, pool, byName, commanders, budget, banned, keep, mode, identity }) {
   const out = [...deck];
   let spent = deckCost(out, byName, commanders).total;
   const basicsFor = basics(pool, out, 30, byName);
@@ -376,12 +568,15 @@ function downgrade({ deck, pool, byName, commanders, budget, banned, keep }) {
     for (let i = 0; i < out.length; i++) {
       const y = byName.get(out[i]);
       if (keep.has(out[i]) || !(y.price > 0.5)) continue;
+      const cheaper = (c) => playable(c, commanders) && !c.basic && !inDeck.has(c.name) && !banned.has(c.name) && c.price != null && c.price < y.price;
       const options = isLand(y)
         ? basicsFor.slice(0, 1).map((n) => byName.get(n))
-        : pool.filter((c) => playable(c, commanders) && !c.basic && primary(c) === primary(y) && !inDeck.has(c.name) && !banned.has(c.name) && c.price != null && c.price < y.price);
+        : mainJob(y)
+          ? pool.filter((c) => cheaper(c) && replaces(c, y, identity))
+          : pool.filter((c) => cheaper(c) && !isLand(c) && !mainJob(c) && typeOf(c) === typeOf(y));
       for (const x of options) {
         const saved = y.price - x.price;
-        const loss = Math.max(0, cardValue(y) - cardValue(x));
+        const loss = Math.max(0, -compare(x, y, { mode, identity }).score) + Math.max(0, cardValue(y) - cardValue(x)) / 4;
         const score = loss / saved;
         if (!best || score < best.score) best = { i, x, saved, score };
       }
@@ -411,10 +606,12 @@ export function optimize({ pool, combos = [], commanders, original = [], budget 
   const seen = new Set();
   const legalOriginal = original.filter((n) => isOk(n) && (byName.get(n).basic || (!seen.has(n) && seen.add(n))));
   const notes = [];
+  const identity = [..."WUBRG"].filter((x) => commanders.some((n) => byName.get(n)?.colorIdentity?.includes(x)));
   const usable = combos.filter((l) => l.win && l.pieces.every((p) => commanders.includes(p) || (isOk(p) && !banned.has(p) && (budget === Infinity || byName.get(p).price != null))));
   const linesOf = new Map();
   for (const l of usable) for (const p of l.pieces) linesOf.set(p, [...(linesOf.get(p) ?? []), l]);
   let deck;
+  let made = []; // the preserve and value goals' swaps, as made ({ remove, add, budget: made only to fit the budget })
   if (mode === "max" || !original.length) {
     const lockedBase = [...keep];
     // Try the strongest few affordable win lines (and no line) as the deck's spine; keep whichever build scores best.
@@ -454,12 +651,14 @@ export function optimize({ pool, combos = [], commanders, original = [], budget 
     const missing = 99 - start.length;
     if (missing > 0) {
       // A short list (or one that lost illegal cards) is topped up first; the budget pass below trims it.
-      start = bestBuild({ pool, byName, commanders, locked: start, budget: Infinity, banned, lands: Math.max(LANDS, start.filter((n) => isLand(byName.get(n))).length) }).deck;
+      start = bestBuild({ pool, byName, commanders, locked: start, budget: Infinity, banned, lands: Math.max(LANDS, start.filter((n) => isLand(byName.get(n))).length), worth: deckValue }).deck;
     } else if (missing < 0) {
       start = [...start].sort((x, y) => (lock.has(y) - lock.has(x)) || cardValue(byName.get(y)) - cardValue(byName.get(x))).slice(0, 99);
     }
-    if (budget !== Infinity) start = downgrade({ deck: start, pool, byName, commanders, budget, banned, keep: lock });
-    deck = upgrade({ deck: start, pool, byName, commanders, budget, banned, keep: lock, perDollar: mode === "value", crossRole: mode === "value", maxSwaps: mode === "value" ? 30 : 15 });
+    // Both passes swap cards slot by slot, so each slot that changed is one real swap: the list pairs them as made.
+    const cheaper = budget === Infinity ? start : downgrade({ deck: start, pool, byName, commanders, budget, banned, keep: lock, mode, identity });
+    deck = upgrade({ deck: cheaper, pool, byName, commanders, budget, banned, keep: lock, perDollar: mode === "value", crossRole: mode === "value", maxSwaps: mode === "value" ? 30 : 15, mode, identity });
+    made = start.map((n, i) => ({ remove: n, add: deck[i], budget: cheaper[i] !== n && cheaper[i] === deck[i] })).filter((p) => p.remove !== p.add);
   }
   const fits = (d) =>
     d.length === 99 &&
@@ -477,10 +676,10 @@ export function optimize({ pool, combos = [], commanders, original = [], budget 
   const lines = linesIn(deck, combos, commanders).map((l) => ({ ...l, efficiency: lineEfficiency(l, byName, commanders), mana: lineMana(l, byName) })).sort((a, b) => b.efficiency - a.efficiency);
   const counts = {};
   for (const n of original) counts[primary(byName.get(n) ?? {})] = (counts[primary(byName.get(n) ?? {})] ?? 0) + 1;
-  const identity = [..."WUBRG"].filter((x) => commanders.some((n) => byName.get(n)?.colorIdentity?.includes(x)));
-  const context = { byName, commanders, identity, lines, oldLines: linesIn(original, combos, commanders), counts };
-  const changes = pairChanges(original, deck, byName).map((p) => {
-    const why = explain(p, context);
+  const context = { byName, commanders, identity, lines, oldLines: linesIn(original, combos, commanders), counts, mode };
+  const forBudget = new Set(made.filter((m) => m.budget).map((m) => `${m.remove}|${m.add}`));
+  const changes = pairChanges(original, deck, byName, identity, made).map((p) => {
+    const why = explain(p, { ...context, budget: forBudget.has(`${p.remove}|${p.add}`) ? budget : null });
     return {
       ...p,
       costDiff: Math.round(((byName.get(p.add)?.price ?? 0) - (byName.get(p.remove)?.price ?? 0)) * 100) / 100,

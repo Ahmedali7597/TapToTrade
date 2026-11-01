@@ -1,4 +1,4 @@
-import { applyChanges, BUDGET_TIERS, cardValue, deckCost, explain, lineEfficiency, MODES, optimize, pairChanges, report, theoreticalTurn } from "./optimizer.js";
+import { applyChanges, BUDGET_TIERS, cardValue, compare, deckCost, explain, lineEfficiency, mainJob, MODES, optimize, pairChanges, replaces, report, theoreticalTurn } from "./optimizer.js";
 import { hyperAtLeast } from "./probability.js";
 
 // A made-up mono-red pool: enough cards of every role to fill a deck at any budget, plus traps the optimizer must avoid.
@@ -221,23 +221,78 @@ test("combo efficiency, perfect-draw turns, values and costs", () => {
   expect(BUDGET_TIERS.at(-1)).toBe(Infinity);
 });
 
+// Rakdos cards with the jobs Scryfall Tagger gives them and made-up EDHREC numbers for one commander.
+const KARDUR = "Kardur, Doomscourge";
+const rakdos = (name, roles, jobs, extra = {}) => ({ name, roles, jobs, manaValue: 2, typeLine: "Instant", instant: true, legal: true, inIdentity: true, basic: false, price: 1, edh: null, synergy: null, colorIdentity: ["B", "R"], ...extra });
+const MURDER = rakdos("Murder", ["interaction"], ["creature-removal"], { manaValue: 3, price: 0.3 });
+const GRASP = rakdos("Infernal Grasp", ["interaction"], ["creature-removal"], { price: 1.5, edh: 0.4, synergy: 0.1 });
+const TRIUMPH = rakdos("Bitter Triumph", ["interaction"], ["creature-removal", "planeswalker-removal"], { manaValue: 1, edh: 0.2 });
+const CHUPACABRA = rakdos("Ravenous Chupacabra", ["interaction"], ["creature-removal"], { manaValue: 4, typeLine: "Creature", instant: false, edh: 0.6 });
+const DEMONIC = rakdos("Demonic Tutor", ["tutor"], ["tutor"], { typeLine: "Sorcery", instant: false, finds: "any", tutorTo: "hand", price: 30 });
+const ENTOMB = rakdos("Entomb", ["tutor"], ["tutor"], { manaValue: 1, finds: "any", tutorTo: "graveyard", edh: 0.5 });
+const CLAMP = rakdos("Skullclamp", ["draw"], ["draw"], { manaValue: 1, typeLine: "Artifact", instant: false, gameChanger: true });
+const KEY = rakdos("Key to the City", ["draw"], ["draw"], { typeLine: "Artifact", instant: false, edh: 0.15 });
+const BLOODGHAST = rakdos("Bloodghast", ["other"], ["reanimate", "recursion"], { typeLine: "Creature", instant: false });
+const ANIMATE = rakdos("Animate Dead", ["other"], ["reanimate", "recursion"], { typeLine: "Enchantment", instant: false, edh: 0.5 });
+const ACT = rakdos("Blasphemous Act", ["interaction"], ["board-wipe", "creature-removal", "burn"], { manaValue: 9, typeLine: "Sorcery", instant: false });
+const KARDUR_POOL = [
+  rakdos(KARDUR, ["other"], [], { manaValue: 4, typeLine: "Legendary Creature" }),
+  rakdos("Swamp", ["land"], [], { basic: true, manaValue: 0, typeLine: "Basic Land — Swamp", produces: ["B"], price: 0.1 }),
+  ...Array.from({ length: 45 }, (_, i) => rakdos(`Ogre ${i + 1}`, ["other"], [], { typeLine: "Creature", instant: false, price: 0.2 })),
+  MURDER, GRASP, TRIUMPH, CHUPACABRA, DEMONIC, ENTOMB, CLAMP, KEY, BLOODGHAST, ANIMATE, ACT,
+];
+
+test("a replacement does the old card's job and is concretely better, never a downgrade in disguise", () => {
+  expect(mainJob(ACT)).toBe("board-wipe");
+  expect(mainJob(BLOODGHAST)).toBe("reanimate");
+  expect(mainJob(KARDUR_POOL[2])).toBeNull(); // a plain creature has no job to replace
+  expect(replaces(GRASP, MURDER)).toBe(true);
+  expect(replaces(TRIUMPH, MURDER)).toBe(true); // hits creatures and more
+  expect(replaces(MURDER, TRIUMPH)).toBe(false); // can't hit the planeswalkers Bitter Triumph could
+  expect(replaces(CHUPACABRA, MURDER)).toBe(false); // a creature isn't a removal spell's like-for-like
+  expect(replaces(ENTOMB, DEMONIC)).toBe(false); // to the graveyard, not to hand
+  expect(replaces(ANIMATE, BLOODGHAST)).toBe(false); // a sacrifice deck needs a creature back
+  expect(compare(TRIUMPH, MURDER, { commander: KARDUR }).gains).toEqual(["it costs 2 less mana (1 instead of 3)", "it also hits planeswalkers", `20% of ${KARDUR} decks on EDHREC play it, against 0% for Murder`]);
+  // Trading away a Game Changer costs more than a few decks' worth of popularity gains back.
+  const key = compare(KEY, CLAMP, { commander: KARDUR });
+  expect(key.losses).toContain("Skullclamp is on Wizards' Game Changers list of the strongest Commander cards, and it isn't");
+  expect(key.score).toBeLessThan(0);
+});
+
+test("preserve suggests only like-for-like upgrades, each with the job, what's better and what it costs", () => {
+  const original = ["Murder", "Demonic Tutor", "Skullclamp", "Bloodghast", ...Array.from({ length: 45 }, (_, i) => `Ogre ${i + 1}`), ...Array(50).fill("Swamp")];
+  const r = optimize({ pool: KARDUR_POOL, commanders: [KARDUR], original, mode: "preserve" });
+  expect(r.changes.map((c) => [c.remove, c.add])).toEqual([["Murder", "Infernal Grasp"]]);
+  expect(r.changes[0].why).toEqual({
+    cut: `Murder is a 3-mana instant: creature removal; EDHREC doesn't list it among the cards ${KARDUR} decks play.`,
+    add: `Infernal Grasp is a 2-mana instant: creature removal; it's in 40% of ${KARDUR} decks on EDHREC (synergy +10%: played more with ${KARDUR} than in other decks of its colours).`,
+    effect: `Same job: creature removal. Better because it costs 1 less mana (2 instead of 3); 40% of ${KARDUR} decks on EDHREC play it, against 0% for Murder; it's +10% synergy with ${KARDUR} on EDHREC, against +0% for Murder. It costs CA$1.20 more.`,
+  });
+  // Over budget: the dear tutor makes way for a cheap one that also puts the card in hand, and the reason says why.
+  const DIABOLIC = rakdos("Diabolic Tutor", ["tutor"], ["tutor"], { manaValue: 4, typeLine: "Sorcery", instant: false, finds: "any", tutorTo: "hand", price: 0.3, edh: 0.1 });
+  const tight = optimize({ pool: [...KARDUR_POOL, DIABOLIC], commanders: [KARDUR], original, budget: 25, mode: "preserve" });
+  expect(tight.cost.total).toBeLessThanOrEqual(25);
+  const swap = tight.changes.find((c) => c.remove === "Demonic Tutor");
+  expect(swap.add).toBe("Diabolic Tutor");
+  expect(swap.why.effect).toBe(`Swapped to fit your CA$25.00 budget: it saves CA$29.70. Same job: tutor. Better because 10% of ${KARDUR} decks on EDHREC play it, against 0% for Demonic Tutor. Trade-off: it costs 2 more mana (4 instead of 2).`);
+});
+
 test("each swap says why the card goes, why the new one comes in and what changes", () => {
-  const context = { byName, commanders, identity: ["R"], lines: [], oldLines: [], counts: { interaction: 15, draw: 15, land: 35, other: 30 } };
-  // Same role: compares cost and how often cEDH decks play each card.
-  const same = explain({ remove: "Shock 1", add: "Free Counter 1" }, context);
-  expect(same.cut).toBe(`Shock 1 is 1-mana interaction (removal, a counterspell or graveyard hate), and none of the cEDH ${COMMANDER} decks on EDHREC play it. The deck already has 15 interaction, more than the 12 a cEDH deck usually runs.`);
-  expect(same.add).toBe(`Free Counter 1 is free interaction (removal, a counterspell or graveyard hate), played in 85% of cEDH ${COMMANDER} decks on EDHREC.`);
-  expect(same.effect).toBe(`Same job (interaction) and can be cast for free. 85% of cEDH ${COMMANDER} decks play Free Counter 1, against 0% for Shock 1.`);
-  // A basic land is just a basic: no cEDH share for it.
+  const context = { byName, commanders, identity: ["R"], lines: [], oldLines: [], counts: { interaction: 15, draw: 15, land: 35, other: 30 }, mode: "max" };
+  // A basic land is just a basic: no EDHREC share for it.
   const land = explain({ remove: "Mountain", add: "Cantrip 1" }, context);
   expect(land.cut).toBe("Mountain is a basic land that makes red mana.");
-  expect(land.effect).toBe("One more card-draw card (15 to 16; cEDH decks run about 9) and one land fewer (35 to 34).");
+  // Not like-for-like (the max goal rebuilds the deck): says what the deck gains and gives up.
+  expect(land.effect).toBe("A different job: the deck gains a 1-mana instant and gives up a land. That makes 16 card-draw cards (cEDH decks run about 9) and 34 lands.");
   // A cut that breaks a combo says so, and what the deck wins with instead.
   const combo = explain({ remove: "Twinflame", add: "Underworld Breach" }, { ...context, oldLines: [COMBOS[0]], lines: [COMBOS[1]] });
   expect(combo.cut).toContain("This breaks Dualcaster Mage + Twinflame (Infinite creature tokens with haste); the new deck wins with Underworld Breach + Lion's Eye Diamond instead.");
   expect(combo.add).toContain("It's part of Underworld Breach + Lion's Eye Diamond (Win the game)");
-  // Every swap in a real run gets all three.
-  for (const ch of run(500).changes.filter((c) => c.remove && c.add)) expect(ch.why.cut && ch.why.add && ch.why.effect).toBeTruthy();
+  // Every swap in a real run gets all three, and says whether it's the same job (or why the budget needed it).
+  for (const ch of run(500).changes.filter((c) => c.remove && c.add)) {
+    expect(ch.why.cut && ch.why.add && ch.why.effect).toBeTruthy();
+    expect(ch.why.effect).toMatch(/^(Same job: |A different job: |Both are |Swapped to fit )/);
+  }
 });
 
 test("swaps pair cards of the same role first", () => {
