@@ -1,6 +1,7 @@
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { mockApi, renderAt } from "@/test/render";
+import Deck from "./Deck";
 import Optimizer from "./Optimizer";
 
 // A small made-up pool: a commander, basics, and cheap and pricey cards of each role.
@@ -45,15 +46,18 @@ test("locks the commander, rebuilds on a budget change, respects a rejection and
   // A smaller budget builds a different deck, and never names the commander as a swap.
   await user.click(screen.getByRole("button", { name: "CA$100" }));
   await waitFor(() => expect(summary()).not.toBe(atDefault), { timeout: 4000 });
-  const table = screen.getByRole("table", { name: "" });
-  expect(within(table).queryByText("Talrand, Sky Summoner")).toBeNull();
+  const swaps = () => screen.getByRole("list", { name: "Suggested swaps" });
+  expect(within(swaps()).queryByText("Talrand, Sky Summoner")).toBeNull();
 
   // Rejecting a swap keeps the card and never suggests the other one again.
-  const firstRow = within(table).getAllByRole("row")[1];
-  const added = within(firstRow).getAllByRole("cell")[2].textContent;
-  await user.click(within(firstRow).getByRole("button", { name: /Reject/ }));
+  // Each swap says why it cuts one card and adds the other.
+  const first = within(swaps()).getAllByRole("listitem")[0];
+  expect(within(first).getByText("Why cut:")).toBeInTheDocument();
+  expect(within(first).getByText("Why add:")).toBeInTheDocument();
+  const added = within(first).getByText("Add").nextSibling.textContent;
+  await user.click(within(first).getByRole("button", { name: /Reject/ }));
   expect(await screen.findByText(new RegExp(`never add ${added}`))).toBeInTheDocument();
-  await waitFor(() => expect(within(screen.getByRole("table", { name: "" })).queryByText(added)).toBeNull());
+  await waitFor(() => expect(within(swaps()).queryByText(added)).toBeNull());
 
   await user.click(screen.getByRole("button", { name: /Save as a new deck/ }));
   expect(await screen.findByText("Saved as a new private deck.")).toBeInTheDocument();
@@ -68,4 +72,36 @@ test("locks the commander, rebuilds on a budget change, respects a rejection and
   // Revert to my list takes every swap back out.
   await user.click(screen.getByRole("button", { name: /Revert to my list/ }));
   expect(screen.getByText(/0 selected/)).toBeInTheDocument();
+});
+
+test("a saved commander deck has an Optimize tab that applies the picks to the deck itself", async () => {
+  const user = userEvent.setup();
+  const printing = (name, typeLine) => ({ id: `${name}-id`, name, typeLine, colorIdentity: ["U"], setCode: "tst", collectorNumber: "1", imageUrl: null });
+  const deckCards = [
+    { id: 1, board: "commander", quantity: 1, printing: printing("Talrand, Sky Summoner", "Legendary Creature") },
+    ...ORIGINAL.filter((n, i, all) => all.indexOf(n) === i).map((n, i) => ({ id: i + 2, board: "main", quantity: ORIGINAL.filter((x) => x === n).length, printing: printing(n, n === "Island" ? "Basic Land — Island" : "Instant") })),
+  ];
+  let imported = null;
+  mockApi({
+    "GET /api/decks/9": { deck: { id: 9, name: "Talrand tempo", format: "commander", visibility: "private", owner: { username: "alice" } }, cards: deckCards, mine: true, owned: {} },
+    "GET /api/decks/9/suggestions": { cards: [] },
+    "GET /api/cards/prices": { prices: {} },
+    "POST /api/optimizer/analyze": analysis,
+    "POST /api/optimizer/listings": { listings: {} },
+    "POST /api/decks/9/import": (body) => {
+      imported = body;
+      return { added: 100, skippedCount: 0, skipped: [] };
+    },
+  });
+  renderAt(<Deck />, { route: "/decks/9?tab=optimize", path: "/decks/:id" });
+
+  expect(await screen.findByText("Commander locked")).toBeInTheDocument();
+  expect(screen.getByLabelText("Budget")).toBeInTheDocument();
+  await user.click(screen.getByRole("button", { name: /Apply \d+ to Talrand tempo/ }));
+  await waitFor(() => expect(imported?.replace).toBe(true));
+  expect(imported.text.startsWith("Commander\n1 Talrand, Sky Summoner (TST) 1\n\nDeck\n")).toBe(true);
+
+  // The Cards tab goes back to the list.
+  await user.click(within(screen.getByRole("group", { name: "Deck tools" })).getByRole("button", { name: /Cards/ }));
+  await waitFor(() => expect(screen.queryByText("Commander locked")).toBeNull());
 });

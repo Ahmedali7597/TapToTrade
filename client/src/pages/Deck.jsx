@@ -1,5 +1,5 @@
-import { useEffect, useState } from "react";
-import { Link, useNavigate, useParams } from "react-router";
+import { lazy, Suspense, useEffect, useState } from "react";
+import { Link, useNavigate, useParams, useSearchParams } from "react-router";
 import { AlertTriangle, Check, Copy, Download, Layers, LayoutGrid, Pencil, RotateCcw, Search, Shuffle, Sparkles, Trash2, Type, Upload } from "lucide-react";
 import {
   AlertDialog,
@@ -36,6 +36,9 @@ import { deckTitle } from "@shared/pages";
 // One deck, after Moxfield: the cards as deck-style stacks (or a grid, or the text list), with the commander
 // first and the sideboard and maybeboard after; a stats panel (size, value, mana curve, colours, format
 // problems); and, for a signed-in viewer, which cards they own and which they'd still need to trade for.
+
+// The optimizer (and its engine) loads only when someone opens the Optimize tab.
+const DeckOptimizer = lazy(() => import("@/pages/Optimizer").then((m) => ({ default: m.DeckOptimizer })));
 
 const isBasic = (p) => /\bBasic\b/.test(p.typeLine ?? "");
 /** Where the optimizer keeps a deck's list from before its changes were applied, so either page can undo them. */
@@ -513,6 +516,7 @@ export default function Deck() {
   const [wantResult, setWantResult] = useState(null);
   const [undo, setUndo] = useState(() => readUndo(id));
   const [undoError, setUndoError] = useState(null);
+  const [params, setParams] = useSearchParams();
   const list = cards ?? data?.cards ?? [];
   const deck = deckInfo ?? data?.deck;
   const mine = Boolean(data?.mine);
@@ -556,6 +560,9 @@ export default function Deck() {
     else value += p * c.quantity;
   }
   const problems = deckProblems(deck.format, list);
+  const canOptimize = deck.format === "commander" && Boolean(user) && list.some((c) => c.board === "commander");
+  const tab = canOptimize && params.get("tab") === "optimize" ? "optimize" : "cards";
+  const showTab = (next) => setParams(next === "optimize" ? { tab: "optimize" } : {}, { replace: true });
   const text = deckText(list);
 
   const replaceCard = (card, oldId) => setCards([...list.filter((c) => c.id !== card.id && c.id !== oldId), card]);
@@ -601,13 +608,6 @@ export default function Deck() {
         </div>
         <div className="flex flex-wrap gap-2">
           <SampleHand cards={list} />
-          {deck.format === "commander" && user && list.some((c) => c.board === "commander") && (
-            <Button asChild variant="outline" size="sm" className="gap-1.5">
-              <Link to={`/optimizer${qs({ deck: deck.id })}`}>
-                <Sparkles aria-hidden="true" /> Optimize
-              </Link>
-            </Button>
-          )}
           {mine && undo && (
             <Button
               variant="outline"
@@ -691,156 +691,187 @@ export default function Deck() {
         </div>
       </div>
 
-      <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_20rem] lg:items-start">
-        <div className="grid min-w-0 gap-5">
-          {mine && (
-            <Card className="py-4">
-              <CardContent>
-                <AddCard deckId={deck.id} onAdded={replaceCard} />
-              </CardContent>
-            </Card>
-          )}
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <SegmentedControl
-              label="View"
-              value={view}
-              onChange={setView}
-              options={[
-                { value: "stacks", label: "Stacks", icon: Layers },
-                { value: "grid", label: "Grid", icon: LayoutGrid },
-                { value: "text", label: "Text", icon: Type },
-              ]}
-            />
-            {view !== "text" && (
-              <label className="flex items-center gap-2 text-sm whitespace-nowrap text-muted-foreground">
-                Group by
-                <NativeSelect value={group} onChange={(e) => setGroup(e.target.value)} aria-label="Group by">
-                  {GROUPS.map(([v, label]) => (
-                    <NativeSelectOption key={v} value={v}>
-                      {label}
-                    </NativeSelectOption>
-                  ))}
-                </NativeSelect>
-              </label>
-            )}
-          </div>
-          {!list.length ? (
-            <p className="rounded-xl border border-dashed p-8 text-center text-muted-foreground">
-              {mine ? "No cards yet. Add one above, or paste a decklist." : "This deck has no cards yet."}
-            </p>
-          ) : view === "text" ? (
-            <pre className="overflow-x-auto rounded-xl border bg-card p-4 text-sm leading-6" data-testid="deck-text">
-              {text}
-            </pre>
-          ) : view === "grid" ? (
-            <GridView groups={groups} size="m" {...viewProps} />
-          ) : (
-            <StacksView groups={groups} size="m" {...viewProps} />
-          )}
+      {canOptimize && (
+        <div className="mb-6">
+          <SegmentedControl
+            label="Deck tools"
+            value={tab}
+            onChange={showTab}
+            options={[
+              { value: "cards", label: "Cards", icon: Layers },
+              { value: "optimize", label: "Optimize", icon: Sparkles },
+            ]}
+          />
         </div>
+      )}
 
-        <aside className="grid gap-4 lg:sticky lg:top-24" aria-label="Deck stats">
-          <Card className="gap-4 py-5">
-            <CardHeader>
-              <CardTitle className="flex items-baseline justify-between gap-2">
-                <span>
-                  {playing}
-                  {target && <span className="text-muted-foreground"> / {target}</span>} cards
-                </span>
-                {value > 0 && (
-                  <span className="text-base font-semibold tabular-nums" title="TCGplayer market prices via Scryfall, in CAD. For reference only.">
-                    ≈ {cad(Math.round(value * 100) / 100)}
-                  </span>
+      {tab === "optimize" ? (
+        <Suspense fallback={<Spinner label="Loading the optimizer" />}>
+          <DeckOptimizer
+            deck={deck}
+            cards={list}
+            mine={mine}
+            onApplied={() => {
+              setUndo(readUndo(deck.id));
+              setCards(null);
+              reload();
+            }}
+          />
+        </Suspense>
+      ) : (
+        <>
+          <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_20rem] lg:items-start">
+            <div className="grid min-w-0 gap-5">
+              {mine && (
+                <Card className="py-4">
+                  <CardContent>
+                    <AddCard deckId={deck.id} onAdded={replaceCard} />
+                  </CardContent>
+                </Card>
+              )}
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <SegmentedControl
+                  label="View"
+                  value={view}
+                  onChange={setView}
+                  options={[
+                    { value: "stacks", label: "Stacks", icon: Layers },
+                    { value: "grid", label: "Grid", icon: LayoutGrid },
+                    { value: "text", label: "Text", icon: Type },
+                  ]}
+                />
+                {view !== "text" && (
+                  <label className="flex items-center gap-2 text-sm whitespace-nowrap text-muted-foreground">
+                    Group by
+                    <NativeSelect value={group} onChange={(e) => setGroup(e.target.value)} aria-label="Group by">
+                      {GROUPS.map(([v, label]) => (
+                        <NativeSelectOption key={v} value={v}>
+                          {label}
+                        </NativeSelectOption>
+                      ))}
+                    </NativeSelect>
+                  </label>
                 )}
-              </CardTitle>
-              <p className="text-xs text-muted-foreground">
-                {countOn(list, "side") > 0 && `Sideboard ${countOn(list, "side")} · `}
-                {countOn(list, "maybe") > 0 && `Maybeboard ${countOn(list, "maybe")} · `}
-                {unpriced > 0 ? `${unpriced} card${unpriced === 1 ? "" : "s"} without a price` : "Market value, not counting the maybeboard"}
-              </p>
-            </CardHeader>
-            <CardContent className="grid gap-5">
-              <Curve cards={list} />
-              <Pips cards={list} />
-            </CardContent>
-          </Card>
-
-          {list.length > 0 && (
-            <Card className={cn("gap-3 py-5", problems.length && "border-amber-500/50")}>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2 text-base">
-                  {problems.length ? <AlertTriangle className="size-4 text-amber-600" aria-hidden="true" /> : <Check className="size-4 text-emerald-600" aria-hidden="true" />}
-                  {problems.length ? `${problems.length} thing${problems.length === 1 ? "" : "s"} to check for ${FORMAT_LABELS[deck.format]}` : `Looks legal for ${FORMAT_LABELS[deck.format]}`}
-                </CardTitle>
-              </CardHeader>
-              {problems.length > 0 && (
-                <CardContent>
-                  <ul className="list-disc space-y-1 pl-5 text-sm">
-                    {problems.slice(0, 15).map((p) => (
-                      <li key={p}>{p}</li>
-                    ))}
-                    {problems.length > 15 && <li>…and {problems.length - 15} more.</li>}
-                  </ul>
-                </CardContent>
+              </div>
+              {!list.length ? (
+                <p className="rounded-xl border border-dashed p-8 text-center text-muted-foreground">
+                  {mine ? "No cards yet. Add one above, or paste a decklist." : "This deck has no cards yet."}
+                </p>
+              ) : view === "text" ? (
+                <pre className="overflow-x-auto rounded-xl border bg-card p-4 text-sm leading-6" data-testid="deck-text">
+                  {text}
+                </pre>
+              ) : view === "grid" ? (
+                <GridView groups={groups} size="m" {...viewProps} />
+              ) : (
+                <StacksView groups={groups} size="m" {...viewProps} />
               )}
-            </Card>
-          )}
+            </div>
 
-          {owned && list.length > 0 && (
-            <Card className="gap-3 py-5" data-testid="deck-owned">
-              <CardHeader>
-                <CardTitle className="text-base">
-                  You own {totalNeeded - totalShort} of {totalNeeded} cards
-                </CardTitle>
-                <p className="text-xs text-muted-foreground">From your inventory, any printing. Basic lands and the maybeboard aren't counted.</p>
-              </CardHeader>
-              {short.length > 0 && (
-                <CardContent className="grid gap-3">
-                  <ul className="max-h-64 space-y-1 overflow-y-auto text-sm">
-                    {short.map((s) => (
-                      <li key={s.name} className="flex items-center justify-between gap-2">
-                        <span className="min-w-0 truncate">
-                          {s.missing > 1 && `${s.missing}× `}
-                          {s.name}
-                        </span>
-                        <Link to={`/search${qs({ name: s.name })}`} className="shrink-0 text-xs font-medium text-primary underline-offset-4 hover:underline">
-                          Find nearby
-                        </Link>
-                      </li>
-                    ))}
-                  </ul>
-                  <Button variant="outline" size="sm" onClick={wantMissing}>
-                    Add the missing cards to my want list
-                  </Button>
-                  {wantResult &&
-                    (wantResult.error ? (
-                      <p className="text-sm font-medium text-destructive">{wantResult.error}</p>
-                    ) : (
-                      <SuccessMessage>
-                        {wantResult.added ? `Added ${wantResult.added} card${wantResult.added === 1 ? "" : "s"} to your want list.` : "They're all on your want list already."}
-                        {wantResult.full && " Your want list is full, so some weren't added."} <Link to="/wants" className="underline">See matches</Link>
-                      </SuccessMessage>
-                    ))}
+            <aside className="grid gap-4 lg:sticky lg:top-24" aria-label="Deck stats">
+              <Card className="gap-4 py-5">
+                <CardHeader>
+                  <CardTitle className="flex items-baseline justify-between gap-2">
+                    <span>
+                      {playing}
+                      {target && <span className="text-muted-foreground"> / {target}</span>} cards
+                    </span>
+                    {value > 0 && (
+                      <span className="text-base font-semibold tabular-nums" title="TCGplayer market prices via Scryfall, in CAD. For reference only.">
+                        ≈ {cad(Math.round(value * 100) / 100)}
+                      </span>
+                    )}
+                  </CardTitle>
+                  <p className="text-xs text-muted-foreground">
+                    {countOn(list, "side") > 0 && `Sideboard ${countOn(list, "side")} · `}
+                    {countOn(list, "maybe") > 0 && `Maybeboard ${countOn(list, "maybe")} · `}
+                    {unpriced > 0 ? `${unpriced} card${unpriced === 1 ? "" : "s"} without a price` : "Market value, not counting the maybeboard"}
+                  </p>
+                </CardHeader>
+                <CardContent className="grid gap-5">
+                  <Curve cards={list} />
+                  <Pips cards={list} />
                 </CardContent>
-              )}
-            </Card>
-          )}
-        </aside>
-      </div>
+              </Card>
 
-      {list.some((c) => c.board === "commander") && (
-        <Suggestions
-          deckId={deck.id}
-          // Part of the request, so changing the commander asks EDHREC about the new one.
-          commanders={list
-            .filter((c) => c.board === "commander")
-            .map((c) => c.printing.name)
-            .sort()
-            .join("|")}
-          inDeck={new Set(list.map((c) => c.printing.name.split(" // ")[0]))}
-          mine={mine}
-          onAdded={replaceCard}
-        />
+              {list.length > 0 && (
+                <Card className={cn("gap-3 py-5", problems.length && "border-amber-500/50")}>
+                  <CardHeader>
+                    <CardTitle className="flex items-center gap-2 text-base">
+                      {problems.length ? <AlertTriangle className="size-4 text-amber-600" aria-hidden="true" /> : <Check className="size-4 text-emerald-600" aria-hidden="true" />}
+                      {problems.length ? `${problems.length} thing${problems.length === 1 ? "" : "s"} to check for ${FORMAT_LABELS[deck.format]}` : `Looks legal for ${FORMAT_LABELS[deck.format]}`}
+                    </CardTitle>
+                  </CardHeader>
+                  {problems.length > 0 && (
+                    <CardContent>
+                      <ul className="list-disc space-y-1 pl-5 text-sm">
+                        {problems.slice(0, 15).map((p) => (
+                          <li key={p}>{p}</li>
+                        ))}
+                        {problems.length > 15 && <li>…and {problems.length - 15} more.</li>}
+                      </ul>
+                    </CardContent>
+                  )}
+                </Card>
+              )}
+
+              {owned && list.length > 0 && (
+                <Card className="gap-3 py-5" data-testid="deck-owned">
+                  <CardHeader>
+                    <CardTitle className="text-base">
+                      You own {totalNeeded - totalShort} of {totalNeeded} cards
+                    </CardTitle>
+                    <p className="text-xs text-muted-foreground">From your inventory, any printing. Basic lands and the maybeboard aren't counted.</p>
+                  </CardHeader>
+                  {short.length > 0 && (
+                    <CardContent className="grid gap-3">
+                      <ul className="max-h-64 space-y-1 overflow-y-auto text-sm">
+                        {short.map((s) => (
+                          <li key={s.name} className="flex items-center justify-between gap-2">
+                            <span className="min-w-0 truncate">
+                              {s.missing > 1 && `${s.missing}× `}
+                              {s.name}
+                            </span>
+                            <Link to={`/search${qs({ name: s.name })}`} className="shrink-0 text-xs font-medium text-primary underline-offset-4 hover:underline">
+                              Find nearby
+                            </Link>
+                          </li>
+                        ))}
+                      </ul>
+                      <Button variant="outline" size="sm" onClick={wantMissing}>
+                        Add the missing cards to my want list
+                      </Button>
+                      {wantResult &&
+                        (wantResult.error ? (
+                          <p className="text-sm font-medium text-destructive">{wantResult.error}</p>
+                        ) : (
+                          <SuccessMessage>
+                            {wantResult.added ? `Added ${wantResult.added} card${wantResult.added === 1 ? "" : "s"} to your want list.` : "They're all on your want list already."}
+                            {wantResult.full && " Your want list is full, so some weren't added."} <Link to="/wants" className="underline">See matches</Link>
+                          </SuccessMessage>
+                        ))}
+                    </CardContent>
+                  )}
+                </Card>
+              )}
+            </aside>
+          </div>
+
+          {list.some((c) => c.board === "commander") && (
+            <Suggestions
+              deckId={deck.id}
+              // Part of the request, so changing the commander asks EDHREC about the new one.
+              commanders={list
+                .filter((c) => c.board === "commander")
+                .map((c) => c.printing.name)
+                .sort()
+                .join("|")}
+              inDeck={new Set(list.map((c) => c.printing.name.split(" // ")[0]))}
+              mine={mine}
+              onAdded={replaceCard}
+            />
+          )}
+        </>
       )}
 
       <Dialog open={Boolean(editing)} onOpenChange={(o) => !o && setEditing(null)}>
