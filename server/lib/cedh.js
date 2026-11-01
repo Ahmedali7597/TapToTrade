@@ -95,12 +95,19 @@ export function tutorTargets(text) {
 }
 
 /** Roles and play details for a raw Scryfall card, from its text (overridden by STAPLES for the well-known ones). */
+/** The mana value of a card's madness cost, or null: "Madness {1}{B}" is 2. Anje-style decks cast these for it. */
+function madnessCost(text) {
+  const cost = text.match(/\bMadness ((?:\{[^}]+\})+)/)?.[1];
+  if (!cost) return null;
+  return [...cost.matchAll(/\{([^}]+)\}/g)].reduce((n, [, s]) => n + (/^\d+$/.test(s) ? Number(s) : s === "X" ? 0 : 1), 0);
+}
+
 export function classify(c) {
   const text = textOf(c);
   const type = typeOf(c);
   const mv = c.cmc ?? 0;
   const cost = costOf(c);
-  const out = { roles: [], free: false, cheap: mv <= 2, net: 0, finds: null };
+  const out = { roles: [], free: false, cheap: mv <= 2, net: 0, finds: null, fetch: /search your library for [^.]*(?:land|Plains|Island|Swamp|Mountain|Forest) card/i.test(text), madness: madnessCost(text) };
   if (/\bLand\b/.test(type)) {
     out.roles.push("land");
   } else {
@@ -117,7 +124,7 @@ export function classify(c) {
     if (out.finds) out.roles.push("tutor");
     else if (/search your library for [^.]*land card[^.]*onto the battlefield/i.test(text)) out.roles.push("ramp");
     if (
-      /counter target|destroy target|exile target (?!card you own)|return target (?:nonland )?(?:permanent|creature|artifact|enchantment|spell)[^.]*owner's hand|deals? \d+ damage to (?:any target|target creature)|target player sacrifices|each opponent sacrifices|destroy all|exile all|exile (?:each|target player's) graveyard/i.test(
+      /counter target|destroy target|exile target (?!card you own)(?![a-z ]*card from a graveyard that was put there this turn)|return target (?:nonland )?(?:permanent|creature|artifact|enchantment|spell)(?! card)[^.]*owner's hand|deals? \d+ damage to (?:any target|target creature)|target player sacrifices|each opponent sacrifices|destroy all|exile all (?![^.]*you control)|exile (?:each|target player's) graveyard/i.test(
         text,
       )
     ) {
