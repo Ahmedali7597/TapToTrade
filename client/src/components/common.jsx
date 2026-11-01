@@ -353,7 +353,7 @@ export function CardImage({ name, setCode, imageUrl, finish, className, printing
           loading={instant ? "eager" : "lazy"}
           instant={instant}
           onGiveUp={onGiveUp ?? (() => setBroken(true))}
-          className="size-full object-cover"
+          className="absolute inset-0 size-full object-cover"
         />
       </div>
     ) : (
