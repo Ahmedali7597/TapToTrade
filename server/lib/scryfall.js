@@ -2,12 +2,13 @@ import { DECK_FORMATS } from "../../shared/decks.js";
 import { FINISHES } from "../../shared/validation.js";
 import { matchesIdentifier } from "./collectionImport.js";
 
-// Scryfall card lookups for choosing a printing. Scryfall asks for a descriptive User-Agent,
-// an Accept header and 50–100 ms between requests; results are cached in memory for 10 minutes.
+// Scryfall card lookups for choosing a printing. Scryfall asks for a descriptive User-Agent, an Accept header and
+// at most 10 requests a second, or 2 a second for searches and bulk lookups; results are cached in memory.
 const TTL_MS = 10 * 60 * 1000;
 const DAY_MS = 24 * 60 * 60 * 1000;
 const cache = new Map();
 let lastCall = 0;
+let lastSlow = 0;
 const API = "https://api.scryfall.com";
 const HEADERS = { "User-Agent": "TapToTrade/1.0 (student capstone)", Accept: "application/json" };
 
@@ -47,10 +48,16 @@ export function rankByName(printings, q) {
   return printings.map((p, i) => [rank(p), i, p]).sort((a, b) => a[0] - b[0] || a[1] - b[1]).map(([, , p]) => p);
 }
 
+// Scryfall's limits: 100 ms between requests, and 500 ms between /cards/search, /cards/named, /cards/random and
+// /cards/collection requests (a 429 locks the app out for 30 seconds). No waiting in the tests, which fake Scryfall.
 // Note: per-process throttle; share it (e.g. via the DB) if the app ever runs several instances.
-async function throttle() {
-  const wait = lastCall + 100 - Date.now();
-  lastCall = Math.max(Date.now(), lastCall + 100); // reserve the slot before waiting, so parallel calls queue up
+const GAP = process.env.NODE_ENV === "test" ? 0 : 100;
+const SLOW_GAP = process.env.NODE_ENV === "test" ? 0 : 600; // 500 ms plus a margin, so network jitter never squeezes two together
+async function throttle(slow = false) {
+  const at = Math.max(Date.now(), lastCall + GAP, slow ? lastSlow + SLOW_GAP : 0);
+  const wait = at - Date.now();
+  lastCall = at; // reserve the slot before waiting, so parallel calls queue up
+  if (slow) lastSlow = at;
   if (wait > 0) await new Promise((r) => setTimeout(r, wait));
 }
 
@@ -64,7 +71,7 @@ export async function searchPrintings(q, { unique = "prints" } = {}) {
   const hit = cache.get(key);
   if (hit && Date.now() - hit.at < TTL_MS) return hit.data;
 
-  await throttle();
+  await throttle(true);
 
   const url = `${API}/cards/search?unique=${unique}&order=name&q=${encodeURIComponent(q)}`;
   const res = await fetch(url, { headers: HEADERS, signal: AbortSignal.timeout(5000) });
@@ -110,7 +117,7 @@ export async function lookupCollection(entries, map = toPrinting) {
   const found = new Map();
   for (let i = 0; i < entries.length; i += COLLECTION_BATCH) {
     const batch = entries.slice(i, i + COLLECTION_BATCH);
-    await throttle();
+    await throttle(true);
     const res = await fetch(`${API}/cards/collection`, {
       method: "POST",
       headers: { ...HEADERS, "Content-Type": "application/json" },
@@ -198,7 +205,7 @@ let pool = { at: 0, cards: [] };
 let refreshing = null;
 
 async function searchPage(order, page) {
-  await throttle();
+  await throttle(true);
   const url = `${API}/cards/search?unique=art&order=${order}&page=${page}&q=${encodeURIComponent(SHOWCASE_QUERY)}`;
   const res = await fetch(url, { headers: HEADERS, signal: AbortSignal.timeout(8000) });
   if (!res.ok) throw new Error(`Scryfall responded ${res.status}`);
