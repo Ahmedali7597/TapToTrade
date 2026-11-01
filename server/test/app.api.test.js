@@ -22,6 +22,7 @@ jest.mock("../lib/prices.js", () => ({ ...jest.requireActual("../lib/prices.js")
 jest.mock("../lib/scryfall.js", () => ({
   ...jest.requireActual("../lib/scryfall.js"),
   lookupCollection: jest.fn().mockResolvedValue(new Map()),
+  fillSetCodes: jest.fn(),
   searchPrintings: jest.fn(),
   autocompleteNames: jest.fn(),
   cardDetails: jest.fn(),
@@ -850,13 +851,19 @@ describe("collection import and export", () => {
     await p.send("patch", "/api/inventory/" + japanese.id, { language: "ja" });
   });
 
-  test("matches a card by name when its set code isn't one Scryfall uses, and says so", async () => {
+  test("keeps the set when the number misses, and matches by name only when the set does too, and says so", async () => {
     const q = await newPlayer("importer_odd_set");
     lookupCollection
+      .mockResolvedValueOnce(new Map()) // "sc:m10:07" isn't a Scryfall printing...
+      .mockImplementationOnce(async (entries) => new Map(entries.filter(([k]) => k === "sc:m10:7").map(([k]) => [k, printing(BOLT, "Lightning Bolt", "m10", "146", ["nonfoil", "foil"])])));
+    const zero = await q.send("post", "/api/inventory/import", { text: "Count,Name,Edition,Collector Number\n1,Lightning Bolt,m10,07" });
+    expect(zero.body).toMatchObject({ listings: 1, cards: 1, setGuessed: 0, numberGuessed: 0 }); // ...but "7" is: the same printing
+    lookupCollection
       .mockResolvedValueOnce(new Map()) // "sc:xyz:7" isn't a Scryfall printing
+      .mockResolvedValueOnce(new Map()) // nor is Lightning Bolt in "xyz"
       .mockImplementationOnce(async (entries) => new Map(entries.map(([k]) => [k, printing(BOLT, "Lightning Bolt", "m10", "146", ["nonfoil", "foil"])])));
     const res = await q.send("post", "/api/inventory/import", { text: "Count,Name,Edition,Collector Number\n2,Lightning Bolt,xyz,7" });
-    expect(res.body).toMatchObject({ listings: 1, cards: 2, setGuessed: 2, skippedCount: 0 });
+    expect(res.body).toMatchObject({ listings: 1, cards: 2, setGuessed: 2, numberGuessed: 0, skippedCount: 0 });
     expect(lookupCollection.mock.calls.at(-1)[0]).toEqual([["n:lightning bolt", { name: "Lightning Bolt" }]]);
   });
 

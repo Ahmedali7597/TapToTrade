@@ -1,9 +1,9 @@
 import { Router } from "express";
 import { query, tx, valuesList } from "../db.js";
-import { identifierFor, MAX_ROWS, parseCollection } from "../lib/collectionImport.js";
+import { findPrintings, MAX_ROWS, parseCollection } from "../lib/collectionImport.js";
 import { HttpError, checkFields, idParam, isUuid } from "../lib/http.js";
 import { priceCards } from "../lib/prices.js";
-import { lookupCollection } from "../lib/scryfall.js";
+import { fillSetCodes, lookupCollection } from "../lib/scryfall.js";
 import { importLimiter, requireAuth } from "../middleware.js";
 import { CONDITIONS, FINISH_LABELS, FINISHES, LANGUAGE_LABELS, LANGUAGES, parseQuantity } from "../../shared/validation.js";
 import { itemView, PRINTING_COLUMNS } from "../lib/views.js";
@@ -145,32 +145,29 @@ router.post("/import", importLimiter, async (req, res) => {
   if (rows.length > MAX_ROWS) throw new HttpError(400, `Imports are limited to ${MAX_ROWS} rows. Split the file and import it in parts.`);
   if (!rows.length) throw new HttpError(400, "We couldn't find any cards in that. Check it's a collection export or a list like \"4 Lightning Bolt\".");
 
-  // One Scryfall lookup per distinct card/printing, then save the printings locally.
-  // Rows whose set or number Scryfall doesn't recognise (some sites use their own codes for promos) are asked again
-  // by name alone, and reported in `setGuessed` so the player can fix the printing.
+  // One Scryfall lookup per distinct card/printing, then save the printings locally. Rows whose exact printing
+  // Scryfall doesn't recognise (some sites number promos their own way) are asked again in the same set, then by
+  // name alone; those are reported in `numberGuessed` and `setGuessed` so the player can fix the printing.
   let found;
-  const byName = (row) => [`n:${row.name.toLowerCase()}`, { name: row.name }];
   try {
-    found = await lookupCollection([...new Map(rows.map(identifierFor))]);
-    const retry = rows.filter((r) => r.name && (r.setCode || r.scryfallId) && !found.get(identifierFor(r)[0]));
-    if (retry.length) for (const [k, p] of await lookupCollection([...new Map(retry.map(byName))])) found.set(k, p);
+    await fillSetCodes(rows);
+    found = await findPrintings(rows, lookupCollection);
   } catch (err) {
     console.warn(`Collection import lookup failed: ${err.message}`);
     throw new HttpError(503, "Card data from Scryfall isn't available right now. Please try the import again in a few minutes.");
   }
-  await cachePrintings([...new Map([...found.values()].map((p) => [p.id, p])).values()]);
+  await cachePrintings([...new Map([...found.values()].map(({ printing: p }) => [p.id, p])).values()]);
 
   // Merge rows that land on the same listing (e.g. the same card in two binders).
   const listings = new Map();
   let nameOnly = 0;
   let setGuessed = 0;
+  let numberGuessed = 0;
   let adjustedFinish = 0;
   for (const row of rows) {
-    let printing = found.get(identifierFor(row)[0]);
-    if (!printing && row.name && (row.setCode || row.scryfallId)) {
-      printing = found.get(byName(row)[0]);
-      if (printing) setGuessed += row.quantity;
-    }
+    const { printing, how } = found.get(row) ?? {};
+    if (how === "sameSet") numberGuessed += row.quantity;
+    if (how === "nameOnly") setGuessed += row.quantity;
     if (!printing) {
       skipped.push({ line: row.line, name: row.name, reason: "Scryfall doesn't know this card or printing." });
       continue;
@@ -208,6 +205,7 @@ router.post("/import", importLimiter, async (req, res) => {
     cards: all.reduce((sum, l) => sum + l.quantity, 0),
     nameOnly,
     setGuessed,
+    numberGuessed,
     adjustedFinish,
     skippedCount: skipped.length,
     skipped: skipped.slice(0, 200),

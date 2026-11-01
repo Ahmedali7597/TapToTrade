@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { query, tx, valuesList } from "../db.js";
-import { identifierFor } from "../lib/collectionImport.js";
+import { findPrintings } from "../lib/collectionImport.js";
 import { parseDeckList } from "../lib/deckList.js";
 import { commanderSuggestions } from "../lib/edhrec.js";
 import { HttpError, checkFields, idFrom, idParam, isUuid } from "../lib/http.js";
@@ -296,19 +296,17 @@ router.post("/:id/import", requireAuth, importLimiter, async (req, res) => {
   const { rows, skipped } = parseDeckList(req.body?.text);
   if (!rows.length) throw new HttpError(400, 'Paste a decklist with lines like "1 Sol Ring" or "1 Sol Ring (C21) 263".');
   if (rows.length > MAX_DECK_ROWS) throw new HttpError(400, `A deck can hold up to ${MAX_DECK_ROWS} different cards.`);
-  const byName = (r) => [`n:${r.name.toLowerCase()}`, { name: r.name }];
   let found;
   try {
-    found = await lookupCollection([...new Map(rows.map((r) => identifierFor({ ...r, scryfallId: null })))]);
-    const retry = rows.filter((r) => r.setCode && !found.get(identifierFor({ ...r, scryfallId: null })[0]));
-    if (retry.length) for (const [k, p] of await lookupCollection([...new Map(retry.map(byName))])) found.set(k, p);
+    // A printing Scryfall doesn't know falls back to the same card in the same set, then by name.
+    found = await findPrintings(rows, lookupCollection);
   } catch (err) {
     console.warn(`Deck import lookup failed: ${err.message}`);
     throw new HttpError(503, "Card data from Scryfall isn't available right now. Please try again in a few minutes.");
   }
   const lines = new Map();
   for (const r of rows) {
-    const p = found.get(identifierFor({ ...r, scryfallId: null })[0]) ?? found.get(byName(r)[0]);
+    const p = found.get(r)?.printing;
     if (!p) {
       skipped.push({ line: r.line, name: r.name, reason: "Scryfall doesn't know this card or printing." });
       continue;

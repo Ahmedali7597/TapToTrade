@@ -1,4 +1,4 @@
-import { identifierFor, matchesIdentifier, parseCollection, parseCsv, toCondition, toFinish, toLanguage } from "./collectionImport.js";
+import { findPrintings, identifierFor, identifiersFor, matchesIdentifier, parseCollection, parseCsv, toCondition, toFinish, toLanguage } from "./collectionImport.js";
 
 // Trimmed real-world header rows from each site's collection export.
 const MOXFIELD = `"Count","Tradelist Count","Name","Edition","Condition","Language","Foil","Tags","Last Modified","Collector Number","Alter","Proxy","Purchase Price"
@@ -32,6 +32,36 @@ describe("collection import parsing", () => {
       [1, "Sol Ring", "c21", "263", "LP", "etched", "en"],
       [2, "Delver of Secrets // Insectile Aberration", "isd", "51", "MP", "foil", "ja"],
     ]);
+  });
+
+  test("a missed printing keeps its set: leading zeros, then the same set, then the name alone", async () => {
+    const row = (setCode, collectorNumber) => ({ name: "Ancient Tomb", setCode, collectorNumber, scryfallId: null });
+    expect(identifiersFor(row("uma", "0236")).map(([k]) => k)).toEqual(["sc:uma:0236", "sc:uma:236", "ns:ancient tomb:uma", "n:ancient tomb"]);
+    expect(identifiersFor(row("uma", "236")).map(([k]) => k)).toEqual(["sc:uma:236", "ns:ancient tomb:uma", "n:ancient tomb"]);
+    expect(identifiersFor({ ...row(null, null) }).map(([k]) => k)).toEqual(["n:ancient tomb"]);
+
+    // A fake Scryfall that knows UMA #236, Ancient Tomb in Tempest by name, and the card by name alone.
+    const known = { "sc:uma:236": "uma 236", "ns:ancient tomb:tmp": "tmp 315", "n:ancient tomb": "newest" };
+    const asked = [];
+    const lookup = async (entries) => {
+      asked.push(entries.map(([k]) => k));
+      return new Map(entries.filter(([k]) => known[k]).map(([k]) => [k, known[k]]));
+    };
+    const rows = [row("uma", "0236"), row("tmp", "999"), row("zzz", "1"), row("uma", "236")];
+    const found = await findPrintings(rows, lookup);
+    expect(rows.map((r) => [found.get(r).printing, found.get(r).how])).toEqual([
+      ["uma 236", "exact"],
+      ["tmp 315", "sameSet"],
+      ["newest", "nameOnly"],
+      ["uma 236", "exact"],
+    ]);
+    expect(asked.flat().filter((k) => k === "sc:uma:236")).toHaveLength(1); // each lookup is asked once
+  });
+
+  test("a set name instead of a code is kept for the import to look up", () => {
+    const deckbox = `Count,Tradelist Count,Name,Edition,Card Number,Condition,Language,Foil\n1,0,Black Lotus,Limited Edition Alpha,232,Near Mint,English,`;
+    expect(parseCollection(deckbox)).toMatchObject({ format: "Deckbox", rows: [{ setCode: null, setName: "Limited Edition Alpha", collectorNumber: "232" }] });
+    expect(parseCollection(ARCHIDEKT).rows[0]).toMatchObject({ setCode: "eld", setName: null });
   });
 
   test("languages by name or code, as each site writes them", () => {
