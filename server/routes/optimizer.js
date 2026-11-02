@@ -64,6 +64,15 @@ router.post("/analyze", optimizerLimiter, async (req, res) => {
   // Only cards the optimizer may add, plus the player's own (even illegal ones, so the page can say why they go).
   const mine = new Set([...original, ...commanderNames]);
   const pool = data.pool.filter((c) => (c.legal && c.inIdentity) || mine.has(c.name));
+  // What players did with earlier suggestions: every player's answers for this deck's cards (whatever the commander)
+  // and for this commander's adds, and this player's own rejections for this commander, which stay rejected.
+  const commander = commanderKey(commanderNames);
+  const [pairs, adds, own] = await Promise.all([
+    query(`SELECT cut_card, add_card, ${TALLY} FROM optimizer_feedback WHERE cut_card = ANY($1::text[]) AND add_card <> '' GROUP BY cut_card, add_card`, [[...mine]]),
+    query(`SELECT add_card, ${TALLY} FROM optimizer_feedback WHERE commander = $1 AND add_card <> '' GROUP BY add_card`, [commander]),
+    query("SELECT cut_card, add_card FROM optimizer_feedback WHERE user_id = $1 AND commander = $2 AND NOT accepted", [req.user.id, commander]),
+  ]);
+  const named = (key) => [...new Set(own.rows.map((r) => r[key]).filter(Boolean))];
   res.json({
     commanders: commanderNames.map((n) => data.pool.find((c) => c.name === n) ?? poolCard(commanders[commanderNames.indexOf(n)], data.identity, data.rate.usdCad)),
     identity: data.identity,
@@ -74,7 +83,49 @@ router.post("/analyze", optimizerLimiter, async (req, res) => {
     rate: data.rate,
     strategy: data.strategy,
     sources: data.sources,
+    learned: { pairs: pairs.rows.map((r) => [r.cut_card, r.add_card, r.took, r.turned]), adds: adds.rows.map((r) => [r.add_card, r.took, r.turned]) },
+    rejected: { adds: named("add_card"), keeps: named("cut_card") },
   });
+});
+
+const TALLY = "count(*) FILTER (WHERE accepted)::int AS took, count(*) FILTER (WHERE NOT accepted)::int AS turned";
+/** The commander part of a feedback row: the name, or partners' names in alphabetical order joined with " + ". */
+const commanderKey = (names) => [...names].sort().join(" + ");
+const cardName = (v) => (typeof v === "string" ? v.trim().slice(0, 200) : "");
+function commandersOf(body) {
+  const names = Array.isArray(body?.commanders) ? body.commanders.map(cardName).filter(Boolean) : [];
+  if (!names.length || names.length > 2) throw new HttpError(400, "Choose one commander, or two partners.");
+  return commanderKey(names);
+}
+
+/**
+ * { commanders, swaps: [{ remove, add, accepted }] }: the player took (applied) or rejected these swaps. Each player's
+ * latest answer for a swap is the one that counts.
+ */
+router.post("/feedback", async (req, res) => {
+  const commander = commandersOf(req.body);
+  const swaps = Array.isArray(req.body?.swaps) ? req.body.swaps : [];
+  if (!swaps.length || swaps.length > 120) throw new HttpError(400, "Send between 1 and 120 swaps.");
+  const rows = new Map();
+  for (const s of swaps) {
+    const [cut, add] = [cardName(s?.remove), cardName(s?.add)];
+    if ((!cut && !add) || typeof s?.accepted !== "boolean") throw new HttpError(400, "Each swap needs a card and whether it was taken.");
+    rows.set(`${cut}|${add}`, [cut, add, s.accepted]);
+  }
+  const list = [...rows.values()];
+  await query(
+    `INSERT INTO optimizer_feedback (user_id, commander, cut_card, add_card, accepted)
+     SELECT $1, $2, s.cut, s.add, s.accepted FROM unnest($3::text[], $4::text[], $5::boolean[]) AS s(cut, add, accepted)
+     ON CONFLICT (user_id, commander, cut_card, add_card) DO UPDATE SET accepted = EXCLUDED.accepted, updated_at = now()`,
+    [req.user.id, commander, list.map((r) => r[0]), list.map((r) => r[1]), list.map((r) => r[2])],
+  );
+  res.json({ saved: list.length });
+});
+
+/** { commanders }: forgets the player's rejections for this commander (the page's "Clear rejections"). */
+router.delete("/feedback", async (req, res) => {
+  const { rowCount } = await query("DELETE FROM optimizer_feedback WHERE user_id = $1 AND commander = $2 AND NOT accepted", [req.user.id, commandersOf(req.body)]);
+  res.json({ cleared: rowCount });
 });
 
 /**
