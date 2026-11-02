@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { FEATURES, JOBS, REMOVAL, replaces } from "../../shared/optimizer.js";
-import { commanderSuggestions } from "./edhrec.js";
+import { commanderSuggestions, deckRecs } from "./edhrec.js";
 import { usdToCad } from "./prices.js";
 import { searchCards } from "./scryfall.js";
 import { combosFor } from "./spellbook.js";
@@ -457,8 +457,16 @@ export async function buildPool(commanders, deckNames = []) {
     if (pools.size > 100) pools.delete(pools.keys().next().value);
   }
   const { candidates, cedh, edh, combos, strategy, sources } = base.value;
-  const [{ usdCad, date }, found] = await Promise.all([usdToCad(), lookupNames([...candidates, ...deckNames, ...names])]);
-  const toPool = (c) => poolCard(c, identity, usdCad, cedh.get(front(c.name)) ?? null, edh.get(front(c.name)) ?? null);
+  // EDHREC's own suggestions for this exact list: how strongly to cut each card, and the cards to add.
+  const recs = deckNames.length ? await deckRecs(names, deckNames) : null;
+  const recAdd = new Map([...(recs?.adds ?? [])].map(([n, s]) => [front(n), s]));
+  const recCut = new Map([...(recs?.cuts ?? [])].map(([n, s]) => [front(n), s]));
+  const [{ usdCad, date }, found] = await Promise.all([usdToCad(), lookupNames([...candidates, ...deckNames, ...names, ...(recs?.adds.keys() ?? [])])]);
+  const toPool = (c) => ({
+    ...poolCard(c, identity, usdCad, cedh.get(front(c.name)) ?? null, edh.get(front(c.name)) ?? null),
+    recAdd: recAdd.get(front(c.name)) ?? null,
+    recCut: recCut.get(front(c.name)) ?? null,
+  });
   const pool = [...found.values()].map(toPool);
   // Direct replacements for the player's own cards, beyond the cards EDHREC lists for the commander.
   // (A card outside the colours is cut, not replaced.)

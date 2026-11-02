@@ -1,10 +1,10 @@
 import { buildPool, classify, commanderProblem, front, lookupNames, lowestUsd, manaAdded, poolCard, strategyOf, textFeatures, textJobs, tutorTargets } from "./cedh.js";
-import { commanderSuggestions } from "./edhrec.js";
+import { commanderSuggestions, deckRecs } from "./edhrec.js";
 import { usdToCad } from "./prices.js";
 import { searchCards } from "./scryfall.js";
 import { combosFor } from "./spellbook.js";
 
-jest.mock("./edhrec.js", () => ({ commanderSuggestions: jest.fn() }));
+jest.mock("./edhrec.js", () => ({ commanderSuggestions: jest.fn(), deckRecs: jest.fn() }));
 jest.mock("./prices.js", () => ({ usdToCad: jest.fn() }));
 jest.mock("./scryfall.js", () => ({ searchCards: jest.fn() }));
 jest.mock("./spellbook.js", () => ({ combosFor: jest.fn() }));
@@ -201,7 +201,12 @@ test("searches Scryfall for cards that do everything a deck card does, and keeps
       : [...q.matchAll(/!"([^"]+)"/g)].map((m) => m[1]).filter((n) => n === "return to nature").map(() => card("Return to Nature", "Instant", RETURN_TO_NATURE, green)),
   );
   searchCards.mockClear();
+  deckRecs.mockResolvedValue({ adds: new Map([["Heritage Reclamation", 0.4]]), cuts: new Map([["Return to Nature", 0.87]]) });
   const data = await buildPool([titania], ["Return to Nature"]);
+  // EDHREC's suggestions for the list ride along on each card.
+  expect(deckRecs).toHaveBeenCalledWith(["Titania, Protector of Argoth"], ["Return to Nature"]);
+  expect(data.pool.find((c) => c.name === "Return to Nature")).toMatchObject({ recCut: 0.87, recAdd: null });
+  expect(data.pool.find((c) => c.name === "Heritage Reclamation")).toMatchObject({ recAdd: 0.4, recCut: null });
   const alike = searchCards.mock.calls.map(([q]) => q).filter((q) => q.includes("otag:"));
   expect(alike).toEqual(["((otag:artifact-removal otag:enchantment-removal otag:graveyard-hate)) id<=g f:commander game:paper -t:land prefer:usd-low order:edhrec"]);
   // Naturalize can't exile a card from a graveyard, so it isn't a direct replacement for Return to Nature.

@@ -7,7 +7,8 @@
 // Pool card: { name, roles: [primary, ...], price (CAD or null), manaValue, typeLine, legal, inIdentity, basic, cedh
 //   (share of cEDH decks for this commander running it, from EDHREC), staple, free, cheap, net (mana a fast-mana card
 //   adds), finds (what a tutor can find: "any" or type words), produces (land colours), tapped, rank (EDHREC rank),
-//   jobs and features (Scryfall Tagger tags, see JOBS and FEATURES), power, toughness }
+//   jobs and features (Scryfall Tagger tags, see JOBS and FEATURES), power, toughness, recAdd and recCut (EDHREC's
+//   suggestions for the player's exact list, 0-1: how strongly to add or cut the card; null when it didn't rate it) }
 // Strategy: what the commander rewards, from its rules text and EDHREC's themes (server/lib/cedh.js strategyOf):
 //   { fuel ("mana value", "power" or "toughness": the creature stat it turns into value, or null),
 //     plans: [{ text, tags }] ("attacks", with the jobs and features that help it), themes: [names] }
@@ -272,6 +273,8 @@ export function compare(x, y, { mode = "preserve", identity = [], commander = "y
   if (rate <= -0.05) losses.push(plays);
   const synergy = (x.synergy ?? 0) - (y.synergy ?? 0);
   if (mode !== "max") score += synergy * 40;
+  // EDHREC's suggestions for this exact list: a card it says to add. (Its cut score decides which cards may go at all.)
+  if (mode !== "max") score += (x.recAdd ?? 0) * 30;
   // EDHREC synergy: how much more often a card is played with this commander than in other decks of its colours.
   if (mode !== "max" && synergy >= 0.1) gains.push(`it's ${signed(x.synergy ?? 0)} synergy with ${commander} on EDHREC, against ${signed(y.synergy ?? 0)} for ${y.name}`);
   return { gains, losses, score };
@@ -567,12 +570,14 @@ export function explain({ remove, add }, { byName, commanders, identity, lines, 
     else cut = purpose(out, ctx);
     const lost = oldLines.find((l) => l.pieces.includes(remove) && !lines.some((x) => x.id === l.id));
     if (lost) cut += ` This breaks ${lost.pieces.join(" + ")} (${lost.produces[0] ?? "a combo"}); ${lines.length ? `the new deck wins with ${lines[0].pieces.join(" + ")} instead.` : "the new deck has no combo in its place."}`;
+    if (out.recCut != null && !out.basic) cut += ` EDHREC's suggestions for your exact list rate it ${Math.round(out.recCut * 100)}/100 to cut.`;
   }
   let addText = "";
   if (inn) {
     const line = lines.find((l) => l.pieces.includes(add));
     addText = inn.basic ? `${add} is ${jobOf(inn, identity)}.` : purpose(inn, ctx);
     if (line) addText += ` It's part of ${line.pieces.join(" + ")} (${line.produces[0] ?? "a combo"}), a combo the new deck can assemble.`;
+    if (inn.recAdd != null) addText += ` EDHREC's suggestions for your exact list rate it ${Math.round(inn.recAdd * 100)}/100 to add.`;
   }
   let effect = "";
   if (inn && out) {
@@ -626,11 +631,14 @@ export function explain({ remove, add }, { byName, commanders, identity, lines, 
 
 /** How much better (compare's score) a like-for-like replacement must be to be suggested at all. */
 const MIN_GAIN = 6;
+/** Below this cut score from EDHREC's suggestions for the player's list, a card stays: EDHREC's decks say it belongs. */
+const KEEP_BELOW = 0.5;
 
 /**
  * Like-for-like upgrades to `deck`, best first, within the budget: each puts in a card that does the old card's main
  * job (replaces) and is clearly better (compare), never more than one mana dearer. "value" ranks them by gain per
- * dollar and may also (`crossRole`) swap a card with no job for one of a role the deck is short of. Locked cards stay.
+ * dollar and may also (`crossRole`) swap a card with no job for one of a role the deck is short of. Locked cards stay,
+ * and so does a card EDHREC's suggestions for the list rate below KEEP_BELOW to cut.
  */
 function upgrade({ deck, pool, byName, commanders, budget, banned, keep, perDollar, crossRole, maxSwaps, mode, identity, strategy }) {
   const out = [...deck];
@@ -666,7 +674,7 @@ function upgrade({ deck, pool, byName, commanders, budget, banned, keep, perDoll
     };
     for (let i = 0; i < out.length; i++) {
       const y = byName.get(out[i]);
-      if (keep.has(out[i]) || changed.has(i)) continue;
+      if (keep.has(out[i]) || changed.has(i) || (y.recCut != null && y.recCut < KEEP_BELOW)) continue;
       for (const o of optionsFor(y)) consider(i, o.x, y, o.gain.score);
       // A card with no job (a plain creature, say) can make room for a role the deck is short of.
       if (crossRole && !mainJob(y) && !isLand(y)) {
@@ -713,7 +721,8 @@ function downgrade({ deck, pool, byName, commanders, budget, banned, keep, mode,
           : pool.filter((c) => cheaper(c) && !isLand(c) && !mainJob(c) && typeOf(c) === typeOf(y) && keepsRole(c, y, strategy));
       for (const x of options) {
         const saved = y.price - x.price;
-        const loss = Math.max(0, -compare(x, y, { mode, identity, strategy }).score) + Math.max(0, cardValue(y) - cardValue(x)) / 4;
+        // A card EDHREC's suggestions for the list say to cut costs less to give up.
+        const loss = (Math.max(0, -compare(x, y, { mode, identity, strategy }).score) + Math.max(0, cardValue(y) - cardValue(x)) / 4) * (1 - (y.recCut ?? 0) / 2);
         const score = loss / saved;
         if (!best || score < best.score) best = { i, x, saved, score };
       }

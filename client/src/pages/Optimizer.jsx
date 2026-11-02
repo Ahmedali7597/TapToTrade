@@ -202,7 +202,7 @@ function BudgetControls({ budget, setBudget, mode, setMode, commanderCost, strat
           <SegmentedControl label="Optimization goal" value={mode} onChange={setMode} options={MODES.map(([value, label]) => ({ value, label }))} className="max-w-full flex-wrap" />
           <p className="text-xs text-muted-foreground">
             {mode === "max" && "Rebuilds all 99 for the strongest deck the budget allows, including a new combo plan if it's better."}
-            {mode === "preserve" && "Keeps your combos and most of your cards, swapping a card only for a direct upgrade: one that does everything it did, and more."}
+            {mode === "preserve" && "Keeps your combos and most of your cards. It only swaps a card EDHREC's suggestions for your list say to cut, and only for a direct upgrade: one that does everything it did, and more."}
             {mode === "value" && "Starts from your deck and makes the upgrades with the biggest gain per dollar first."}
           </p>
           <StrategyNote strategy={strategy} />

@@ -357,6 +357,18 @@ test("a budget swap keeps what the card does for the commander's plan, and a wip
   expect(r.changes.map((c) => [c.remove, c.add])).toEqual([["Avacyn, Angel of Horror", "Butcher of Malakir"]]);
 });
 
+test("EDHREC's suggestions for the list decide which cards may go, and the reasons quote them", () => {
+  const venom = jund(VENOM, ["other"], [], [], { manaValue: 6, typeLine: "Legendary Creature" });
+  const original = ["Return to Nature", ...Array.from({ length: 45 }, (_, i) => `Ogre ${i + 1}`), ...Array(53).fill("Swamp")];
+  const run = (recCut) => optimize({ pool: [venom, ...KARDUR_POOL.slice(1), { ...RETURN, recCut }, { ...HERITAGE, recAdd: 0.4 }], commanders: [VENOM], original, mode: "preserve", strategy: VENOM_PLAN });
+  // EDHREC's decks say Return to Nature belongs in this list: it stays, even with a direct upgrade on offer.
+  expect(run(0.3).changes).toEqual([]);
+  const [swap] = run(0.87).changes;
+  expect([swap.remove, swap.add]).toEqual(["Return to Nature", "Heritage Reclamation"]);
+  expect(swap.why.cut).toContain("EDHREC's suggestions for your exact list rate it 87/100 to cut.");
+  expect(swap.why.add).toContain("EDHREC's suggestions for your exact list rate it 40/100 to add.");
+});
+
 test("preserve upgrades the Venom deck only where a card is a direct upgrade, and says what each card does for Venom", () => {
   const pool = [jund(VENOM, ["other"], [], [], { manaValue: 6, typeLine: "Legendary Creature" }), ...KARDUR_POOL.slice(1), UPRISING, GRAVESTONE, RETURN, HERITAGE, TEAR, TYRANT, CRAWLER];
   const original = ["Garruk's Uprising", "Return to Nature", "Vaultborn Tyrant", ...Array.from({ length: 45 }, (_, i) => `Ogre ${i + 1}`), ...Array(51).fill("Swamp")];

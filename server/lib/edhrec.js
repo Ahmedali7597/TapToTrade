@@ -59,3 +59,36 @@ export async function commanderSuggestions(names, variant = "") {
   if (cache.size > 300) cache.delete(cache.keys().next().value);
   return value;
 }
+
+const recsCache = new Map();
+
+/**
+ * EDHREC's suggestions for one decklist (its Recs page, edhrec.com/recs): { adds, cuts }, each a Map from a card's
+ * front name to a 0-1 score (EDHREC's 0-100 / 100). EDHREC rates every card in the list for cutting and its top 100
+ * cards for adding, from the decks it has seen with the commander. null if EDHREC doesn't answer: the optimizer then
+ * goes on without it. Kept for a day per list.
+ */
+export async function deckRecs(commanders, cards) {
+  const key = `${[...commanders].sort().join("|")}\n${[...new Set(cards)].sort().join("\n")}`;
+  const hit = recsCache.get(key);
+  if (hit && Date.now() - hit.at < DAY) return hit.value;
+  let value = null;
+  try {
+    const res = await fetch("https://edhrec.com/api/recs", {
+      method: "POST",
+      headers: { "User-Agent": "TapToTrade/1.0 (student capstone)", Accept: "application/json", "Content-Type": "application/json" },
+      body: JSON.stringify({ cards: [...new Set(cards)], commanders, options: { excludeLands: false, offset: 0 } }),
+      signal: AbortSignal.timeout(10000),
+    });
+    if (res.ok) {
+      const json = await res.json();
+      const scores = (list) => new Map((list ?? []).map((c) => [String(c.name).split(" // ")[0], Math.max(0, Math.min(100, Number(c.score) || 0)) / 100]));
+      if (json.inRecs || json.outRecs) value = { adds: scores(json.inRecs), cuts: scores(json.outRecs) };
+    }
+  } catch {
+    // EDHREC down or slow: the optimizer works without it.
+  }
+  recsCache.set(key, { at: Date.now(), value });
+  if (recsCache.size > 300) recsCache.delete(recsCache.keys().next().value);
+  return value;
+}
