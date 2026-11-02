@@ -1737,6 +1737,37 @@ describe("deck optimizer", () => {
     expect(res.body.rate).toEqual({ usdCad: 1.4, date: "2026-10-30" });
   });
 
+  test("learns from the swaps players take and reject, and gives a player's own rejections back", async () => {
+    const other = await newPlayer("opt_other");
+    const feedback = (who, swaps, commanders = ["Kinnan, Bonder Prodigy"]) => who.send("post", "/api/optimizer/feedback", { commanders, swaps });
+    // A commander, at least one swap, and for each a card and whether it was taken.
+    expect((await feedback(player, [{ remove: "Sol Ring", add: "Basalt Monolith", accepted: false }], [])).status).toBe(400);
+    expect((await feedback(player, [])).status).toBe(400);
+    expect((await feedback(player, [{ remove: "", add: " ", accepted: true }])).status).toBe(400);
+    expect((await feedback(player, [{ remove: "Sol Ring", add: "Basalt Monolith" }])).status).toBe(400);
+    expect((await feedback(await new Player().init(), [{ remove: "Sol Ring", add: "Basalt Monolith", accepted: true }])).status).toBe(401);
+    // The player takes one swap and rejects another, then changes their mind on the first: the latest answer counts.
+    expect((await feedback(player, [{ remove: "Sol Ring", add: "Basalt Monolith", accepted: true }, { remove: "Island", add: "Mana Crypt", accepted: false }])).body).toEqual({ saved: 2 });
+    await feedback(player, [{ remove: "Sol Ring", add: "Basalt Monolith", accepted: false }]);
+    await feedback(other, [{ remove: "Sol Ring", add: "Basalt Monolith", accepted: true }]);
+    const analyze = async () => {
+      lookupNames.mockResolvedValueOnce(new Map([["kinnan, bonder prodigy", KINNAN]]));
+      buildPool.mockResolvedValueOnce(data);
+      return (await player.send("post", "/api/optimizer/analyze", { commanders: ["Kinnan, Bonder Prodigy"], text: "1 Sol Ring\n30 Island" })).body;
+    };
+    let res = await analyze();
+    // Every player's answers for the deck's cards and the commander's adds; this player's rejections for this commander.
+    expect(res.learned.pairs).toEqual(expect.arrayContaining([["Sol Ring", "Basalt Monolith", 1, 1], ["Island", "Mana Crypt", 0, 1]]));
+    expect(res.learned.adds).toEqual(expect.arrayContaining([["Basalt Monolith", 1, 1], ["Mana Crypt", 0, 1]]));
+    expect(res.rejected.adds.sort()).toEqual(["Basalt Monolith", "Mana Crypt"]);
+    expect(res.rejected.keeps.sort()).toEqual(["Island", "Sol Ring"]);
+    // Clear rejections forgets this player's, not what anyone took.
+    expect((await player.send("delete", "/api/optimizer/feedback", { commanders: ["Kinnan, Bonder Prodigy"] })).body).toEqual({ cleared: 2 });
+    res = await analyze();
+    expect(res.rejected).toEqual({ adds: [], keeps: [] });
+    expect(res.learned.pairs).toEqual([["Sol Ring", "Basalt Monolith", 1, 0]]);
+  });
+
   test("finds other players' real listings for suggested cards, nearest first", async () => {
     const MONOLITH = "6b7f2b4f-1b2a-4c55-9f0e-2a2f7a3a6b11";
     await pool.query("INSERT INTO card_printings (id, name, set_code, set_name, collector_number) VALUES ($1, 'Basalt Monolith', '3ed', 'Revised', '230')", [MONOLITH]);

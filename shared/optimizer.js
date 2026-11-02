@@ -7,8 +7,12 @@
 // Pool card: { name, roles: [primary, ...], price (CAD or null), manaValue, typeLine, legal, inIdentity, basic, cedh
 //   (share of cEDH decks for this commander running it, from EDHREC), staple, free, cheap, net (mana a fast-mana card
 //   adds), finds (what a tutor can find: "any" or type words), produces (land colours), tapped, rank (EDHREC rank),
-//   jobs and features (Scryfall Tagger tags, see JOBS and FEATURES), power, toughness, recAdd and recCut (EDHREC's
-//   suggestions for the player's exact list, 0-1: how strongly to add or cut the card; null when it didn't rate it) }
+//   jobs and features (Scryfall Tagger tags, see JOBS and FEATURES), drawbacks (see DRAWBACKS), power, toughness,
+//   recAdd and recCut (EDHREC's suggestions for the player's exact list, 0-1: how strongly to add or cut the card; null
+//   when it didn't rate it), superiors ([[name, upvotes, downvotes]]: pool cards players on Strictly Better voted
+//   strictly better than this one) }
+// Learned: what players did with earlier suggestions, { pairs: [[cut, add, took, turned down]], adds: [[add, took,
+//   turned down]] } (the adds for this commander only), from server/routes/optimizer.js.
 // Strategy: what the commander rewards, from its rules text and EDHREC's themes (server/lib/cedh.js strategyOf):
 //   { fuel ("mana value", "power" or "toughness": the creature stat it turns into value, or null),
 //     plans: [{ text, tags }] ("attacks", with the jobs and features that help it), themes: [names] }
@@ -81,6 +85,18 @@ export const FEATURES = {
   landfall: "rewards lands entering",
 };
 const featuresOf = (c) => c.features ?? [];
+/**
+ * Downsides in a card's rules text (server/lib/cedh.js textDrawbacks), each as [what it does, what a card without it
+ * does]. A strictly better card never adds one: Infernal Grasp costs life, so it isn't strictly better than Murder.
+ */
+export const DRAWBACKS = {
+  life: ["costs you life", "doesn't cost you life"],
+  "helps-opponent": ["gives an opponent something back", "gives opponents nothing back"],
+  symmetric: ["helps every player, not just you", "only helps you"],
+  "extra-cost": ["needs a creature, card or permanent of yours to cast", "needs nothing extra to cast"],
+  upkeep: ["costs you something every turn", "costs nothing every turn"],
+};
+const drawbacksOf = (c) => c.drawbacks ?? [];
 
 /** How many cards of each role a cEDH deck usually wants; past these the next copy of a role is worth half. */
 export const TARGETS = { fastMana: 10, ramp: 4, tutor: 9, draw: 9, interaction: 12, protection: 4, wincon: 2, other: 12 };
@@ -143,8 +159,8 @@ export function mainJob(c) {
   return Object.keys(JOBS).find((j) => allowed.includes(j) && c.jobs?.includes(j) && !(j === "cantrip" && featuresOf(c).includes("repeatable-draw") && c.jobs.includes("draw"))) ?? null;
 }
 
-/** Which of the deck's colours a land can make (a fetch land finds a land of any of them). */
-const coloursOf = (c, identity) => (c.fetch ? identity : identity.filter((x) => c.produces?.includes(x)));
+/** Which of the deck's colours a land can make (a fetch land finds a land of the basic types it names, or of any of them). */
+const coloursOf = (c, identity) => identity.filter((x) => (c.fetch ? (c.fetches ?? identity) : (c.produces ?? [])).includes(x));
 
 /** A creature's mana value, power or toughness: the stat a commander like Venom turns into cards (strategy.fuel). */
 const fuelOf = (c, fuel) => (fuel === "mana value" ? (c.manaValue ?? 0) : fuel === "power" ? c.power : c.toughness) ?? 0;
@@ -201,12 +217,18 @@ const playRate = (c, mode) => (mode === "max" ? c.cedh : c.edh) ?? 0;
 
 /**
  * What `x` does better and worse than `y`, as short clauses about `x` ("it costs 1 less mana (2 instead of 3)"), and a
- * score for how much better it is: { gains: [...], losses: [...], score }. Only things we know about both cards count.
+ * score for how much better it is: { gains: [...], losses: [...], score, worse }. `worse` counts the losses about what
+ * the cards themselves do (not how many decks play them): a strictly better card has none. Only things we know about
+ * both cards count.
  */
 export function compare(x, y, { mode = "preserve", identity = [], commander = "your commander", strategy = null } = {}) {
   const gains = [];
   const losses = [];
   let score = 0;
+  const added = drawbacksOf(x).filter((d) => !drawbacksOf(y).includes(d));
+  if (added.length) (losses.push(`it ${list(added.map((d) => DRAWBACKS[d][0]), "and")}`), (score -= 6 * added.length));
+  const dropped = drawbacksOf(y).filter((d) => !drawbacksOf(x).includes(d));
+  if (dropped.length) (gains.push(`it ${list(dropped.map((d) => DRAWBACKS[d][1]), "and")}, where ${y.name} ${list(dropped.map((d) => DRAWBACKS[d][0]), "and")}`), (score += 4 * dropped.length));
   // Jobs the old card did that the new one doesn't (Commander's Sphere also draws a card; Bojuka Bog exiles a graveyard).
   const lost = (isLand(y) ? (y.jobs ?? []) : shownJobs(y)).filter((j) => !x.jobs?.includes(j) && !(REMOVAL.includes(j) && x.jobs?.includes("board-wipe")));
   if (lost.length) (losses.push(`it gives up ${y.name}'s ${list(lost.map((j) => JOBS[j]), "and")}`), (score -= 5 * lost.length));
@@ -263,8 +285,9 @@ export function compare(x, y, { mode = "preserve", identity = [], commander = "y
   }
   // Wizards' Game Changers list names the strongest Commander cards; trading one away for a card that isn't costs power.
   if (y.gameChanger && !x.gameChanger) (losses.push(`${y.name} is on Wizards' Game Changers list of the strongest Commander cards, and it isn't`), (score -= 15));
+  const worse = losses.length;
   // Every deck plays basics: EDHREC's share says nothing about one.
-  if (x.basic || y.basic) return { gains, losses, score };
+  if (x.basic || y.basic) return { gains, losses, score, worse };
   const rate = playRate(x, mode) - playRate(y, mode);
   score += rate * 100;
   const decks = `${mode === "max" ? "cEDH " : ""}${commander} decks on EDHREC`;
@@ -277,7 +300,61 @@ export function compare(x, y, { mode = "preserve", identity = [], commander = "y
   if (mode !== "max") score += (x.recAdd ?? 0) * 30;
   // EDHREC synergy: how much more often a card is played with this commander than in other decks of its colours.
   if (mode !== "max" && synergy >= 0.1) gains.push(`it's ${signed(x.synergy ?? 0)} synergy with ${commander} on EDHREC, against ${signed(y.synergy ?? 0)} for ${y.name}`);
-  return { gains, losses, score };
+  return { gains, losses, score, worse };
+}
+
+/**
+ * Is `x` strictly better than `y`: everything `y` does, nothing worse? Players have to have voted so on Strictly Better
+ * (y.superiors), and our own check has to agree: nothing worse (no extra cost, drawback or lost job), and nothing the
+ * commander's plan loses (Venom wants the bigger creature). Our check alone isn't enough: Scryfall's function tags say
+ * what a card does, not everything it does, so Crucible of Worlds and Whip of Erebos both read as "recursion".
+ * Returns the votes { up, down }, or null.
+ */
+export function strictlyBetter(x, y, identity = [], strategy = null) {
+  const vote = y.superiors?.find((s) => s[0] === x.name);
+  if (!vote || vote[1] <= vote[2] || y.basic) return null;
+  const plan = !fuels(y, strategy) || (typeOf(x) === "creature" && fuelOf(x, strategy.fuel) >= fuelOf(y, strategy.fuel));
+  return plan && !compare(x, y, { identity, strategy }).worse ? { up: vote[1], down: vote[2] } : null;
+}
+
+/**
+ * Frank Karsten's coloured sources a 99-card deck with 41 lands needs to cast a card on curve ("How Many Sources Do
+ * You Need to Consistently Cast Your Spells? A 2022 Update"), by coloured pips (1-4) and then generic mana (0-5+).
+ */
+const KARSTEN = { 1: [19, 19, 18, 16, 15, 14], 2: [30, 28, 26, 23, 22, 20], 3: [36, 33, 30, 28, 26], 4: [39, 36] };
+const COLOUR_PIP = (x) => new RegExp(`\\{${x}\\}`, "g");
+const isCheap = (c) => (c.manaValue ?? 0) <= 2 && ["fastMana", "ramp", "draw"].some((r) => c.roles?.includes(r));
+
+/**
+ * The deck's mana: { lands, wanted, colours: [{ colour, sources, need, card }], short: [colours] }. `wanted` is Karsten's
+ * land count for a Commander deck's curve (31.42 + 3.13 × average mana value − 0.28 × cheap ramp and draw spells).
+ * Each colour needs the sources Karsten's table gives its most demanding card (the commander's too), scaled to the
+ * deck's land count; lands count fully, mana rocks ¾ and mana creatures ½ (his partial credit). The more colours, the
+ * more of the lands have to make two of them: that's where `short` comes from.
+ */
+export function manaBase(names, byName, identity = [], commanders = []) {
+  const cards = names.map((n) => byName.get(n)).filter(Boolean);
+  const lands = cards.filter(isLand);
+  const spells = cards.filter((c) => !isLand(c));
+  const avg = spells.reduce((n, c) => n + (c.manaValue ?? 0), 0) / Math.max(1, spells.length);
+  const wanted = Math.ceil(31.42 + 3.13 * avg - 0.28 * spells.filter(isCheap).length);
+  const colours = identity.map((colour) => {
+    let sources = lands.filter((c) => coloursOf(c, identity).includes(colour)).length;
+    for (const c of spells) if (c.produces?.includes(colour)) sources += c.jobs?.includes("mana-rock") ? 0.75 : c.jobs?.includes("mana-dork") ? 0.5 : 0;
+    let need = 0;
+    let card = null;
+    for (const c of [...commanders.map((n) => byName.get(n)).filter(Boolean), ...spells]) {
+      const pips = (c.manaCost ?? "").match(COLOUR_PIP(colour))?.length ?? 0;
+      if (!pips || c.free) continue;
+      const row = KARSTEN[Math.min(4, pips)];
+      // An X spell is cast later, with more lands (Karsten: count the mana you expect to spend): X as 3.
+      const generic = Math.round(c.manaValue ?? 0) - pips + 3 * ((c.manaCost ?? "").match(/\{X\}/g)?.length ?? 0);
+      const n = Math.ceil((row[Math.min(row.length - 1, Math.max(0, generic))] * lands.length) / 41);
+      if (n > need) [need, card] = [n, c.name];
+    }
+    return { colour, sources: Math.round(sources * 10) / 10, need, card };
+  });
+  return { lands: lands.length, wanted, colours, short: colours.filter((c) => c.sources < c.need).map((c) => c.colour) };
 }
 
 /** Legal, inside the colour identity and not the commander: the only cards the optimizer may ever add. */
@@ -556,8 +633,10 @@ function purpose(c, { identity, commander, mode, strategy }) {
  * Why one swap is made, built only from what we know about the two cards and the deck: { cut, add, effect } sentences
  * (any may be ""). `effect` names the job both cards do and exactly what's better, with any trade-off.
  * `counts` are the original deck's role counts; `mode` picks cEDH or all of the commander's decks for the numbers.
+ * `swap` is how the preserve or value goal made it ({ kind, vote, note }, see upgrade); `learned` adds what players did
+ * with the same swap before.
  */
-export function explain({ remove, add }, { byName, commanders, identity, lines, oldLines, counts, mode = "preserve", budget = null, strategy = null }) {
+export function explain({ remove, add }, { byName, commanders, identity, lines, oldLines, counts, mode = "preserve", budget = null, strategy = null, swap = null, learned = null }) {
   const out = byName.get(remove);
   const inn = byName.get(add);
   const commander = strategy?.name ?? commanders[0];
@@ -584,26 +663,35 @@ export function explain({ remove, add }, { byName, commanders, identity, lines, 
     const { gains, losses } = compare(inn, out, { mode, identity, commander, strategy });
     const job = isLand(out) ? "a land" : JOBS[mainJob(out)];
     const exact = replaces(inn, out, identity, { strategy });
-    // A land for a land is always the same job; the trade-offs say if it makes fewer colours or enters tapped.
-    if (exact || replaces(inn, out, identity, { strategy, exact: false }) || (isLand(inn) && isLand(out))) {
-      const why = inn.staple && !out.staple
-        ? `${add} is one of the proven cEDH staples the rebuild draws on.`
-        : (inn.price ?? 0) < (out.price ?? 0)
-          ? "Picked because it costs less, leaving money for stronger cards elsewhere."
-          : "The rebuild rated it higher overall (play rate, mana value and role).";
-      // "it's card draw and it keeps drawing cards": everything the old card did, which the new one does too.
-      const features = featuresOf(out).map((f) => FEATURES[f]);
-      const did = `it's ${jobsText(out)}${features.length ? ` and it ${list(features, "and")}` : ""}`;
-      // A swap made to fit the budget is never called an upgrade.
+    // "it's card draw and it keeps drawing cards": everything the old card did, which the new one does too.
+    const features = featuresOf(out).map((f) => FEATURES[f]);
+    const did = `it's ${jobsText(out)}${features.length ? ` and it ${list(features, "and")}` : ""}`;
+    const better = gains.length ? ` Better because ${gains.join("; ")}.` : "";
+    const tradeOff = losses.length ? ` Trade-off: ${losses.join("; ")}.` : "";
+    if (swap?.kind === "strict") {
+      // What's left of the losses is how many decks play it, already in the add text: not a trade-off in the card.
+      effect = `Strictly better: players on Strictly Better voted ${swap.vote.up} to ${swap.vote.down} that ${add} does everything ${remove} does and more, and TapToTrade's own check finds nothing worse.${better}`;
+    } else if (swap?.kind === "land") {
+      // A land for a spell: nothing to compare.
+      effect = `Land base: ${swap.note}${isLand(out) ? better + tradeOff : ""}`;
+    } else if (exact || replaces(inn, out, identity, { strategy, exact: false }) || (isLand(inn) && isLand(out))) {
+      // A land for a land is always the same job; the trade-offs say if it makes fewer colours or enters tapped.
+      const why = swap?.kind === "edhrec"
+        ? ""
+        : inn.staple && !out.staple
+          ? ` ${add} is one of the proven cEDH staples the rebuild draws on.`
+          : (inn.price ?? 0) < (out.price ?? 0)
+            ? " Picked because it costs less, leaving money for stronger cards elsewhere."
+            : " The rebuild rated it higher overall (play rate, mana value and role).";
+      // A swap made to fit the budget, or EDHREC's pick, is never called an upgrade.
       effect = isLand(out)
         ? "Same job: a land."
-        : exact && budget == null
+        : exact && budget == null && !swap
           ? `Direct upgrade: like ${remove}, ${did}.`
           : exact
             ? `Same job: ${job}.`
             : `Same main job: ${job}, but it doesn't do everything ${remove} did.`;
-      effect += ` ${gains.length ? `Better because ${gains.join("; ")}.` : why}`;
-      if (losses.length) effect += ` Trade-off: ${losses.join("; ")}.`;
+      effect += (better || why) + tradeOff;
     } else if (!isLand(out) && !isLand(inn) && !shownJobs(out).length && !shownJobs(inn).length && typeOf(inn) === typeOf(out)) {
       effect = `Both are ${typeOf(out)}s without a specific job like removal, ramp or card draw.${gains.length ? ` ${capital(gains.join("; "))}.` : ""}`;
       if (losses.length) effect += ` Trade-off: ${losses.join("; ")}.`;
@@ -621,6 +709,12 @@ export function explain({ remove, add }, { byName, commanders, identity, lines, 
       }
       if (gains.length) effect += ` ${capital(gains.join("; "))}.`;
     }
+    if (swap?.kind === "edhrec") {
+      const weak = (out.recCut ?? 0) >= KEEP_BELOW ? "EDHREC's suggestions for your list say to cut it" : out.edh == null ? `EDHREC doesn't list it among the cards ${commander} decks play` : `only ${pct(out.edh)} of ${commander} decks on EDHREC still play it`;
+      effect = `EDHREC's pick: nothing strictly better than ${remove} fits, and ${weak}, so this is a card EDHREC's suggestions for your list say to add. ${effect}`;
+    }
+    const [took, turned] = learned?.pairs.get(`${remove}|${add}`) ?? [0, 0];
+    if (took + turned) effect += ` Players shown this swap before took it ${took} time${took === 1 ? "" : "s"} and turned it down ${turned} time${turned === 1 ? "" : "s"}.`;
     const diff = (inn.price ?? 0) - (out.price ?? 0);
     if (budget != null && diff < 0) effect = `Swapped to fit your ${money(budget)} budget: it saves ${money(diff)}. ${effect}`;
     else if (Math.abs(diff) >= 0.5) effect += diff > 0 ? ` It costs ${money(diff)} more.` : ` It saves ${money(diff)}.`;
@@ -629,73 +723,157 @@ export function explain({ remove, add }, { byName, commanders, identity, lines, 
   return { cut, add: addText, effect };
 }
 
-/** How much better (compare's score) a like-for-like replacement must be to be suggested at all. */
-const MIN_GAIN = 6;
-/** Below this cut score from EDHREC's suggestions for the player's list, a card stays: EDHREC's decks say it belongs. */
+/** From this cut score in EDHREC's suggestions for the player's list, a card may make way for one EDHREC suggests adding. */
 const KEEP_BELOW = 0.5;
+/**
+ * Or when fewer than this share of the commander's decks on EDHREC still play it: EDHREC's suggestions rarely want a
+ * precon's own cards cut (most of its decks start from the precon), but players cut these ones.
+ */
+const RARE_BELOW = 0.3;
+/** EDHREC's add score a card needs to come in that way (its top suggestions for a list score about 0.3-0.6). */
+const ADD_ABOVE = 0.3;
+/** At most this many of EDHREC's picks: the swaps are meant to be upgrades, not a different deck. */
+const EDHREC_SWAPS = 10;
+/** Karsten's land count is good to about ±3 lands, so lands are only added to a deck further short than that. */
+const LAND_SLACK = 3;
+
+/** Share of players who took a swap, smoothed (Laplace's rule of succession): ½ with no votes, nearer 1 or 0 as they come in. */
+const tookRate = ([took, turned]) => (took + 1) / (took + turned + 2);
+const NO_VOTES = [0, 0];
 
 /**
- * Like-for-like upgrades to `deck`, best first, within the budget: each puts in a card that does the old card's main
- * job (replaces) and is clearly better (compare), never more than one mana dearer. "value" ranks them by gain per
- * dollar and may also (`crossRole`) swap a card with no job for one of a role the deck is short of. Locked cards stay,
- * and so does a card EDHREC's suggestions for the list rate below KEEP_BELOW to cut.
+ * What players did with a swap before, as score points: up to ±10 for this exact swap and ±5 for the card coming in
+ * with this commander. null once players keep turning it down (3 or more no's for the swap, under 30% taken, or 5 for
+ * the card): it isn't suggested again.
  */
-function upgrade({ deck, pool, byName, commanders, budget, banned, keep, perDollar, crossRole, maxSwaps, mode, identity, strategy }) {
+function taste(x, y, learned) {
+  const pair = learned.pairs.get(`${y.name}|${x.name}`) ?? NO_VOTES;
+  const add = learned.adds.get(x.name) ?? NO_VOTES;
+  if ((pair[1] >= 3 && tookRate(pair) < 0.3) || (add[1] >= 5 && tookRate(add) < 0.25)) return null;
+  return 20 * (tookRate(pair) - 0.5) + 10 * (tookRate(add) - 0.5);
+}
+
+/**
+ * Upgrades to `deck` within the budget, in three passes. Each slot changes at most once, so every suggestion is
+ * measured against the player's own card:
+ *  1. strict: a strictly better card (strictlyBetter), whatever EDHREC says about the old one, at most `maxSwaps`;
+ *  2. edhrec: for a card EDHREC rates weak (its suggestions for the list say to cut it, or few of the commander's
+ *     decks play it), with nothing strictly better on offer, a card EDHREC's suggestions say to add (one that does the
+ *     same job first), at most EDHREC_SWAPS of them;
+ *  3. land: last, so it fixes the mana for the cards that end up in the deck (manaBase): a land in place of the
+ *     weakest spell while the deck is short of lands, then a land making a colour that's short of sources in place of
+ *     a basic or a plain land whose colours can spare one. Utility lands (Rogue's Passage) stay.
+ * What players did with earlier suggestions (`learned`, see taste) moves every score. Strictly better cards, and every
+ * pass in the "value" goal, are ranked by gain per dollar. Locked cards and `fixed` slots (already swapped to fit the
+ * budget) stay.
+ * Returns { deck, made: Map(slot -> { kind, vote, note }) }.
+ */
+function upgrade({ deck, pool, byName, commanders, budget, banned, keep, fixed, perDollar, maxSwaps, identity, strategy, learned }) {
   const out = [...deck];
   const inDeck = new Set(out);
   let spent = deckCost(out, byName, commanders).total;
   const candidates = pool.filter((c) => playable(c, commanders) && !c.basic && !inDeck.has(c.name) && !banned.has(c.name) && c.price != null);
-  const counts = {};
-  for (const n of out) counts[primary(byName.get(n))] = (counts[primary(byName.get(n))] ?? 0) + 1;
-  // Each slot's replacements, scored once (copies of a basic share them).
-  const memo = new Map();
-  const optionsFor = (y) => {
-    if (!memo.has(y.name)) {
-      memo.set(
-        y.name,
-        candidates
-          // Never more than a mana dearer, nor played by noticeably fewer of the commander's decks.
-          .filter((x) => replaces(x, y, identity, { strategy }) && (castFor(x) <= castFor(y) + 1 || (fuels(y, strategy) && strategy.fuel === "mana value")) && playRate(x, mode) >= playRate(y, mode) - 0.05)
-          .map((x) => ({ x, gain: compare(x, y, { mode, identity, strategy }) }))
-          .filter((o) => o.gain.score >= MIN_GAIN && o.gain.gains.length),
-      );
-    }
-    return memo.get(y.name);
-  };
-  // Each slot changes at most once, so every suggestion is measured against the player's own card.
-  const changed = new Set();
-  for (let swaps = 0; swaps < maxSwaps; swaps++) {
-    let best = null;
-    const consider = (i, x, y, gain) => {
-      const cost = (x.price ?? 0) - (y.price ?? 0);
-      if (inDeck.has(x.name) || spent + cost > budget) return;
-      const score = perDollar ? gain / Math.max(0.5, cost) : gain;
-      if (!best || score > best.score) best = { i, x, y, cost, score };
-    };
+  const basicLands = pool.filter((c) => c.basic && playable(c, commanders) && c.price != null);
+  const made = new Map();
+  // The best affordable swap of any open slot `y` for one of `options(y)` ({ x, gain, why }), or null.
+  const best = (options, byDollar = perDollar) => {
+    let top = null;
     for (let i = 0; i < out.length; i++) {
+      if (keep.has(out[i]) || fixed.has(i) || made.has(i)) continue;
       const y = byName.get(out[i]);
-      if (keep.has(out[i]) || changed.has(i) || (y.recCut != null && y.recCut < KEEP_BELOW)) continue;
-      for (const o of optionsFor(y)) consider(i, o.x, y, o.gain.score);
-      // A card with no job (a plain creature, say) can make room for a role the deck is short of.
-      if (crossRole && !mainJob(y) && !isLand(y)) {
-        for (const x of candidates) {
-          const role = primary(x);
-          if (role === "other" || isLand(x) || (counts[role] ?? 0) >= (TARGETS[role] ?? 0)) continue;
-          const gain = cardValue(x) - cardValue(y);
-          if (gain >= 3) consider(i, x, y, gain);
-        }
+      for (const o of options(y)) {
+        const cost = (o.x.price ?? 0) - (y.price ?? 0);
+        if (o.gain <= 0 || (!o.x.basic && inDeck.has(o.x.name)) || spent + cost > budget) continue;
+        const score = byDollar ? o.gain / Math.max(0.5, cost) : o.gain;
+        if (!top || score > top.score) top = { ...o, i, y, cost, score };
       }
     }
-    if (!best) break;
-    out[best.i] = best.x.name;
-    changed.add(best.i);
-    inDeck.delete(best.y.name);
-    inDeck.add(best.x.name);
-    counts[primary(best.y)] -= 1;
-    counts[primary(best.x)] = (counts[primary(best.x)] ?? 0) + 1;
-    spent += best.cost;
-  }
-  return out;
+    return top;
+  };
+  const swap = (top) => {
+    if (!top) return false;
+    out[top.i] = top.x.name;
+    made.set(top.i, top.why);
+    inDeck.add(top.x.name);
+    spent += top.cost;
+    return true;
+  };
+  // Each card's options, worked out once per pass (copies of a basic share them).
+  const once = (options) => {
+    const memo = new Map();
+    return (y) => (memo.has(y.name) ? memo.get(y.name) : memo.set(y.name, options(y)).get(y.name));
+  };
+
+  // 1. Strictly better cards. Every one is an upgrade, so the budget buys as many as it can: a CA$700 Bayou only once
+  // the cheap ones are in.
+  const strict = once((y) =>
+    candidates.flatMap((x) => {
+      const vote = strictlyBetter(x, y, identity, strategy);
+      const liked = vote ? taste(x, y, learned) : null;
+      return liked == null ? [] : [{ x, gain: Math.max(1, compare(x, y, { identity, strategy }).score) + liked, why: { kind: "strict", vote } }];
+    }),
+  );
+  for (let n = 0; n < maxSwaps && swap(best(strict, true)); n++);
+
+  // 2. EDHREC's suggestions for the list, in place of the cards EDHREC rates weakest (0-1: its cut score, or how few of
+  // the commander's decks play the card).
+  const weakness = (y) => Math.max(y.recCut ?? 0, (RARE_BELOW - (y.edh ?? 0)) / RARE_BELOW);
+  const picks = once((y) =>
+    isLand(y) || ((y.recCut ?? 0) < KEEP_BELOW && (y.edh ?? 0) >= RARE_BELOW)
+      ? []
+      : candidates.flatMap((x) => {
+          const liked = isLand(x) || (x.recAdd ?? 0) < ADD_ABOVE ? null : taste(x, y, learned);
+          if (liked == null) return [];
+          const alike = replaces(x, y, identity, { strategy }) ? 30 : replaces(x, y, identity, { strategy, exact: false }) ? 20 : primary(x) === primary(y) ? 10 : 0;
+          return [{ x, gain: x.recAdd * 60 + weakness(y) * 20 + alike + liked, why: { kind: "edhrec" } }];
+        }),
+  );
+  for (let n = 0; n < EDHREC_SWAPS && swap(best(picks)); n++);
+
+  // 3. Lands, worked out again after every swap, since each one changes the deck's mana.
+  const lands = [...candidates.filter(isLand), ...basicLands];
+  const landSwap = () => {
+    const base = manaBase(out, byName, identity, commanders);
+    const gap = new Map(base.colours.map((c) => [c.colour, c.need - c.sources]));
+    const names = (cs) => list(cs.map((c) => COLOUR_NAMES[c]), "and");
+    // How much a land helps: colours that are short first, then the deck's other colours, untapped, played with this
+    // commander. A cheap dual fixes a colour as well as a CA$50 fetch, so price counts against it (up to 15 points).
+    const help = (x, y) => coloursOf(x, identity).reduce((n, c) => n + (gap.get(c) > 0 ? 20 : 3), 0) - (x.tapped ? 8 : 0) + (x.edh ?? 0) * 10 - Math.min(15, Math.max(0, (x.price ?? 0) - (y.price ?? 0)) / 3);
+    if (base.lands < base.wanted - LAND_SLACK) {
+      const note = `the deck has ${base.lands} lands, and Frank Karsten's formula for a Commander deck with this curve says ${base.wanted} (give or take ${LAND_SLACK}).`;
+      // The spell EDHREC's suggestions most want cut, or else the one EDHREC's numbers rate lowest, becomes a land.
+      return best((y) =>
+        isLand(y)
+          ? []
+          : lands.flatMap((x) => {
+              const liked = taste(x, y, learned);
+              return liked == null || (x.tapped && coloursOf(x, identity).length < 3) ? [] : [{ x, gain: help(x, y) + (y.recCut ?? 0) * 40 + Math.max(0, 40 - deckValue(y)) + liked, why: { kind: "land", note } }];
+            }),
+      );
+    }
+    if (!base.short.length) return null;
+    return best((y) => {
+      // Only a basic or a plain land makes way (a basic first), and only for a land that still makes each of its colours
+      // that can't spare a source: a Plains for a white-blue dual even when white is short too.
+      const had = isLand(y) ? coloursOf(y, identity) : [];
+      if (!isLand(y) || y.utility || y.jobs?.length) return [];
+      return lands.flatMap((x) => {
+        const makes = coloursOf(x, identity);
+        // Path of Ancestry for a Plains fixes nothing: white had that source already.
+        const fixes = base.short.filter((c) => makes.includes(c) && !had.includes(c));
+        const liked = taste(x, y, learned);
+        // A shock or pain land's life is the usual price of fixing; Lotus Field's two lands aren't.
+        const worse = drawbacksOf(x).some((d) => d !== "life" && !drawbacksOf(y).includes(d));
+        if (!fixes.length || worse || liked == null || (x.tapped && !y.tapped && makes.length < 3) || had.some((c) => gap.get(c) + 1 > 0 && !makes.includes(c))) return [];
+        const short = base.colours.find((c) => c.colour === fixes[0]);
+        const kept = had.filter((c) => makes.includes(c));
+        const note = `${capital(COLOUR_NAMES[short.colour])} has ${short.sources} sources, and ${short.card} needs ${short.need} to be cast on curve with ${base.lands} lands, by Frank Karsten's numbers. ${x.name} makes ${names(makes)} mana${kept.length ? `, so ${names(kept)} keeps its source` : ""}.`;
+        return [{ x, gain: help(x, y) + (y.tapped ? 6 : 0) + (y.basic ? 4 : 0) + liked, why: { kind: "land", note } }];
+      });
+    });
+  };
+  while (swap(landSwap()));
+  return { deck: out, made };
 }
 
 /**
@@ -741,10 +919,13 @@ function downgrade({ deck, pool, byName, commanders, budget, banned, keep, mode,
  * `consider` are decks found earlier (at lower budgets, same goal and rejections): one that fits and scores higher is
  * used instead, so raising the budget never shows a deck more than a point (simulation noise) weaker than a lower budget did.
  * `strategy` (see the top of this file) makes swaps keep what the commander feeds on and explains each card by it.
- * Returns { deck, cost, lines, primary, changes, notes }.
+ * `learned` (see the top of this file) is what players did with earlier suggestions: the preserve and value goals
+ * favour swaps players took and stop suggesting ones they keep turning down.
+ * Returns { deck, cost, lines, primary, changes (each with `kind`: "strict", "land", "edhrec", "budget" or null), notes }.
  */
-export function optimize({ pool, combos = [], commanders, original = [], budget = Infinity, mode = "max", rejected = {}, consider = [], strategy = null }) {
+export function optimize({ pool, combos = [], commanders, original = [], budget = Infinity, mode = "max", rejected = {}, consider = [], strategy = null, learned = {} }) {
   const byName = new Map(pool.map((c) => [c.name, c]));
+  const taught = { pairs: new Map((learned.pairs ?? []).map(([cut, add, took, turned]) => [`${cut}|${add}`, [took, turned]])), adds: new Map((learned.adds ?? []).map(([add, took, turned]) => [add, [took, turned]])) };
   const banned = new Set(rejected.adds ?? []);
   const isOk = (n) => byName.has(n) && playable(byName.get(n), commanders);
   // Cards the player kept on purpose stay, if they're allowed in the deck at all.
@@ -804,8 +985,10 @@ export function optimize({ pool, combos = [], commanders, original = [], budget 
     }
     // Both passes swap cards slot by slot, so each slot that changed is one real swap: the list pairs them as made.
     const cheaper = budget === Infinity ? start : downgrade({ deck: start, pool, byName, commanders, budget, banned, keep: lock, mode, identity, strategy });
-    deck = upgrade({ deck: cheaper, pool, byName, commanders, budget, banned, keep: lock, perDollar: mode === "value", crossRole: mode === "value", maxSwaps: mode === "value" ? 30 : 15, mode, identity, strategy });
-    made = start.map((n, i) => ({ remove: n, add: deck[i], budget: cheaper[i] !== n && cheaper[i] === deck[i] })).filter((p) => p.remove !== p.add);
+    const fixed = new Set(start.flatMap((n, i) => (cheaper[i] !== n ? [i] : [])));
+    const up = upgrade({ deck: cheaper, pool, byName, commanders, budget, banned, keep: lock, fixed, perDollar: mode === "value", maxSwaps: mode === "value" ? 30 : 20, identity, strategy, learned: taught });
+    deck = up.deck;
+    made = start.map((n, i) => ({ remove: n, add: deck[i], ...(fixed.has(i) ? { kind: "budget" } : up.made.get(i)) })).filter((p) => p.remove !== p.add);
   }
   const fits = (d) =>
     d.length === 99 &&
@@ -823,12 +1006,16 @@ export function optimize({ pool, combos = [], commanders, original = [], budget 
   const lines = linesIn(deck, combos, commanders).map((l) => ({ ...l, efficiency: lineEfficiency(l, byName, commanders), mana: lineMana(l, byName) })).sort((a, b) => b.efficiency - a.efficiency);
   const counts = {};
   for (const n of original) counts[primary(byName.get(n) ?? {})] = (counts[primary(byName.get(n) ?? {})] ?? 0) + 1;
-  const context = { byName, commanders, identity, lines, oldLines: linesIn(original, combos, commanders), counts, mode, strategy };
-  const forBudget = new Set(made.filter((m) => m.budget).map((m) => `${m.remove}|${m.add}`));
+  const context = { byName, commanders, identity, lines, oldLines: linesIn(original, combos, commanders), counts, mode, strategy, learned: taught };
+  const madeBy = new Map(made.map((m) => [`${m.remove}|${m.add}`, m]));
   const changes = pairChanges(original, deck, byName, identity, made, strategy).map((p) => {
-    const why = explain(p, { ...context, budget: forBudget.has(`${p.remove}|${p.add}`) ? budget : null });
+    // A card made a basic (for the budget or the land count) and that basic a dual for a colour reads as card for dual:
+    // the first swap explains it.
+    const swap = madeBy.get(`${p.remove}|${p.add}`) ?? made.find((m) => m.remove === p.remove && ["land", "budget"].includes(m.kind)) ?? null;
+    const why = explain(p, { ...context, budget: swap?.kind === "budget" ? budget : null, swap });
     return {
       ...p,
+      kind: swap?.kind ?? null,
       costDiff: Math.round(((byName.get(p.add)?.price ?? 0) - (byName.get(p.remove)?.price ?? 0)) * 100) / 100,
       why,
       reason: [why.cut, why.add, why.effect].filter(Boolean).join(" "),
