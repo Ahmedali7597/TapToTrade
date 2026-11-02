@@ -56,7 +56,14 @@ test("reads mana, tutor targets and roles from rules text", () => {
   expect(classify(card("Polluted Delta", "Land", "Search your library for an Island or Swamp card, put it onto the battlefield, then shuffle."))).toMatchObject({ roles: ["land"], fetch: true });
   expect(classify(card("A Land", "Land", "{T}: Add {R}.")).fetch).toBe(false);
   // Jobs come from Scryfall Tagger's tags (server/data/function-tags.json) and the rules text.
-  expect(classify(card("Blasphemous Act", "Sorcery", "Blasphemous Act deals 13 damage to each creature.", { cmc: 9 }))).toMatchObject({ roles: ["interaction"], jobs: expect.arrayContaining(["board-wipe"]), instant: false });
+  expect(classify(card("Blasphemous Act", "Sorcery", "Blasphemous Act deals 13 damage to each creature.", { cmc: 9 }))).toMatchObject({ roles: ["interaction"], jobs: expect.arrayContaining(["board-wipe"]), instant: false, damage: 13 });
+  expect(classify(card("A Toxic Wipe", "Sorcery", "As an additional cost, pay X life.\nAll creatures get -X/-X until end of turn.")).damage).toBeNull();
+  expect(classify(card("A Bolt", "Instant", "A Bolt deals 3 damage to any target.")).damage).toBe(3);
+  expect(classify(card("A Doom Blade", "Instant", "Destroy target nonblack creature.")).damage).toBeNull();
+  expect(classify(card("A Chain Reaction", "Sorcery", "A Chain Reaction deals X damage to each creature, where X is the number of creatures on the battlefield.")).damage).toBe(0);
+  expect(classify(card("A Zenith", "Sorcery", "Put X -1/-1 counters on each creature. Shuffle A Zenith into its owner's library.")).damage).toBe(0);
+  // Tear Asunder (tagged as removal for its kicked mode) only hits artifacts and enchantments unkicked.
+  expect(classify(card("Tear Asunder", "Instant", "Kicker {1}{B}\nExile target artifact or enchantment. If this spell was kicked, exile target nonland permanent instead.")).jobs).not.toContain("creature-removal");
   expect(classify(card("Hellrider", "Creature — Devil", "Whenever a creature you control attacks, Hellrider deals 1 damage to the player or planeswalker it's attacking.", { cmc: 4 })).roles).toEqual(["other"]);
   expect(classify(card("A Fresh Kill", "Instant", "Destroy target creature or planeswalker."))).toMatchObject({ roles: ["interaction"], jobs: ["creature-removal", "planeswalker-removal"], instant: true });
   expect(classify(card("A Flash Bear", "Creature", "Flash\nWhen this creature enters, draw a card.")).instant).toBe(true);

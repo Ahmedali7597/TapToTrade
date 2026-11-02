@@ -150,11 +150,23 @@ const fuelOf = (c, fuel) => (fuel === "mana value" ? (c.manaValue ?? 0) : fuel =
 const fuels = (c, strategy) => Boolean(strategy?.fuel) && typeOf(c) === "creature";
 
 /**
+ * What even a budget swap keeps: the jobs and features that tie `y` to the commander's plan (Vaultborn Tyrant's death
+ * trigger for Venom), a creature when the commander feeds on creatures, and at least one of `y`'s features.
+ */
+function keepsRole(x, y, strategy) {
+  const has = new Set([...(x.jobs ?? []), ...featuresOf(x)]);
+  const plan = new Set(strategy?.plans?.flatMap((p) => p.tags) ?? []);
+  if (![...(y.jobs ?? []), ...featuresOf(y)].every((t) => !plan.has(t) || has.has(t))) return false;
+  if (fuels(y, strategy) && typeOf(x) !== "creature") return false;
+  return !featuresOf(y).length || featuresOf(y).some((f) => has.has(f));
+}
+
+/**
  * Can `x` take `y`'s slot as a direct replacement? It has to do `y`'s main job (and removal has to hit at least
  * everything `y` hits). `exact` (the default) also asks for everything else `y` does for the deck: its other jobs and
  * features (Garruk's Uprising's trample, Return to Nature's graveyard exile), and the stat the commander feeds on
- * (a creature `strategy.fuel` turns into cards is never swapped for a smaller one). Fitting a budget may give those
- * up (exact: false) and says so. A land is replaced by a land that makes at least as many of the deck's colours
+ * (a creature `strategy.fuel` turns into cards is never swapped for a smaller one). Fitting a budget may give some of
+ * those up (exact: false) and says so, but never what ties `y` to the commander's plan (keepsRole). A land is replaced by a land that makes at least as many of the deck's colours
  * and doesn't enter tapped when `y` didn't.
  */
 export function replaces(x, y, identity = [], { strategy = null, exact = true } = {}) {
@@ -172,7 +184,10 @@ export function replaces(x, y, identity = [], { strategy = null, exact = true } 
   // A tutor has to put the card where the old one did (a hand tutor may replace one that puts it on top).
   if (job === "tutor" && (x.tutorTo ?? "hand") !== (y.tutorTo ?? "hand") && !(x.tutorTo === "hand" && y.tutorTo === "top")) return false;
   if (REMOVAL.includes(job) && !y.jobs.filter((j) => REMOVAL.includes(j)).every((j) => x.jobs.includes(j))) return false;
-  if (!exact) return true;
+  // Damage-only removal has to kill what the old card did: Lightning Bolt's 3 isn't Doom Blade's destroy, and End the
+  // Festivities' 1 isn't Blasphemous Act's 13.
+  if ((job === "board-wipe" || REMOVAL.includes(job)) && x.damage != null && x.damage < (y.damage ?? Infinity)) return false;
+  if (!exact) return keepsRole(x, y, strategy);
   // A creature stays a creature (it can be sacrificed, reanimated, attack), and does everything `y` did.
   if ((typeOf(x) === "creature") !== (typeOf(y) === "creature")) return false;
   if (!shownJobs(y).every((j) => x.jobs.includes(j)) || !featuresOf(y).every((f) => featuresOf(x).includes(f))) return false;
@@ -228,7 +243,9 @@ export function compare(x, y, { mode = "preserve", identity = [], commander = "y
       score += more * 4;
     }
     // For such a creature a higher cost is the point, so it's only mentioned, not counted.
-    const mana = castFor(y) - castFor(x);
+    // An X spell costs what X is: its mana value says nothing about that.
+    const mana = xCost(x) || xCost(y) ? 0 : castFor(y) - castFor(x);
+    if (xCost(x) && !xCost(y)) (losses.push(`it costs ${x.manaCost}, so it takes more mana to do more`), (score -= 4));
     // A free spell's alternative cost is its own clause below.
     if (mana > 0 && fuel !== "mana value" && !x.free) gains.push(`it costs ${mana} less mana (${castFor(x)} instead of ${castFor(y)})`);
     if (mana < 0 && !y.free) losses.push(`it costs ${-mana} more mana (${castFor(x)} instead of ${castFor(y)})`);
@@ -245,6 +262,8 @@ export function compare(x, y, { mode = "preserve", identity = [], commander = "y
   }
   // Wizards' Game Changers list names the strongest Commander cards; trading one away for a card that isn't costs power.
   if (y.gameChanger && !x.gameChanger) (losses.push(`${y.name} is on Wizards' Game Changers list of the strongest Commander cards, and it isn't`), (score -= 15));
+  // Every deck plays basics: EDHREC's share says nothing about one.
+  if (x.basic || y.basic) return { gains, losses, score };
   const rate = playRate(x, mode) - playRate(y, mode);
   score += rate * 100;
   const decks = `${mode === "max" ? "cEDH " : ""}${commander} decks on EDHREC`;
@@ -443,7 +462,7 @@ const money = (n) => `CA$${Math.abs(n).toFixed(2)}`;
 const COLOUR_NAMES = { W: "white", U: "blue", B: "black", R: "red", G: "green" };
 const ROLE_ONE = { fastMana: "fast mana card", ramp: "ramp card", tutor: "tutor", draw: "card-draw card", interaction: "interaction card", protection: "protection card", wincon: "win condition", land: "land", other: "card with no other job" };
 const capital = (s) => s[0].toUpperCase() + s.slice(1);
-const an = (word) => (/^(?:[aeiou]|8|1[18]-)/i.test(word) ? "an" : "a"); // "an 8-mana", "an 11-mana"
+const an = (word) => (/^(?:[aeiou]|8|1[18]-|X-)/i.test(word) ? "an" : "a"); // "an 8-mana", "an 11-mana", "an X-cost"
 const list = (xs, and = "or") => (xs.length < 2 ? xs.join("") : `${xs.slice(0, -1).join(", ")} ${and} ${xs.at(-1)}`);
 
 /** The card's main type, e.g. "creature", from the front face's type line. */
@@ -454,7 +473,9 @@ function typeOf(c) {
 
 /** What the deck really pays for a card: nothing for a free spell (Deadly Rollick), its madness cost when it has one (Anje-style decks discard them). */
 const castFor = (c) => (c.free ? 0 : (c.madness ?? c.manaValue ?? 0));
-const manaText = (c) => `${castFor(c)}-mana`;
+// Black Sun's Zenith's {X}{B}{B}: its mana value of 2 isn't what it costs to do its job.
+const xCost = (c) => /\{X\}/.test(c.manaCost ?? "");
+const manaText = (c) => (xCost(c) ? "X-cost" : `${castFor(c)}-mana`);
 
 /** The jobs worth naming for a card: ones that fit its roles, so Hellrider's damage to planeswalkers isn't called removal. */
 function shownJobs(c) {
@@ -672,6 +693,7 @@ function upgrade({ deck, pool, byName, commanders, budget, banned, keep, perDoll
 /**
  * Cheaper replacements until `deck` fits the budget, losing as little as possible per dollar saved: a card that does
  * the same job, a basic for a land, and for a card with no job a cheaper card of the same type that has none either.
+ * Every swap keeps the old card's part in the commander's plan (keepsRole).
  */
 function downgrade({ deck, pool, byName, commanders, budget, banned, keep, mode, identity, strategy }) {
   const out = [...deck];
@@ -688,7 +710,7 @@ function downgrade({ deck, pool, byName, commanders, budget, banned, keep, mode,
         ? basicsFor.slice(0, 1).map((n) => byName.get(n))
         : mainJob(y)
           ? pool.filter((c) => cheaper(c) && replaces(c, y, identity, { strategy, exact: false }))
-          : pool.filter((c) => cheaper(c) && !isLand(c) && !mainJob(c) && typeOf(c) === typeOf(y));
+          : pool.filter((c) => cheaper(c) && !isLand(c) && !mainJob(c) && typeOf(c) === typeOf(y) && keepsRole(c, y, strategy));
       for (const x of options) {
         const saved = y.price - x.price;
         const loss = Math.max(0, -compare(x, y, { mode, identity, strategy }).score) + Math.max(0, cardValue(y) - cardValue(x)) / 4;
