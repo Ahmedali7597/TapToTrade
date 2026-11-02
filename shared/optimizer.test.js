@@ -323,6 +323,52 @@ test("a direct replacement does everything the old card did for the commander's 
   expect(compare(GRASP, ROLLICK).losses).toContain("it costs 2 mana, where Deadly Rollick can be cast for free");
 });
 
+test("a budget swap keeps what the card does for the commander's plan, and a wipe kills as much", () => {
+  // Skullclamp draws off deaths too, but Venom needs a creature to sacrifice, not an equipment.
+  const clamp = jund("Skullclamp", ["draw"], ["draw"], ["repeatable-draw", "death-trigger"], { manaValue: 1, typeLine: "Artifact — Equipment", instant: false });
+  expect(replaces(clamp, TYRANT, [], { exact: false })).toBe(true);
+  expect(replaces(clamp, TYRANT, [], { strategy: VENOM_PLAN, exact: false })).toBe(false);
+  // A draw creature without the death trigger gives up Vaultborn Tyrant's part in Venom's sacrifices.
+  const elf = jund("Elvish Visionary", ["draw"], ["draw"], [], { typeLine: "Creature — Elf", instant: false });
+  expect(replaces(elf, TYRANT, [], { strategy: VENOM_PLAN, exact: false })).toBe(false);
+  expect(replaces(CRAWLER, TYRANT, [], { strategy: VENOM_PLAN, exact: false })).toBe(true);
+  // End the Festivities' 1 damage doesn't wipe what Blasphemous Act's 13 does; Toxic Deluge shrinks everything.
+  const act = { ...ACT, damage: 13 };
+  const festivities = rakdos("End the Festivities", ["interaction"], ["board-wipe", "creature-removal", "burn"], { manaValue: 1, typeLine: "Sorcery", instant: false, damage: 1 });
+  const deluge = rakdos("Toxic Deluge", ["interaction"], ["board-wipe", "creature-removal"], { manaValue: 3, typeLine: "Sorcery", instant: false });
+  expect(replaces(festivities, act, [], { exact: false })).toBe(false);
+  expect(replaces(deluge, act, [], { exact: false })).toBe(true);
+  // Black Sun's Zenith's mana value is 2, but it costs X more to kill what Crux of Fate destroys.
+  const crux = rakdos("Crux of Fate", ["interaction"], ["board-wipe", "creature-removal"], { manaValue: 5, typeLine: "Sorcery", instant: false });
+  const zenith = rakdos("Black Sun's Zenith", ["interaction"], ["board-wipe", "creature-removal"], { manaValue: 2, manaCost: "{X}{B}{B}", typeLine: "Sorcery", instant: false, damage: 0 });
+  expect(replaces(zenith, crux, [], { exact: false })).toBe(false);
+  expect(compare(zenith, crux)).toMatchObject({ gains: [], losses: ["it costs {X}{B}{B}, so it takes more mana to do more"] });
+  // Lightning Bolt's 3 damage doesn't kill what Murder destroys.
+  const bolt = rakdos("Lightning Bolt", ["interaction"], ["creature-removal", "planeswalker-removal", "burn"], { manaValue: 1, price: 0.2, damage: 3 });
+  expect(replaces(bolt, MURDER, [], { exact: false })).toBe(false);
+  // Over budget, Avacyn (no job, but a death trigger Venom's sacrifices use) makes way for a cheap creature with one,
+  // not a cheaper vanilla creature.
+  const avacyn = jund("Avacyn, Angel of Horror", ["other"], [], ["death-trigger"], { manaValue: 8, typeLine: "Creature — Angel", instant: false, price: 30 });
+  const shadow = jund("Shadow of Mortality", ["other"], [], [], { manaValue: 15, typeLine: "Creature — Avatar", instant: false, price: 1 });
+  const butcher = jund("Butcher of Malakir", ["other"], [], ["death-trigger"], { manaValue: 7, typeLine: "Creature — Vampire", instant: false, price: 2 });
+  const pool = [jund(VENOM, ["other"], [], [], { manaValue: 6, typeLine: "Legendary Creature" }), ...KARDUR_POOL.slice(1), avacyn, shadow, butcher];
+  const original = ["Avacyn, Angel of Horror", ...Array.from({ length: 45 }, (_, i) => `Ogre ${i + 1}`), ...Array(53).fill("Swamp")];
+  const r = optimize({ pool, commanders: [VENOM], original, budget: 25, mode: "preserve", strategy: VENOM_PLAN });
+  expect(r.changes.map((c) => [c.remove, c.add])).toEqual([["Avacyn, Angel of Horror", "Butcher of Malakir"]]);
+});
+
+test("EDHREC's suggestions for the list decide which cards may go, and the reasons quote them", () => {
+  const venom = jund(VENOM, ["other"], [], [], { manaValue: 6, typeLine: "Legendary Creature" });
+  const original = ["Return to Nature", ...Array.from({ length: 45 }, (_, i) => `Ogre ${i + 1}`), ...Array(53).fill("Swamp")];
+  const run = (recCut) => optimize({ pool: [venom, ...KARDUR_POOL.slice(1), { ...RETURN, recCut }, { ...HERITAGE, recAdd: 0.4 }], commanders: [VENOM], original, mode: "preserve", strategy: VENOM_PLAN });
+  // EDHREC's decks say Return to Nature belongs in this list: it stays, even with a direct upgrade on offer.
+  expect(run(0.3).changes).toEqual([]);
+  const [swap] = run(0.87).changes;
+  expect([swap.remove, swap.add]).toEqual(["Return to Nature", "Heritage Reclamation"]);
+  expect(swap.why.cut).toContain("EDHREC's suggestions for your exact list rate it 87/100 to cut.");
+  expect(swap.why.add).toContain("EDHREC's suggestions for your exact list rate it 40/100 to add.");
+});
+
 test("preserve upgrades the Venom deck only where a card is a direct upgrade, and says what each card does for Venom", () => {
   const pool = [jund(VENOM, ["other"], [], [], { manaValue: 6, typeLine: "Legendary Creature" }), ...KARDUR_POOL.slice(1), UPRISING, GRAVESTONE, RETURN, HERITAGE, TEAR, TYRANT, CRAWLER];
   const original = ["Garruk's Uprising", "Return to Nature", "Vaultborn Tyrant", ...Array.from({ length: 45 }, (_, i) => `Ogre ${i + 1}`), ...Array(51).fill("Swamp")];
