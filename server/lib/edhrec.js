@@ -19,7 +19,7 @@ export function edhrecSlug(name) {
 export const commanderSlug = (names) => names.map(edhrecSlug).sort().join("-");
 
 /**
- * { slug, url, lists: [{ tag, header, cards: [{ name, synergy, inclusion }] }] } for a commander page, or null
+ * { slug, url, themes: [names], lists: [{ tag, header, cards: [{ name, synergy, inclusion }] }] } for a commander page, or null
  * if EDHREC has no page for it. `synergy` and `inclusion` are fractions (0.72 = 72%). Throws if EDHREC is down.
  * `variant` picks one of the page's filtered versions, e.g. "cedh" for competitive decks only.
  */
@@ -38,6 +38,8 @@ export async function commanderSuggestions(names, variant = "") {
     value = {
       slug,
       url: `https://edhrec.com/commanders/${slug}`,
+      // The page's most common deck themes ("Reanimator", "Sacrifice"...), most decks first.
+      themes: (json.panels?.taglinks ?? []).map((t) => String(t.value)).filter(Boolean),
       lists: lists
         .map((l) => ({
           tag: String(l.tag),

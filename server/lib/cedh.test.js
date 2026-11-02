@@ -1,4 +1,4 @@
-import { buildPool, classify, commanderProblem, front, lookupNames, lowestUsd, manaAdded, poolCard, tutorTargets } from "./cedh.js";
+import { buildPool, classify, commanderProblem, front, lookupNames, lowestUsd, manaAdded, poolCard, strategyOf, textFeatures, textJobs, tutorTargets } from "./cedh.js";
 import { commanderSuggestions } from "./edhrec.js";
 import { usdToCad } from "./prices.js";
 import { searchCards } from "./scryfall.js";
@@ -67,6 +67,43 @@ test("reads mana, tutor targets and roles from rules text", () => {
   // Well-known staples use the curated roles, whatever their text says.
   expect(classify(card("Demonic Tutor", "Sorcery", "Search your library for a card"))).toMatchObject({ roles: ["tutor"], finds: "any", staple: true });
   expect(classify(card("Mana Vault", "Artifact", "{T}: Add {C}{C}{C}."))).toMatchObject({ roles: ["fastMana"], net: 2, staple: true });
+});
+
+// Real rules text: the Venom deck these rules were checked on.
+const UPRISING = "When this enchantment enters, if you control a creature with power 4 or greater, draw a card.\nCreatures you control have trample.\nWhenever a creature you control with power 4 or greater enters, draw a card.";
+const RETURN_TO_NATURE = "Choose one —\n• Destroy target artifact.\n• Destroy target enchantment.\n• Exile target card from a graveyard.";
+const HERITAGE = "Choose one —\n• Destroy target artifact.\n• Destroy target enchantment.\n• Exile up to one target card from a graveyard. Draw a card.";
+const VENOM = [
+  { name: "Eddie Brock", oracle_text: "When Eddie Brock enters, return target creature card with mana value 1 or less from your graveyard to the battlefield.\n{3}{B}{R}{G}: Transform Eddie Brock. Activate only as a sorcery." },
+  { name: "Venom, Lethal Protector", oracle_text: "Menace, trample, haste\nWhenever Venom attacks, you may sacrifice another creature. If you do, draw X cards, then you may put a permanent card with mana value X or less from your hand onto the battlefield, where X is the sacrificed creature's mana value." },
+];
+
+test("reads what else a card does for the plan, the way Scryfall Tagger tags it", () => {
+  expect(textFeatures(UPRISING)).toEqual(["repeatable-draw", "gives-trample", "power-matters"]);
+  expect(textFeatures("Whenever you draw a card, each opponent loses 1 life.")).toEqual([]); // a payoff, not a draw engine
+  expect(textFeatures("{T}: Add {C}.\n{1}, {T}, Sacrifice this artifact: Draw a card.")).toEqual([]); // Mind Stone draws once
+  expect(textFeatures("Equipped creature has shroud and haste.")).toEqual(["gives-haste"]);
+  expect(textFeatures(VENOM[1].oracle_text)).toEqual(["cheat-into-play"]);
+  expect(textFeatures("Return target creature card from your graveyard to the battlefield.")).toEqual([]); // that's reanimation
+  expect(textJobs(RETURN_TO_NATURE, "Instant")).toEqual(["artifact-removal", "enchantment-removal", "graveyard-hate"]);
+  expect(classify(card("Herd Heirloom", "Artifact", "{T}: Add one mana of any color. Spend this mana only to cast a creature spell.")).manaRestricted).toBe(true);
+  expect(classify(card("Null Elemental Blast", "Instant", "Choose one —\n• Counter target multicolored spell.\n• Destroy target multicolored permanent.")).jobs).toEqual([]);
+});
+
+test("reads what the commander rewards: Venom turns a sacrificed creature's mana value into cards", () => {
+  const venom = card("Eddie Brock // Venom, Lethal Protector", "Legendary Creature — Human Hero Villain // Legendary Creature — Symbiote Hero Villain", undefined, { card_faces: VENOM });
+  expect(strategyOf([venom], ["Reanimator"])).toEqual({
+    name: "Venom",
+    fuel: "mana value",
+    plans: [
+      { text: "attacks", tags: ["gives-trample", "gives-haste", "gives-flying", "gives-menace", "extra-combat"] },
+      { text: "sacrifices creatures", tags: ["death-trigger", "sacrifice-outlet"] },
+      { text: "uses the graveyard", tags: ["reanimate", "recursion", "self-mill"] },
+      { text: "puts permanents onto the battlefield from your hand", tags: ["cheat-into-play"] },
+    ],
+    themes: ["Reanimator"],
+  });
+  expect(strategyOf([card("Kardur, Doomscourge", "Legendary Creature", "When Kardur enters, until your next turn, creatures your opponents control attack each combat if able.")])).toMatchObject({ name: "Kardur", fuel: null });
 });
 
 test("pool cards carry CAD prices, legality and colour identity", () => {
@@ -143,4 +180,26 @@ test("builds the pool from EDHREC, Spellbook, the staples and the deck", async (
   const colourless = await buildPool([card("Karn, Silver Golem", "Legendary Artifact Creature")], []);
   expect(colourless.pool.some((c) => c.name === "Wastes")).toBe(true);
   expect(colourless.sources.cedh).toBeNull();
+});
+
+test("searches Scryfall for cards that do everything a deck card does, and keeps only real replacements", async () => {
+  usdToCad.mockResolvedValue({ usdCad: 1.4, date: "2026-11-01" });
+  commanderSuggestions.mockImplementation(async (names, variant) => (variant ? null : { url: "https://edhrec.com/commanders/titania", themes: ["Lands", "Elementals", "Ramp", "Tokens"], lists: [] }));
+  combosFor.mockResolvedValue([]);
+  const green = { color_identity: ["G"], cmc: 2, mana_cost: "{1}{G}" };
+  const titania = card("Titania, Protector of Argoth", "Legendary Creature — Elemental", "Whenever a land you control is put into a graveyard from the battlefield, create a 5/3 green Elemental creature token.", { color_identity: ["G"] });
+  searchCards.mockImplementation(async (q) =>
+    q.includes("otag:")
+      ? [card("Heritage Reclamation", "Instant", HERITAGE, green), card("Naturalize", "Instant", "Destroy target artifact or enchantment.", green)]
+      : [...q.matchAll(/!"([^"]+)"/g)].map((m) => m[1]).filter((n) => n === "return to nature").map(() => card("Return to Nature", "Instant", RETURN_TO_NATURE, green)),
+  );
+  searchCards.mockClear();
+  const data = await buildPool([titania], ["Return to Nature"]);
+  const alike = searchCards.mock.calls.map(([q]) => q).filter((q) => q.includes("otag:"));
+  expect(alike).toEqual(["((otag:artifact-removal otag:enchantment-removal otag:graveyard-hate)) id<=g f:commander game:paper -t:land prefer:usd-low order:edhrec"]);
+  // Naturalize can't exile a card from a graveyard, so it isn't a direct replacement for Return to Nature.
+  const names = data.pool.map((c) => c.name);
+  expect(names).toContain("Heritage Reclamation");
+  expect(names).not.toContain("Naturalize");
+  expect(data.strategy).toMatchObject({ name: "Titania", themes: ["Lands", "Elementals", "Ramp"] });
 });
