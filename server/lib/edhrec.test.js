@@ -9,11 +9,15 @@ test("names EDHREC pages the way the site does", () => {
 });
 
 test("reads EDHREC's lists, and treats a missing page as no suggestions", async () => {
-  const page = { container: { json_dict: { cardlists: [{ tag: "topcards", header: "Top Cards", cardviews: [{ name: "Sol Ring", synergy: 0.01, num_decks: 90, potential_decks: 100 }] }, { tag: "empty", header: "Empty", cardviews: [] }] } } };
+  const page = {
+    panels: { taglinks: [{ count: 900, slug: "goblins", value: "Goblins" }, { count: 300, slug: "tokens", value: "Tokens" }] },
+    container: { json_dict: { cardlists: [{ tag: "topcards", header: "Top Cards", cardviews: [{ name: "Sol Ring", synergy: 0.01, num_decks: 90, potential_decks: 100 }] }, { tag: "empty", header: "Empty", cardviews: [] }] } },
+  };
   global.fetch = jest.fn().mockResolvedValueOnce({ ok: true, status: 200, json: async () => page }).mockResolvedValueOnce({ ok: false, status: 403 });
   expect(await commanderSuggestions(["Krenko, Mob Boss"])).toEqual({
     slug: "krenko-mob-boss",
     url: "https://edhrec.com/commanders/krenko-mob-boss",
+    themes: ["Goblins", "Tokens"],
     lists: [{ tag: "topcards", header: "Top Cards", cards: [{ name: "Sol Ring", synergy: 0.01, inclusion: 0.9 }] }],
   });
   expect(await commanderSuggestions(["Krenko, Mob Boss"])).not.toBeNull(); // cached, no second request

@@ -264,9 +264,9 @@ test("preserve suggests only like-for-like upgrades, each with the job, what's b
   const r = optimize({ pool: KARDUR_POOL, commanders: [KARDUR], original, mode: "preserve" });
   expect(r.changes.map((c) => [c.remove, c.add])).toEqual([["Murder", "Infernal Grasp"]]);
   expect(r.changes[0].why).toEqual({
-    cut: `Murder is a 3-mana instant: creature removal; EDHREC doesn't list it among the cards ${KARDUR} decks play.`,
-    add: `Infernal Grasp is a 2-mana instant: creature removal; it's in 40% of ${KARDUR} decks on EDHREC (synergy +10%: played more with ${KARDUR} than in other decks of its colours).`,
-    effect: `Same job: creature removal. Better because it costs 1 less mana (2 instead of 3); 40% of ${KARDUR} decks on EDHREC play it, against 0% for Murder; it's +10% synergy with ${KARDUR} on EDHREC, against +0% for Murder. It costs CA$1.20 more.`,
+    cut: `Murder is a 3-mana instant: creature removal. EDHREC doesn't list it among the cards ${KARDUR} decks play.`,
+    add: `Infernal Grasp is a 2-mana instant: creature removal. It's in 40% of ${KARDUR} decks on EDHREC (synergy +10%: played more with ${KARDUR} than in other decks of its colours).`,
+    effect: `Direct upgrade: like Murder, it's creature removal. Better because it costs 1 less mana (2 instead of 3); 40% of ${KARDUR} decks on EDHREC play it, against 0% for Murder; it's +10% synergy with ${KARDUR} on EDHREC, against +0% for Murder. It costs CA$1.20 more.`,
   });
   // Over budget: the dear tutor makes way for a cheap one that also puts the card in hand, and the reason says why.
   const DIABOLIC = rakdos("Diabolic Tutor", ["tutor"], ["tutor"], { manaValue: 4, typeLine: "Sorcery", instant: false, finds: "any", tutorTo: "hand", price: 0.3, edh: 0.1 });
@@ -275,6 +275,67 @@ test("preserve suggests only like-for-like upgrades, each with the job, what's b
   const swap = tight.changes.find((c) => c.remove === "Demonic Tutor");
   expect(swap.add).toBe("Diabolic Tutor");
   expect(swap.why.effect).toBe(`Swapped to fit your CA$25.00 budget: it saves CA$29.70. Same job: tutor. Better because 10% of ${KARDUR} decks on EDHREC play it, against 0% for Demonic Tutor. Trade-off: it costs 2 more mana (4 instead of 2).`);
+});
+
+// A Venom, Lethal Protector deck: the cards a player said were swapped wrongly, with the jobs and features Scryfall
+// Tagger gives them. Venom draws cards equal to a sacrificed creature's mana value, so big creatures are the point.
+const VENOM = "Eddie Brock // Venom, Lethal Protector";
+const VENOM_PLAN = {
+  name: "Venom",
+  fuel: "mana value",
+  plans: [
+    { text: "attacks", tags: ["gives-trample", "gives-haste", "gives-flying", "gives-menace", "extra-combat"] },
+    { text: "sacrifices creatures", tags: ["death-trigger", "sacrifice-outlet"] },
+  ],
+  themes: ["Reanimator", "Sacrifice"],
+};
+const jund = (name, roles, jobs, features, extra = {}) => rakdos(name, roles, jobs, { features, colorIdentity: ["G"], ...extra });
+const UPRISING = jund("Garruk's Uprising", ["draw"], ["cantrip", "draw"], ["repeatable-draw", "gives-trample", "power-matters"], { manaValue: 3, typeLine: "Enchantment", instant: false, edh: 0.31, synergy: 0.13 });
+const GRAVESTONE = jund("Eerie Gravestone", ["draw"], ["cantrip"], ["self-mill"], { typeLine: "Artifact", instant: false, edh: 0.4 });
+const RETURN = jund("Return to Nature", ["interaction"], ["artifact-removal", "enchantment-removal", "graveyard-hate"], []);
+const HERITAGE = jund("Heritage Reclamation", ["interaction", "draw"], ["artifact-removal", "enchantment-removal", "graveyard-hate", "cantrip", "draw"], []);
+const TEAR = jund("Tear Asunder", ["interaction"], ["creature-removal", "artifact-removal", "enchantment-removal", "planeswalker-removal"], [], { edh: 0.13 });
+const TYRANT = jund("Vaultborn Tyrant", ["draw"], ["draw"], ["repeatable-draw", "power-matters", "death-trigger"], { manaValue: 7, typeLine: "Creature — Dinosaur", instant: false, price: 50, edh: 0.25 });
+const CRAWLER = jund("Psychosis Crawler", ["draw"], ["draw"], ["repeatable-draw", "power-matters", "death-trigger"], { manaValue: 5, typeLine: "Artifact Creature — Horror", instant: false, price: 3, edh: 0.23 });
+const STONE = jund("Mind Stone", ["ramp", "draw"], ["mana-rock", "draw"], [], { typeLine: "Artifact", instant: false });
+const HEIRLOOM = jund("Herd Heirloom", ["ramp", "draw"], ["mana-rock", "draw"], ["repeatable-draw", "gives-trample"], { typeLine: "Artifact", instant: false, manaRestricted: true });
+const ROLLICK = rakdos("Deadly Rollick", ["interaction"], ["creature-removal"], { manaValue: 4, free: true, edh: 0.26 });
+
+test("a direct replacement does everything the old card did for the commander's plan, and more", () => {
+  // Eerie Gravestone draws once; Garruk's Uprising keeps drawing and gives trample. It isn't even the same main job:
+  // Uprising is card draw first, though it also draws a card when it enters.
+  expect(mainJob(UPRISING)).toBe("draw");
+  expect(replaces(GRAVESTONE, UPRISING)).toBe(false);
+  expect(replaces(GRAVESTONE, UPRISING, [], { exact: false })).toBe(false);
+  expect(compare(GRAVESTONE, UPRISING).losses).toContain("it gives up that Garruk's Uprising keeps drawing cards, gives your creatures trample and rewards creatures with high power");
+  // Heritage Reclamation is Return to Nature that also draws; Tear Asunder can't exile a card from a graveyard.
+  expect(replaces(HERITAGE, RETURN)).toBe(true);
+  expect(replaces(TEAR, RETURN)).toBe(false);
+  expect(compare(HERITAGE, RETURN)).toMatchObject({ gains: ["it also draws a card"], losses: [] });
+  // Venom draws 7 off Vaultborn Tyrant and 5 off Psychosis Crawler: cheaper to cast is worse here.
+  expect(replaces(CRAWLER, TYRANT)).toBe(true);
+  expect(replaces(CRAWLER, TYRANT, [], { strategy: VENOM_PLAN })).toBe(false);
+  const crawler = compare(CRAWLER, TYRANT, { commander: "Venom", strategy: VENOM_PLAN });
+  expect(crawler.gains).not.toContainEqual(expect.stringContaining("less mana"));
+  expect(crawler.losses).toContain("its mana value is 5 instead of 7, and Venom gets more from a creature with higher mana value");
+  // Mana that only casts creatures isn't Mind Stone's; a free spell isn't 4 mana.
+  expect(replaces(HEIRLOOM, STONE)).toBe(false);
+  expect(compare(GRASP, ROLLICK).losses).toContain("it costs 2 mana, where Deadly Rollick can be cast for free");
+});
+
+test("preserve upgrades the Venom deck only where a card is a direct upgrade, and says what each card does for Venom", () => {
+  const pool = [jund(VENOM, ["other"], [], [], { manaValue: 6, typeLine: "Legendary Creature" }), ...KARDUR_POOL.slice(1), UPRISING, GRAVESTONE, RETURN, HERITAGE, TEAR, TYRANT, CRAWLER];
+  const original = ["Garruk's Uprising", "Return to Nature", "Vaultborn Tyrant", ...Array.from({ length: 45 }, (_, i) => `Ogre ${i + 1}`), ...Array(51).fill("Swamp")];
+  const r = optimize({ pool, commanders: [VENOM], original, mode: "preserve", strategy: VENOM_PLAN });
+  expect(r.changes.map((c) => [c.remove, c.add])).toEqual([["Return to Nature", "Heritage Reclamation"]]);
+  expect(r.changes[0].why.effect).toBe("Direct upgrade: like Return to Nature, it's artifact and enchantment removal and graveyard hate. Better because it also draws a card.");
+  const context = { byName: new Map(pool.map((c) => [c.name, c])), commanders: [VENOM], identity: ["G"], lines: [], oldLines: [], counts: {}, strategy: VENOM_PLAN };
+  expect(explain({ remove: "Garruk's Uprising" }, context).cut).toBe(
+    "Garruk's Uprising is a 3-mana enchantment: card draw. It keeps drawing cards, gives your creatures trample and rewards creatures with high power. That suits Venom, which attacks. It's in 31% of Venom decks on EDHREC (synergy +13%: played more with Venom than in other decks of its colours).",
+  );
+  expect(explain({ remove: "Vaultborn Tyrant" }, context).cut).toContain("That suits Venom, which sacrifices creatures. Venom gets more from a creature with higher mana value, and this one's is 7.");
+  // Nothing to name: EDHREC's numbers decide.
+  expect(explain({ remove: "Ogre 1" }, context).cut).toBe("Ogre 1 is a 2-mana creature with no specific job TapToTrade can name, so EDHREC's numbers speak for it: EDHREC doesn't list it among the cards Venom decks play.");
 });
 
 test("each swap says why the card goes, why the new one comes in and what changes", () => {
@@ -291,7 +352,7 @@ test("each swap says why the card goes, why the new one comes in and what change
   // Every swap in a real run gets all three, and says whether it's the same job (or why the budget needed it).
   for (const ch of run(500).changes.filter((c) => c.remove && c.add)) {
     expect(ch.why.cut && ch.why.add && ch.why.effect).toBeTruthy();
-    expect(ch.why.effect).toMatch(/^(Same job: |A different job: |Both are |Swapped to fit )/);
+    expect(ch.why.effect).toMatch(/^(Direct upgrade: |Same job: |Same main job: |A different job: |Both are |Swapped to fit )/);
   }
 });
 
