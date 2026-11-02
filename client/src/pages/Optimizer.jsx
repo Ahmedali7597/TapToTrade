@@ -16,7 +16,7 @@ import { undoKey } from "@/pages/Deck";
 import { api, qs } from "@/lib/api";
 import { cad } from "@/lib/prices";
 import { cn } from "@/lib/utils";
-import { applyChanges, BUDGET_TIERS, cardValue, MODES, optimize, report, ROLES, SCORE_NOTES } from "@shared/optimizer";
+import { applyChanges, BUDGET_TIERS, cardValue, manaBase, MODES, optimize, report, ROLES, SCORE_NOTES } from "@shared/optimizer";
 
 // The Commander deck optimizer: pick a commander (locked), paste or load a 99, set a budget in CAD, and the page
 // rebuilds the 99 on every change (shared/optimizer.js runs here, so the slider never waits on the server). The
@@ -27,6 +27,9 @@ const DRAFT_KEY = "ttt-optimizer-draft";
 const pct = (p) => `${(p * 100).toFixed(1)}%`;
 const money = (n) => (n === Infinity ? "Unlimited" : cad(n));
 const changeKey = (c) => `${c.remove ?? ""}→${c.add ?? ""}`;
+// How the Preserve and Value goals found each swap (shared/optimizer.js upgrade).
+const KINDS = { strict: "Strictly better", land: "Land base", edhrec: "EDHREC's pick", budget: "Fits the budget" };
+const COLOUR_NAMES = { W: "White", U: "Blue", B: "Black", R: "Red", G: "Green" };
 
 function readJson(key) {
   try {
@@ -202,8 +205,8 @@ function BudgetControls({ budget, setBudget, mode, setMode, commanderCost, strat
           <SegmentedControl label="Optimization goal" value={mode} onChange={setMode} options={MODES.map(([value, label]) => ({ value, label }))} className="max-w-full flex-wrap" />
           <p className="text-xs text-muted-foreground">
             {mode === "max" && "Rebuilds all 99 for the strongest deck the budget allows, including a new combo plan if it's better."}
-            {mode === "preserve" && "Keeps your combos and most of your cards. It only swaps a card EDHREC's suggestions for your list say to cut, and only for a direct upgrade: one that does everything it did, and more."}
-            {mode === "value" && "Starts from your deck and makes the upgrades with the biggest gain per dollar first."}
+            {mode === "preserve" && "Keeps your combos and most of your cards. First it swaps in cards players voted strictly better than yours, then fixes the land count and colours, then follows EDHREC's suggestions for your list for its weakest cards."}
+            {mode === "value" && "The same swaps as Preserve, with the biggest gain per dollar first."}
           </p>
           <StrategyNote strategy={strategy} />
         </div>
@@ -345,6 +348,11 @@ function Changes({ changes, chosen, toggle, setAll, reject, byName }) {
                   {cad(Math.abs(c.costDiff))}
                 </p>
               </div>
+              {KINDS[c.kind] && (
+                <Badge variant={c.kind === "strict" ? "default" : "outline"} className="w-fit">
+                  {KINDS[c.kind]}
+                </Badge>
+              )}
               <dl className="grid gap-1.5 text-sm">
                 {[
                   ["Why cut", c.why?.cut],
@@ -368,8 +376,33 @@ function Changes({ changes, chosen, toggle, setAll, reject, byName }) {
           );
         })}
       </ul>
-      <p className="text-xs text-muted-foreground">Reject keeps the card you have and never suggests the other one again; the deck is rebuilt around that. Rejected cards stay rejected when the budget or goal changes.</p>
+      <p className="text-xs text-muted-foreground">
+        Reject keeps the card you have and never suggests the other one again; the deck is rebuilt around that. Your rejections are saved for this commander. The optimizer also learns from every player: swaps players take rank higher, and one they keep turning down stops being suggested.
+      </p>
     </div>
+  );
+}
+
+/** Lands and coloured sources before and after, against Frank Karsten's numbers for the deck's curve and costs. */
+function LandBase({ before, after }) {
+  const row = (c, i) => {
+    const old = before.colours[i];
+    return (
+      <li key={c.colour} className={cn(c.sources < c.need && "text-warning")}>
+        {COLOUR_NAMES[c.colour]}: {old.sources === c.sources ? c.sources : `${old.sources} → ${c.sources}`} sources{c.card ? `, ${c.need} wanted for ${c.card}` : ""}
+      </li>
+    );
+  };
+  return (
+    <section aria-labelledby="opt-lands" className="grid gap-1 rounded-xl border p-3 text-sm">
+      <h3 id="opt-lands" className="font-semibold">
+        Land base
+      </h3>
+      <p className="text-muted-foreground">
+        {before.lands === after.lands ? after.lands : `${before.lands} → ${after.lands}`} lands. Frank Karsten's formula for this curve says {after.wanted}, give or take 3. Mana rocks count as ¾ of a source and mana creatures as ½.
+      </p>
+      {after.colours.length > 0 && <ul className="grid gap-0.5 text-muted-foreground">{after.colours.map(row)}</ul>}
+    </section>
   );
 }
 
@@ -743,7 +776,8 @@ export function DeckOptimizer({ deck, cards, mine, onApplied }) {
 
 /** Budget, goal, dashboard, swaps and the rest, for one analyzed deck. */
 function Workspace({ data, request, savedDeck, budget, setBudget, mode, setMode, notice, onApplied, onChangeList }) {
-  const [rejected, setRejected] = useState({ adds: [], keeps: [] });
+  // The player's rejections for this commander come back from earlier visits.
+  const [rejected, setRejected] = useState(() => data.rejected ?? { adds: [], keeps: [] });
   const [unchosen, setUnchosen] = useState(() => new Set());
   const [applyState, setApplyState] = useState(null);
   const [undo, setUndo] = useState(() => (savedDeck ? readJson(undoKey(savedDeck.id)) : null));
@@ -761,7 +795,7 @@ function Workspace({ data, request, savedDeck, budget, setBudget, mode, setMode,
     const key = String(settledBudget);
     if (!results.has(key)) {
       const consider = [...results.values()].map((r) => r.deck);
-      results.set(key, optimize({ pool: data.pool, combos: data.combos, commanders: data.commanderNames, original: data.original, budget: settledBudget, mode, rejected, consider, strategy: data.strategy }));
+      results.set(key, optimize({ pool: data.pool, combos: data.combos, commanders: data.commanderNames, original: data.original, budget: settledBudget, mode, rejected, consider, strategy: data.strategy, learned: data.learned }));
     }
     return results.get(key);
   }, [data, results, settledBudget, mode, rejected]);
@@ -789,8 +823,19 @@ function Workspace({ data, request, savedDeck, budget, setBudget, mode, setMode,
   const newText = listText(data.commanderNames, newList, printingOf, extra);
   const originalText = listText(data.commanderNames, data.original, printingOf, extra);
 
+  // What the player did with swaps, for the optimizer to learn from. It only steers later suggestions, so a failed
+  // save isn't worth interrupting them for.
+  const feedback = (swaps, accepted) => {
+    if (!swaps.length) return;
+    api("/optimizer/feedback", { method: "POST", body: { commanders: data.commanderNames, swaps: swaps.map((c) => ({ remove: c.remove, add: c.add, accepted })) } }).catch(() => {});
+  };
   const reject = (c) => {
     setRejected((r) => ({ adds: c.add ? [...new Set([...r.adds, c.add])] : r.adds, keeps: c.remove ? [...new Set([...r.keeps, c.remove])] : r.keeps }));
+    feedback([c], false);
+  };
+  const clearRejections = () => {
+    setRejected({ adds: [], keeps: [] });
+    api("/optimizer/feedback", { method: "DELETE", body: { commanders: data.commanderNames } }).catch(() => {});
   };
   const toggle = (key) =>
     setUnchosen((s) => {
@@ -810,6 +855,7 @@ function Workspace({ data, request, savedDeck, budget, setBudget, mode, setMode,
       writeJson(undoKey(savedDeck.id), snapshot);
       setUndo(snapshot);
       setApplyState(null);
+      feedback(chosenChanges, true);
       onApplied(`Applied ${chosenChanges.length} change${chosenChanges.length === 1 ? "" : "s"} to ${savedDeck.name}. "Undo the optimization" puts it back the way it was.`);
     } catch (err) {
       setApplyState({ error: err });
@@ -833,6 +879,7 @@ function Workspace({ data, request, savedDeck, budget, setBudget, mode, setMode,
       const { deck } = await api("/decks", { method: "POST", body: { name: `${data.commanderNames[0].split(",")[0]} optimized (${money(budget).replace(".00", "")})`.slice(0, 100), format: "commander", visibility: "private" } });
       await api(`/decks/${deck.id}/import`, { method: "POST", body: { text: newText, replace: true } });
       setApplyState({ done: "Saved as a new private deck.", link: `/decks/${deck.id}` });
+      feedback(chosenChanges, true);
     } catch (err) {
       setApplyState({ error: err });
     }
@@ -912,11 +959,12 @@ function Workspace({ data, request, savedDeck, budget, setBudget, mode, setMode,
           <h2 id="opt-changes" className="text-lg font-bold">
             Cut and add
           </h2>
+          {mode !== "max" && <LandBase before={manaBase(data.original, data.byName, data.identity, data.commanderNames)} after={manaBase(result.deck, data.byName, data.identity, data.commanderNames)} />}
           <Changes changes={result.changes} chosen={new Set(result.changes.map(changeKey).filter((k) => !unchosen.has(k)))} toggle={toggle} setAll={setAll} reject={reject} byName={data.byName} />
           {(rejected.adds.length > 0 || rejected.keeps.length > 0) && (
             <p className="text-xs text-muted-foreground">
               Rejected: {[...rejected.adds.map((n) => `never add ${n}`), ...rejected.keeps.map((n) => `keep ${n}`)].join(", ")}.{" "}
-              <button type="button" className="font-medium text-primary underline-offset-4 hover:underline" onClick={() => setRejected({ adds: [], keeps: [] })}>
+              <button type="button" className="font-medium text-primary underline-offset-4 hover:underline" onClick={clearRejections}>
                 Clear rejections
               </button>
             </p>
