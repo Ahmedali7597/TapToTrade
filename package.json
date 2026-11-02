@@ -20,6 +20,7 @@
     "emails:sync": "node --env-file-if-exists=.env server/emails-sync.js",
     "tags": "node server/function-tags.js",
     "strictly-better": "node server/strictly-better.js",
+    "optimizer:check": "node server/optimizer-check.js",
     "test": "jest --selectProjects server client",
     "test:coverage": "jest --selectProjects server --coverage",
     "test:api": "node --env-file-if-exists=.env ./node_modules/jest/bin/jest.js --selectProjects api --runInBand",
