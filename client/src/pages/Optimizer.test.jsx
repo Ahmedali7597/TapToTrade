@@ -51,11 +51,15 @@ test("locks the commander, rebuilds on a budget change, respects a rejection and
   const summary = () => screen.getByText(/swaps? suggested/).textContent;
   await waitFor(() => expect(summary()).toMatch(/\d+ swaps? suggested/));
   const atDefault = summary();
+  const swaps = () => screen.getByRole("list", { name: "Suggested swaps" });
+  // Islands cut for different cards are one stack, "Cut 20 × Island", with a checkbox for each replacement.
+  expect(within(swaps()).getAllByText(/^\d+ × Island$/)).toHaveLength(1);
+  const islands = within(swaps()).getByRole("list", { name: "What replaces each Island" });
+  expect(within(islands).getAllByRole("checkbox").length).toBeGreaterThan(1);
 
   // A smaller budget builds a different deck, and never names the commander as a swap.
   await user.click(screen.getByRole("button", { name: "CA$100" }));
   await waitFor(() => expect(summary()).not.toBe(atDefault), { timeout: 4000 });
-  const swaps = () => screen.getByRole("list", { name: "Suggested swaps" });
   expect(within(swaps()).queryByText("Talrand, Sky Summoner")).toBeNull();
 
   // Rejecting a swap keeps the card and never suggests the other one again.

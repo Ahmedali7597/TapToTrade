@@ -330,7 +330,8 @@ const isCheap = (c) => (c.manaValue ?? 0) <= 2 && ["fastMana", "ramp", "draw"].s
  * land count for a Commander deck's curve (31.42 + 3.13 × average mana value − 0.28 × cheap ramp and draw spells).
  * Each colour needs the sources Karsten's table gives its most demanding card (the commander's too), scaled to the
  * deck's land count; lands count fully, mana rocks ¾ and mana creatures ½ (his partial credit). The more colours, the
- * more of the lands have to make two of them: that's where `short` comes from.
+ * more of the lands have to make two of them: that's where `short` comes from, for a colour more than SOURCE_SLACK
+ * sources under.
  */
 export function manaBase(names, byName, identity = [], commanders = []) {
   const cards = names.map((n) => byName.get(n)).filter(Boolean);
@@ -354,8 +355,15 @@ export function manaBase(names, byName, identity = [], commanders = []) {
     }
     return { colour, sources: Math.round(sources * 10) / 10, need, card };
   });
-  return { lands: lands.length, wanted, colours, short: colours.filter((c) => c.sources < c.need).map((c) => c.colour) };
+  return { lands: lands.length, wanted, colours, short: colours.filter((c) => c.sources < c.need - SOURCE_SLACK).map((c) => c.colour) };
 }
+
+/**
+ * Karsten's numbers are for a 90% chance to cast the colour's most demanding card on curve, and each source is worth
+ * about 2 points of that (99 cards). Two sources under (about 86%) isn't worth a land swap, so a colour is only short
+ * further under than that.
+ */
+export const SOURCE_SLACK = 2;
 
 /** Legal, inside the colour identity and not the commander: the only cards the optimizer may ever add. */
 const playable = (c, commanders) => c.legal && c.inIdentity && !commanders.includes(c.name);
