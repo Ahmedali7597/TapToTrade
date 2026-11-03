@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { FEATURES, JOBS, REMOVAL, replaces } from "../../shared/optimizer.js";
-import { commanderSuggestions, deckRecs } from "./edhrec.js";
+import { commanderSuggestions } from "./edhrec.js";
 import { usdToCad } from "./prices.js";
 import { searchCards } from "./scryfall.js";
 import { combosFor } from "./spellbook.js";
@@ -120,7 +120,7 @@ try {
 export function textJobs(text, type) {
   const jobs = [];
   const add = (job, re) => re.test(text) && jobs.push(job);
-  add("board-wipe", /destroy all (?:creatures|nonland permanents|artifacts|other creatures)|exile all (?:creatures|nonland permanents)|deals? (?:\d+|X) damage to each creature|all creatures get -|put (?:\d+|X) -1\/-1 counters? on each creature/i);
+  add("board-wipe", /destroy all (?:creatures|nonland permanents|artifacts|other creatures)|exile all (?:creatures|nonland permanents)|deals? (?:\d+|X) damage to each creature|all creatures get -/i);
   add("counterspell", /counter target/i);
   add("creature-removal", /(?:destroy|exile) target (?:[a-z]+ )*creature(?! card)|deals? (?:\d+|X) damage to (?:any target|target creature)|target creature gets -\d+\/-\d+|(?:target player|each opponent) sacrifices a creature|destroy target (?:nonland )?permanent/i);
   add("artifact-removal", /(?:destroy|exile) target (?:[a-z]+ )*artifact(?! card)|destroy target (?:nonland )?permanent|destroy all artifacts/i);
@@ -254,9 +254,6 @@ export function classify(c) {
   // Colour hosers (Red Elemental Blast: "destroy target blue permanent", Null Elemental Blast: "target multicolored
   // permanent") only hit some colours: not general removal.
   if (/target (?:white|blue|black|red|green|multicolou?red|monocolou?red|colorless) (?:spell|permanent)|if (?:it|that (?:spell|permanent))'s (?:white|blue|black|red|green)/i.test(text)) for (const j of [...REMOVAL, "counterspell", "board-wipe"]) jobs.delete(j);
-  // A kicked mode isn't the base card: Tear Asunder only exiles a creature when kicked, for 2 more mana.
-  const unkicked = /\bKicker\b/.test(text) ? text.replace(/^Kicker[^\n]*\n/, "").split(/If this spell was kicked/i) : [];
-  if (unkicked.length > 1 && !/creature|permanent/i.test(unkicked[0])) for (const j of ["creature-removal", "planeswalker-removal"]) jobs.delete(j);
   if (out.roles.includes("tutor")) jobs.add("tutor");
   if (out.roles.includes("fastMana") || out.roles.includes("ramp")) {
     jobs.add(/\b(Instant|Sorcery)\b/.test(type) ? "ritual" : /Creature/.test(type) ? "mana-dork" : /Artifact/.test(type) ? "mana-rock" : "land-ramp");
@@ -265,13 +262,6 @@ export function classify(c) {
   out.jobs = Object.keys(JOBS).filter((j) => jobs.has(j));
   const features = new Set([...tagged, ...(/\bLand\b/.test(type) ? [] : textFeatures(text))]);
   out.features = Object.keys(FEATURES).filter((f) => features.has(f));
-  // How much damage-only removal deals (Lightning Bolt's 3 isn't Doom Blade's destroy, End the Festivities' 1 isn't
-  // Blasphemous Act's 13), or how many -1/-1 counters it puts. X counts as 0: Chain Reaction's X creatures or Black
-  // Sun's Zenith's X mana isn't sure to kill what Crux of Fate destroys. null when it destroys, exiles, shrinks or bounces.
-  const dealt = text.match(/(?:deals? (\d+|X) damage to|put (\d+|X) -1\/-1 counters? on) (?:each|any target|target)/i)?.slice(1).find(Boolean);
-  // Only another way of killing creatures counts against it: Fiery Confluence's "destroy target artifact" doesn't.
-  const removes = ["board-wipe", "creature-removal"].some((j) => jobs.has(j)) && !/(?:destroy|exile) (?:all|each|target|up to)[^.]*creature|creatures? gets? -|sacrifices? [^.]*creature|owner's hand/i.test(text);
-  out.damage = dealt && removes ? Number(dealt) || 0 : null;
   // The jobs also fix roles the role reading missed (Blasphemous Act's "13 damage to each creature" is a board wipe).
   // A creature's planeswalker damage or burn alone (Hellrider) doesn't make it interaction.
   if (!staple && !/\bLand\b/.test(type)) {
@@ -457,16 +447,8 @@ export async function buildPool(commanders, deckNames = []) {
     if (pools.size > 100) pools.delete(pools.keys().next().value);
   }
   const { candidates, cedh, edh, combos, strategy, sources } = base.value;
-  // EDHREC's own suggestions for this exact list: how strongly to cut each card, and the cards to add.
-  const recs = deckNames.length ? await deckRecs(names, deckNames) : null;
-  const recAdd = new Map([...(recs?.adds ?? [])].map(([n, s]) => [front(n), s]));
-  const recCut = new Map([...(recs?.cuts ?? [])].map(([n, s]) => [front(n), s]));
-  const [{ usdCad, date }, found] = await Promise.all([usdToCad(), lookupNames([...candidates, ...deckNames, ...names, ...(recs?.adds.keys() ?? [])])]);
-  const toPool = (c) => ({
-    ...poolCard(c, identity, usdCad, cedh.get(front(c.name)) ?? null, edh.get(front(c.name)) ?? null),
-    recAdd: recAdd.get(front(c.name)) ?? null,
-    recCut: recCut.get(front(c.name)) ?? null,
-  });
+  const [{ usdCad, date }, found] = await Promise.all([usdToCad(), lookupNames([...candidates, ...deckNames, ...names])]);
+  const toPool = (c) => poolCard(c, identity, usdCad, cedh.get(front(c.name)) ?? null, edh.get(front(c.name)) ?? null);
   const pool = [...found.values()].map(toPool);
   // Direct replacements for the player's own cards, beyond the cards EDHREC lists for the commander.
   // (A card outside the colours is cut, not replaced.)
