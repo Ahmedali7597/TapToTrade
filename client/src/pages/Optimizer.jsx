@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Link, Navigate, useNavigate, useSearchParams } from "react-router";
+import { Link, useSearchParams } from "react-router";
 import { ArrowRight, Check, Lock, RotateCcw, Sparkles, X } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -288,20 +288,20 @@ function Dashboard({ before, after, budget, picked }) {
   );
 }
 
-/** Each swap as a card: what goes out, what comes in, the cost difference and why, with a checkbox and Reject. */
+/** Remove / Add / Cost difference / Reason, with a checkbox to take each swap and Reject to rule it out. */
 function Changes({ changes, chosen, toggle, setAll, reject, byName }) {
   if (!changes.length) return <p className="rounded-xl border border-dashed p-6 text-center text-muted-foreground">No changes: this is already the best 99 the optimizer can find for this budget and goal.</p>;
-  const card = (n, kind) => (
-    <div className="flex min-w-0 items-center gap-3">
-      {n && byName.get(n)?.imageUrl ? <CardImage name={n} imageUrl={byName.get(n).imageUrl} printingId={byName.get(n).printingId} className="w-14 shrink-0" /> : <div className="aspect-[488/680] w-14 shrink-0 rounded-md border border-dashed" aria-hidden="true" />}
-      <div className="min-w-0">
-        <p className="text-xs font-semibold tracking-wide text-muted-foreground uppercase">{kind === "add" ? "Add" : "Cut"}</p>
-        <p className={cn("font-medium break-words", !n ? "text-muted-foreground" : kind === "add" ? "text-success" : "text-destructive")}>{n ?? "Nothing"}</p>
-      </div>
-    </div>
-  );
+  const name = (n, kind) =>
+    n ? (
+      <span className="flex min-w-0 items-center gap-2">
+        {byName.get(n)?.imageUrl && <CardImage name={n} imageUrl={byName.get(n).imageUrl} printingId={byName.get(n).printingId} className="w-10 shrink-0" decorative />}
+        <span className={cn("min-w-0 font-medium break-words", kind === "add" ? "text-success" : "text-destructive line-through decoration-1")}>{n}</span>
+      </span>
+    ) : (
+      <span className="text-muted-foreground">—</span>
+    );
   return (
-    <div className="grid gap-3">
+    <div className="grid gap-2">
       <div className="flex flex-wrap items-center gap-2 text-sm">
         <span className="text-muted-foreground">
           {chosen.size} of {changes.length} swaps selected
@@ -313,46 +313,48 @@ function Changes({ changes, chosen, toggle, setAll, reject, byName }) {
           Select none
         </Button>
       </div>
-      <ul className="grid gap-3" aria-label="Suggested swaps">
-        {changes.map((c) => {
-          const key = changeKey(c);
-          const on = chosen.has(key);
-          return (
-            <li key={key} className={cn("grid gap-3 rounded-xl border bg-card p-3 shadow-xs transition-opacity sm:p-4", !on && "opacity-60")}>
-              <div className="flex items-start gap-3">
-                <input type="checkbox" className="mt-1 size-5 shrink-0 accent-primary" checked={on} onChange={() => toggle(key)} aria-label={`Take: ${c.remove ?? "nothing"} out, ${c.add ?? "nothing"} in`} />
-                <div className="grid min-w-0 flex-1 gap-3 sm:grid-cols-2">
-                  {card(c.remove, "remove")}
-                  {card(c.add, "add")}
-                </div>
-                <p className={cn("shrink-0 text-sm font-semibold tabular-nums", c.costDiff > 0 ? "text-foreground" : "text-success")} title="Cost difference">
-                  {c.costDiff > 0 ? "+" : c.costDiff < 0 ? "−" : ""}
-                  {cad(Math.abs(c.costDiff))}
-                </p>
-              </div>
-              <dl className="grid gap-1.5 text-sm">
-                {[
-                  ["Why cut", c.why?.cut],
-                  ["Why add", c.why?.add],
-                  ["What changes", c.why?.effect],
-                ]
-                  .filter(([, v]) => v)
-                  .map(([k, v]) => (
-                    <div key={k}>
-                      <dt className="inline font-semibold">{k}: </dt>
-                      <dd className="inline text-muted-foreground">{v}</dd>
-                    </div>
-                  ))}
-              </dl>
-              <div>
-                <Button size="sm" variant="outline" className="gap-1 text-destructive" onClick={() => reject(c)} aria-label={`Reject ${c.add ? `adding ${c.add}` : ""}${c.add && c.remove ? " and " : ""}${c.remove ? `cutting ${c.remove}` : ""}`}>
-                  <X aria-hidden="true" /> Reject this swap
-                </Button>
-              </div>
-            </li>
-          );
-        })}
-      </ul>
+      <div className="overflow-x-auto rounded-xl border bg-card shadow-xs">
+        <table className="w-full min-w-[44rem] text-sm">
+          <thead className="border-b bg-muted/50 text-left text-xs text-muted-foreground">
+            <tr>
+              <th className="w-10 p-2">
+                <span className="sr-only">Take this swap</span>
+              </th>
+              <th className="p-2">Remove</th>
+              <th className="p-2">Add</th>
+              <th className="p-2 text-right">Cost difference</th>
+              <th className="p-2">Reason</th>
+              <th className="p-2">
+                <span className="sr-only">Reject</span>
+              </th>
+            </tr>
+          </thead>
+          <tbody>
+            {changes.map((c) => {
+              const key = changeKey(c);
+              return (
+                <tr key={key} className={cn("border-b last:border-0 align-top", !chosen.has(key) && "opacity-60")}>
+                  <td className="p-2">
+                    <input type="checkbox" className="mt-1 size-4 accent-primary" checked={chosen.has(key)} onChange={() => toggle(key)} aria-label={`Take: ${c.remove ?? "nothing"} out, ${c.add ?? "nothing"} in`} />
+                  </td>
+                  <td className="p-2">{name(c.remove, "remove")}</td>
+                  <td className="p-2">{name(c.add, "add")}</td>
+                  <td className={cn("p-2 text-right tabular-nums", c.costDiff > 0 ? "text-foreground" : "text-success")}>
+                    {c.costDiff > 0 ? "+" : c.costDiff < 0 ? "−" : ""}
+                    {cad(Math.abs(c.costDiff))}
+                  </td>
+                  <td className="max-w-[24rem] p-2 text-xs text-muted-foreground">{c.reason}</td>
+                  <td className="p-2">
+                    <Button size="sm" variant="ghost" className="gap-1 text-destructive" onClick={() => reject(c)} aria-label={`Reject ${c.add ? `adding ${c.add}` : ""}${c.add && c.remove ? " and " : ""}${c.remove ? `cutting ${c.remove}` : ""}`}>
+                      <X aria-hidden="true" /> Reject
+                    </Button>
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
       <p className="text-xs text-muted-foreground">Reject keeps the card you have and never suggests the other one again; the deck is rebuilt around that. Rejected cards stay rejected when the budget or goal changes.</p>
     </div>
   );
@@ -432,7 +434,7 @@ function Odds({ before, after }) {
         Draw odds
       </h2>
       <div className="overflow-x-auto rounded-xl border bg-card shadow-xs">
-        <table className="w-full text-sm">
+        <table className="w-full min-w-[32rem] text-sm">
           <caption className="p-3 text-left text-xs text-muted-foreground">
             Exact: hypergeometric P(X ≥ k) = 1 − Σ C(K,i)·C(N−K,n−i) / C(N,n), with N = the 99 (the commander starts in the command zone), n = cards seen. By turn T you have seen 7 + T cards: in multiplayer nobody skips the first draw.
           </caption>
@@ -669,69 +671,52 @@ function BudgetCompare({ data, rejected, original, current }) {
   );
 }
 
-/** The optimizer's request for a saved deck: its commander(s) and main board. */
-const fromDeck = (cards, deckId) => ({
-  commanders: cards.filter((c) => c.board === "commander").map((c) => c.printing.name),
-  text: cards
-    .filter((c) => c.board === "main")
-    .map((c) => `${c.quantity} ${c.printing.name}`)
-    .join("\n"),
-  deckId,
-  deckCards: cards,
-});
-
-async function analyze(req) {
-  const res = await api("/optimizer/analyze", { method: "POST", body: { commanders: req.commanders, text: req.text } });
-  return { ...res, byName: new Map(res.pool.map((c) => [c.name, c])), commanderNames: res.commanders.map((c) => c.name) };
-}
-
-const LOADING = "Checking cards on Scryfall, EDHREC and Commander Spellbook. The first look at a commander can take half a minute.";
-
-/** The deck page's Optimize tab: analyzes the deck as it is saved, and again after changes are applied. */
-export function DeckOptimizer({ deck, cards, mine, onApplied }) {
-  const req = fromDeck(cards, deck.id);
-  const listKey = `${req.commanders.join("|")}\n${req.text}`;
-  const [state, setState] = useState({ key: null, data: null, error: null });
+export default function Optimizer() {
+  const [params] = useSearchParams();
+  const [initial] = useState(() => readJson(DRAFT_KEY) ?? {});
+  const [request, setRequest] = useState(null);
+  const [data, setData] = useState(null);
+  const [error, setError] = useState(null);
+  const [busy, setBusy] = useState(false);
   const [budget, setBudget] = useState(500);
   const [mode, setMode] = useState("max");
-  const [notice, setNotice] = useState(null);
-  const [attempt, setAttempt] = useState(0);
-  useEffect(() => {
-    let live = true;
-    analyze(req).then(
-      (data) => live && setState({ key: listKey, data, error: null }),
-      (error) => live && setState({ key: listKey, data: null, error }),
-    );
-    return () => {
-      live = false;
-    };
-  }, [listKey, attempt]); // req is rebuilt from the same cards on every render
-  if (state.key !== listKey) return <Spinner label={LOADING} />;
-  if (state.error) return <ErrorAlert error={state.error} title="Couldn't analyze this deck" onRetry={() => setAttempt((n) => n + 1)} />;
-  return (
-    <Workspace
-      data={state.data}
-      request={req}
-      savedDeck={mine ? deck : null}
-      budget={budget}
-      setBudget={setBudget}
-      mode={mode}
-      setMode={setMode}
-      notice={notice}
-      onApplied={(message) => {
-        setNotice(message);
-        onApplied();
-      }}
-    />
-  );
-}
-
-/** Budget, goal, dashboard, swaps and the rest, for one analyzed deck. */
-function Workspace({ data, request, savedDeck, budget, setBudget, mode, setMode, notice, onApplied, onChangeList }) {
   const [rejected, setRejected] = useState({ adds: [], keeps: [] });
   const [unchosen, setUnchosen] = useState(() => new Set());
   const [applyState, setApplyState] = useState(null);
-  const [undo, setUndo] = useState(() => (savedDeck ? readJson(undoKey(savedDeck.id)) : null));
+  const [undo, setUndo] = useState(null);
+  const { data: deckList } = useApi("/decks");
+
+  const analyze = async (req) => {
+    setBusy(true);
+    setError(null);
+    setApplyState(null);
+    try {
+      const res = await api("/optimizer/analyze", { method: "POST", body: { commanders: req.commanders, text: req.text } });
+      const byName = new Map(res.pool.map((c) => [c.name, c]));
+      setData({ ...res, byName, commanderNames: res.commanders.map((c) => c.name) });
+      setRequest(req);
+      setRejected({ adds: [], keeps: [] });
+      setUnchosen(new Set());
+      setUndo(req.deckId ? readJson(undoKey(req.deckId)) : null);
+    } catch (err) {
+      setError(err);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  // Opening /optimizer?deck=42 (the deck page's Optimize button) loads that deck straight away.
+  useEffect(() => {
+    const id = params.get("deck");
+    if (!id) return;
+    api(`/decks/${id}`).then(
+      ({ cards }) => {
+        const text = cards.filter((c) => c.board === "main").map((c) => `${c.quantity} ${c.printing.name}`).join("\n");
+        analyze({ commanders: cards.filter((c) => c.board === "commander").map((c) => c.printing.name), text, deckId: id, deckCards: cards });
+      },
+      setError,
+    );
+  }, [params]);
 
   // The slider moves freely; the 99 is rebuilt (right here in the browser, no server request) once it rests for 300 ms.
   // Each budget's result is kept per goal and rejections, so going back to a budget is instant, and every deck found
@@ -743,6 +728,7 @@ function Workspace({ data, request, savedDeck, budget, setBudget, mode, setMode,
   }, [budget]);
   const results = useMemo(() => new Map(), [data, mode, rejected]); // a fresh cache per analysis, goal and rejections
   const result = useMemo(() => {
+    if (!data) return null;
     const key = String(settledBudget);
     if (!results.has(key)) {
       const consider = [...results.values()].map((r) => r.deck);
@@ -750,12 +736,31 @@ function Workspace({ data, request, savedDeck, budget, setBudget, mode, setMode,
     }
     return results.get(key);
   }, [data, results, settledBudget, mode, rejected]);
-  const before = useMemo(() => report({ pool: data.pool, combos: data.combos, commanders: data.commanderNames, deck: data.original }), [data]);
-  const after = useMemo(() => report({ pool: data.pool, combos: data.combos, commanders: data.commanderNames, deck: result.deck }), [data, result]);
-  const chosenChanges = result.changes.filter((c) => !unchosen.has(changeKey(c)));
-  const picked = useMemo(() => report({ pool: data.pool, combos: data.combos, commanders: data.commanderNames, deck: applyChanges(data.original, chosenChanges), trials: 500 }), [data, result, unchosen]); // chosenChanges comes from these
+  const before = useMemo(() => data && report({ pool: data.pool, combos: data.combos, commanders: data.commanderNames, deck: data.original }), [data]);
+  const after = useMemo(() => result && report({ pool: data.pool, combos: data.combos, commanders: data.commanderNames, deck: result.deck }), [data, result]);
+  const chosenChanges = result ? result.changes.filter((c) => !unchosen.has(changeKey(c))) : [];
+  const picked = useMemo(() => data && result && report({ pool: data.pool, combos: data.combos, commanders: data.commanderNames, deck: applyChanges(data.original, chosenChanges), trials: 500 }), [data, result, unchosen]); // chosenChanges comes from these
 
+  const savedDeck = request?.deckId ? deckList?.decks?.find((d) => String(d.id) === String(request.deckId)) : null;
   const ownDeck = Boolean(savedDeck);
+
+  if (!data) {
+    return (
+      <div className="mx-auto max-w-5xl px-4 py-10 sm:px-6">
+        <PageHeader title="Commander deck optimizer" description="Choose your commander and paste your 99. The optimizer keeps your commander, then rebuilds the rest for competitive play (cEDH) within your budget in Canadian dollars, with exact draw odds and real TapToTrade listings for the cards it adds." />
+        <ErrorAlert error={error} title="Couldn't analyze that deck" />
+        <div className="mt-4">
+          <Setup initial={initial} onAnalyze={analyze} busy={busy} />
+        </div>
+        {busy && (
+          <div className="mt-6">
+            <Spinner label="Checking cards on Scryfall, EDHREC and Commander Spellbook. The first look at a commander can take half a minute." />
+          </div>
+        )}
+      </div>
+    );
+  }
+
   const printingOf = (n) => {
     const own = request.deckCards?.find((c) => c.printing.name === n)?.printing ?? data.byName.get(n);
     return own?.setCode ? `(${own.setCode.toUpperCase()}) ${own.collectorNumber}` : "";
@@ -786,11 +791,10 @@ function Workspace({ data, request, savedDeck, budget, setBudget, mode, setMode,
     try {
       // The deck as it is now, so Undo can put it back (kept in this browser).
       const snapshot = { text: originalText, at: new Date().toISOString(), name: savedDeck.name };
-      await api(`/decks/${savedDeck.id}/import`, { method: "POST", body: { text: newText, replace: true } });
-      writeJson(undoKey(savedDeck.id), snapshot);
+      await api(`/decks/${request.deckId}/import`, { method: "POST", body: { text: newText, replace: true } });
+      writeJson(undoKey(request.deckId), snapshot);
       setUndo(snapshot);
-      setApplyState(null);
-      onApplied(`Applied ${chosenChanges.length} change${chosenChanges.length === 1 ? "" : "s"} to ${savedDeck.name}. "Undo the optimization" puts it back the way it was.`);
+      setApplyState({ done: `Applied ${chosenChanges.length} change${chosenChanges.length === 1 ? "" : "s"} to ${savedDeck.name}.` });
     } catch (err) {
       setApplyState({ error: err });
     }
@@ -798,11 +802,11 @@ function Workspace({ data, request, savedDeck, budget, setBudget, mode, setMode,
   const revertDeck = async () => {
     setApplyState({ busy: true });
     try {
-      await api(`/decks/${savedDeck.id}/import`, { method: "POST", body: { text: undo.text, replace: true } });
-      writeJson(undoKey(savedDeck.id), null);
+      await api(`/decks/${request.deckId}/import`, { method: "POST", body: { text: undo.text, replace: true } });
+      writeJson(undoKey(request.deckId), null);
       setUndo(null);
-      setApplyState(null);
-      onApplied(`${savedDeck.name} is back to how it was before the optimization.`);
+      setUnchosen(new Set(result.changes.map(changeKey)));
+      setApplyState({ done: `${savedDeck.name} is back to how it was before the optimization.` });
     } catch (err) {
       setApplyState({ error: err });
     }
@@ -819,254 +823,177 @@ function Workspace({ data, request, savedDeck, budget, setBudget, mode, setMode,
   };
   const commander = data.commanders;
   const added = chosenChanges.map((c) => c.add).filter((n) => n && !data.byName.get(n)?.basic);
-  const apply = (compact) =>
-    ownDeck ? (
-      <Button size={compact ? "sm" : "default"} onClick={applyToDeck} disabled={!chosenChanges.length || applyState?.busy} className="gap-1.5">
-        <Check aria-hidden="true" /> Apply {chosenChanges.length}
-        {!compact && ` to ${savedDeck.name}`}
-      </Button>
-    ) : (
-      <Button size={compact ? "sm" : "default"} onClick={saveAsNew} disabled={!chosenChanges.length || applyState?.busy} className="gap-1.5">
-        {compact ? "Save as deck" : "Save as a new deck"} <ArrowRight aria-hidden="true" />
-      </Button>
-    );
-
-  return (
-    <div className="grid gap-6 pb-24 lg:grid-cols-[minmax(0,1fr)_22rem] lg:items-start lg:pb-0">
-      <div className="grid min-w-0 gap-8">
-        {notice && <SuccessMessage>{notice}</SuccessMessage>}
-        <div className="flex flex-wrap items-center gap-4 rounded-xl border border-primary/40 bg-accent/40 p-3">
-          <div className="flex gap-2">
-            {commander.map((c) => (
-              <CardImage key={c.name} name={c.name} imageUrl={c.imageUrl} printingId={c.printingId} className="w-16 sm:w-20" />
-            ))}
-          </div>
-          <div className="min-w-0 flex-1">
-            <p className="flex items-center gap-1.5 text-sm font-semibold">
-              <Lock className="size-4" aria-hidden="true" /> Commander locked
-            </p>
-            <p className="font-bold break-words">{data.commanderNames.join(" and ")}</p>
-            <p className="flex items-center gap-2 text-xs text-muted-foreground">
-              <ColourDots colors={data.identity} /> Budget and goal changes never replace it or change its colours.
-            </p>
-            {onChangeList && (
-              <Button variant="outline" size="sm" className="mt-2" onClick={onChangeList}>
-                Change commander or list
-              </Button>
-            )}
-          </div>
-        </div>
-        {data.skipped.length > 0 && (
-          <details className="rounded-xl border p-3 text-sm">
-            <summary className="cursor-pointer font-medium">
-              {data.skipped.length} line{data.skipped.length === 1 ? "" : "s"} of your list skipped
-            </summary>
-            <ul className="mt-2 max-h-48 space-y-1 overflow-y-auto">
-              {data.skipped.map((s) => (
-                <li key={`${s.line}-${s.name}`}>
-                  Line {s.line} · {s.name}: {s.reason}
-                </li>
-              ))}
-            </ul>
-          </details>
-        )}
-        {data.original.length !== 99 && (
-          <p className="text-sm text-muted-foreground">
-            Your list has {data.original.length} cards in the 99{data.original.length < 99 ? "; the optimizer fills the rest" : "; the optimizer trims it to 99"}.
-          </p>
-        )}
-        {result.notes.map((n) => (
-          <p key={n} className="rounded-xl border border-warning/50 p-3 text-sm text-warning">
-            {n}
-          </p>
-        ))}
-        {settledBudget !== Infinity && mode === "max" && result.cost.total < settledBudget * 0.8 && (
-          <p className="rounded-xl border p-3 text-sm text-muted-foreground">
-            This build spends {cad(result.cost.total)} of the {cad(settledBudget)} budget: no pricier build scored higher on TapToTrade's score. The score doesn't model colour fixing or opponents' interaction, so pricier lands and fast mana can still be worth it.
-          </p>
-        )}
-
-        <Dashboard before={before} after={after} budget={settledBudget} picked={picked} />
-
-        <section aria-labelledby="opt-changes" className="grid gap-3">
-          <h2 id="opt-changes" className="text-lg font-bold">
-            Cut and add
-          </h2>
-          <Changes changes={result.changes} chosen={new Set(result.changes.map(changeKey).filter((k) => !unchosen.has(k)))} toggle={toggle} setAll={setAll} reject={reject} byName={data.byName} />
-          {(rejected.adds.length > 0 || rejected.keeps.length > 0) && (
-            <p className="text-xs text-muted-foreground">
-              Rejected: {[...rejected.adds.map((n) => `never add ${n}`), ...rejected.keeps.map((n) => `keep ${n}`)].join(", ")}.{" "}
-              <button type="button" className="font-medium text-primary underline-offset-4 hover:underline" onClick={() => setRejected({ adds: [], keeps: [] })}>
-                Clear rejections
-              </button>
-            </p>
-          )}
-        </section>
-
-        <Combos before={before} after={after} byName={data.byName} deck={result.deck} />
-        <Odds before={before} after={after} />
-        <Listings names={added} byName={data.byName} />
-        <BudgetCompare data={data} rejected={rejected} original={data.original} current={settledBudget} />
-
-        <section aria-labelledby="opt-lists" className="grid gap-3">
-          <h2 id="opt-lists" className="text-lg font-bold">
-            Original and new list
-          </h2>
-          <div className="grid gap-3 md:grid-cols-2">
-            {[
-              ["Your list", originalText],
-              ["With your selected changes", newText],
-            ].map(([label, text]) => (
-              <div key={label} className="min-w-0">
-                <p className="mb-1 text-sm font-medium">{label}</p>
-                <pre className="max-h-96 overflow-auto rounded-xl border bg-card p-3 text-xs leading-5">{text}</pre>
-              </div>
-            ))}
-          </div>
-        </section>
-
-        <section aria-labelledby="opt-notes" className="text-xs text-muted-foreground">
-          <h2 id="opt-notes" className="mb-2 text-sm font-semibold text-foreground">
-            How the numbers are worked out
-          </h2>
-          <p className="mb-2">
-            Scores are TapToTrade's own 0–100 indices, not win rates. Card choices come from the share of cEDH decks for this commander that play each card on{" "}
-            <a href={data.sources.cedh ?? "https://edhrec.com"} target="_blank" rel="noopener noreferrer" className="text-primary underline-offset-4 hover:underline">
-              EDHREC
-            </a>
-            , combos from{" "}
-            <a href={data.sources.spellbook} target="_blank" rel="noopener noreferrer" className="text-primary underline-offset-4 hover:underline">
-              Commander Spellbook
-            </a>
-            , and legality (Wizards' banned list), colour identity and prices from Scryfall. Prices are each card's cheapest printing at its TCGplayer market price, converted at the Bank of Canada rate of {data.rate.usdCad} USD/CAD ({data.rate.date}): estimates for reference, not
-            TapToTrade listings.
-          </p>
-          <dl className="grid gap-1 sm:grid-cols-2">
-            {SCORE_NOTES.map(([k, v]) => (
-              <div key={k}>
-                <dt className="inline font-medium text-foreground">{k}: </dt>
-                <dd className="inline">{v}</dd>
-              </div>
-            ))}
-          </dl>
-          <p className="mt-2">Roles: {Object.values(ROLES).join(", ")}.</p>
-        </section>
-      </div>
-
-      <aside className="order-first grid gap-4 lg:sticky lg:top-24 lg:order-none" aria-label="Budget and actions">
-        <BudgetControls budget={budget} setBudget={setBudget} mode={mode} setMode={setMode} commanderCost={commander.reduce((n, c) => n + (c.price ?? 0), 0)} />
-        <Card className="gap-3 py-5">
-          <CardHeader>
-            <CardTitle className="flex items-baseline justify-between gap-2 text-base">
-              <span>Optimized</span>
-              <span className="tabular-nums">{cad(result.cost.total)}</span>
-            </CardTitle>
-            <p className="text-xs text-muted-foreground">
-              {result.changes.length} swap{result.changes.length === 1 ? "" : "s"} suggested, {chosenChanges.length} selected. Selected deck: {cad(picked.cost.total)}
-              {settledBudget !== Infinity && picked.cost.total > settledBudget && <span className="text-warning"> (over budget: some unselected swaps saved money)</span>}.
-            </p>
-          </CardHeader>
-          <CardContent className="grid gap-2">
-            {apply(false)}
-            {ownDeck && (
-              <Button variant="outline" onClick={saveAsNew} disabled={!chosenChanges.length || applyState?.busy} className="gap-1.5">
-                Save as a new deck <ArrowRight aria-hidden="true" />
-              </Button>
-            )}
-            <Button variant="outline" onClick={() => setAll(false)} disabled={!chosenChanges.length} className="gap-1.5">
-              <RotateCcw aria-hidden="true" /> Revert to my list
-            </Button>
-            {ownDeck && undo && (
-              <Button variant="outline" onClick={revertDeck} disabled={applyState?.busy} className="gap-1.5 text-destructive">
-                <RotateCcw aria-hidden="true" /> Undo the optimization
-              </Button>
-            )}
-            {applyState?.done && (
-              <SuccessMessage>
-                {applyState.done}{" "}
-                <Link to={applyState.link} className="underline">
-                  Open the deck
-                </Link>
-              </SuccessMessage>
-            )}
-            {applyState?.error && <p className="text-sm font-medium text-destructive">{applyState.error.message}</p>}
-            {ownDeck && undo && <p className="text-xs text-muted-foreground">Undo puts back the list from {new Date(undo.at).toLocaleString("en-CA")}. It's remembered in this browser.</p>}
-          </CardContent>
-        </Card>
-        {settledBudget !== budget && (
-          <p className="text-xs text-muted-foreground" role="status">
-            Rebuilding for {money(budget)}…
-          </p>
-        )}
-      </aside>
-
-      {/* Phones: the cost and the apply button stay in reach while scrolling through the swaps. */}
-      <div className="fixed inset-x-0 bottom-0 z-30 flex items-center gap-2 border-t bg-background/95 px-4 py-3 backdrop-blur lg:hidden">
-        <div className="min-w-0 flex-1 text-xs">
-          <p className="font-semibold tabular-nums">
-            {cad(picked.cost.total)} <span className="font-normal text-muted-foreground">of {money(settledBudget)}</span>
-          </p>
-          <p className="text-muted-foreground">
-            {chosenChanges.length} of {result.changes.length} swaps
-          </p>
-        </div>
-        <Button variant="outline" size="sm" onClick={() => document.getElementById("opt-budget-range")?.scrollIntoView({ behavior: "smooth", block: "center" })}>
-          Budget
-        </Button>
-        {apply(true)}
-      </div>
-    </div>
-  );
-}
-
-/** /optimizer: paste a list for any commander. A saved deck opens in its own page's Optimize tab. */
-export default function Optimizer() {
-  const [params] = useSearchParams();
-  const navigate = useNavigate();
-  const [initial] = useState(() => readJson(DRAFT_KEY) ?? {});
-  const [request, setRequest] = useState(null);
-  const [data, setData] = useState(null);
-  const [error, setError] = useState(null);
-  const [busy, setBusy] = useState(false);
-  const [budget, setBudget] = useState(500);
-  const [mode, setMode] = useState("max");
-
-  // Old links (/optimizer?deck=42) open the deck's Optimize tab.
-  const deckParam = params.get("deck");
-  if (deckParam) return <Navigate to={`/decks/${deckParam}?tab=optimize`} replace />;
-
-  const run = async (req) => {
-    if (req.deckId) return navigate(`/decks/${req.deckId}?tab=optimize`);
-    setBusy(true);
-    setError(null);
-    try {
-      setData(await analyze(req));
-      setRequest(req);
-    } catch (err) {
-      setError(err);
-    } finally {
-      setBusy(false);
-    }
-  };
 
   return (
     <div className="mx-auto max-w-7xl px-4 py-10 sm:px-6">
-      <PageHeader title="Commander deck optimizer" description="Your commander stays locked. Set a budget in Canadian dollars and the 99 is rebuilt around it, with exact draw odds and real TapToTrade listings for the cards it adds." />
-      {data ? (
-        <Workspace data={data} request={request} savedDeck={null} budget={budget} setBudget={setBudget} mode={mode} setMode={setMode} onChangeList={() => setData(null)} />
-      ) : (
-        <div className="mx-auto max-w-5xl">
-          <ErrorAlert error={error} title="Couldn't analyze that deck" />
-          <div className="mt-4">
-            <Setup initial={initial} onAnalyze={run} busy={busy} />
-          </div>
-          {busy && (
-            <div className="mt-6">
-              <Spinner label={LOADING} />
+      <PageHeader title="Commander deck optimizer" description="Your commander stays locked. Move the budget and the 99 is rebuilt around it right away.">
+        <Button variant="outline" size="sm" onClick={() => setData(null)}>
+          Change commander or list
+        </Button>
+      </PageHeader>
+
+      <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_22rem] lg:items-start">
+        <div className="grid min-w-0 gap-8">
+          <div className="flex flex-wrap items-center gap-4 rounded-xl border border-primary/40 bg-accent/40 p-3">
+            <div className="flex gap-2">
+              {commander.map((c) => (
+                <CardImage key={c.name} name={c.name} imageUrl={c.imageUrl} printingId={c.printingId} className="w-20" />
+              ))}
             </div>
+            <div className="min-w-0">
+              <p className="flex items-center gap-1.5 text-sm font-semibold">
+                <Lock className="size-4" aria-hidden="true" /> Commander locked
+              </p>
+              <p className="font-bold break-words">{data.commanderNames.join(" and ")}</p>
+              <p className="flex items-center gap-2 text-xs text-muted-foreground">
+                <ColourDots colors={data.identity} /> Budget and goal changes never replace it or change its colours. Use "Change commander or list" to pick another.
+              </p>
+            </div>
+          </div>
+          {data.skipped.length > 0 && (
+            <details className="rounded-xl border p-3 text-sm">
+              <summary className="cursor-pointer font-medium">
+                {data.skipped.length} line{data.skipped.length === 1 ? "" : "s"} of your list skipped
+              </summary>
+              <ul className="mt-2 max-h-48 space-y-1 overflow-y-auto">
+                {data.skipped.map((s) => (
+                  <li key={`${s.line}-${s.name}`}>
+                    Line {s.line} · {s.name}: {s.reason}
+                  </li>
+                ))}
+              </ul>
+            </details>
           )}
+          {data.original.length !== 99 && (
+            <p className="text-sm text-muted-foreground">
+              Your list has {data.original.length} cards in the 99{data.original.length < 99 ? "; the optimizer fills the rest" : "; the optimizer trims it to 99"}.
+            </p>
+          )}
+          {result.notes.map((n) => (
+            <p key={n} className="rounded-xl border border-warning/50 p-3 text-sm text-warning">
+              {n}
+            </p>
+          ))}
+          {settledBudget !== Infinity && mode === "max" && result.cost.total < settledBudget * 0.8 && (
+            <p className="rounded-xl border p-3 text-sm text-muted-foreground">
+              This build spends {cad(result.cost.total)} of the {cad(settledBudget)} budget: no pricier build scored higher on TapToTrade's score. The score doesn't model colour fixing or opponents' interaction, so pricier lands and fast mana can still be worth it.
+            </p>
+          )}
+
+          {before && after && picked && <Dashboard before={before} after={after} budget={settledBudget} picked={picked} />}
+
+          <section aria-labelledby="opt-changes" className="grid gap-3">
+            <h2 id="opt-changes" className="text-lg font-bold">
+              Cut and add
+            </h2>
+            <Changes changes={result.changes} chosen={new Set(result.changes.map(changeKey).filter((k) => !unchosen.has(k)))} toggle={toggle} setAll={setAll} reject={reject} byName={data.byName} />
+            {(rejected.adds.length > 0 || rejected.keeps.length > 0) && (
+              <p className="text-xs text-muted-foreground">
+                Rejected: {[...rejected.adds.map((n) => `never add ${n}`), ...rejected.keeps.map((n) => `keep ${n}`)].join(", ")}.{" "}
+                <button type="button" className="font-medium text-primary underline-offset-4 hover:underline" onClick={() => setRejected({ adds: [], keeps: [] })}>
+                  Clear rejections
+                </button>
+              </p>
+            )}
+          </section>
+
+          {before && after && <Combos before={before} after={after} byName={data.byName} deck={result.deck} />}
+          {before && after && <Odds before={before} after={after} />}
+          <Listings names={added} byName={data.byName} />
+          <BudgetCompare data={data} rejected={rejected} original={data.original} current={settledBudget} />
+
+          <section aria-labelledby="opt-lists" className="grid gap-3">
+            <h2 id="opt-lists" className="text-lg font-bold">
+              Original and new list
+            </h2>
+            <div className="grid gap-3 md:grid-cols-2">
+              {[
+                ["Your list", originalText],
+                ["With your selected changes", newText],
+              ].map(([label, text]) => (
+                <div key={label} className="min-w-0">
+                  <p className="mb-1 text-sm font-medium">{label}</p>
+                  <pre className="max-h-96 overflow-auto rounded-xl border bg-card p-3 text-xs leading-5">{text}</pre>
+                </div>
+              ))}
+            </div>
+          </section>
+
+          <section aria-labelledby="opt-notes" className="text-xs text-muted-foreground">
+            <h2 id="opt-notes" className="mb-2 text-sm font-semibold text-foreground">
+              How the numbers are worked out
+            </h2>
+            <p className="mb-2">
+              Scores are TapToTrade's own 0–100 indices, not win rates. Card choices come from the share of cEDH decks for this commander that play each card on{" "}
+              <a href={data.sources.cedh ?? "https://edhrec.com"} target="_blank" rel="noopener noreferrer" className="text-primary underline-offset-4 hover:underline">
+                EDHREC
+              </a>
+              , combos from{" "}
+              <a href={data.sources.spellbook} target="_blank" rel="noopener noreferrer" className="text-primary underline-offset-4 hover:underline">
+                Commander Spellbook
+              </a>
+              , and legality (Wizards' banned list), colour identity and prices from Scryfall. Prices are each card's cheapest printing at its TCGplayer market price, converted at the Bank of Canada rate of {data.rate.usdCad} USD/CAD ({data.rate.date}): estimates for reference, not
+              TapToTrade listings.
+            </p>
+            <dl className="grid gap-1 sm:grid-cols-2">
+              {SCORE_NOTES.map(([k, v]) => (
+                <div key={k}>
+                  <dt className="inline font-medium text-foreground">{k}: </dt>
+                  <dd className="inline">{v}</dd>
+                </div>
+              ))}
+            </dl>
+            <p className="mt-2">Roles: {Object.values(ROLES).join(", ")}.</p>
+          </section>
         </div>
-      )}
+
+        <aside className="order-first grid gap-4 lg:sticky lg:top-24 lg:order-none" aria-label="Budget and actions">
+          <BudgetControls budget={budget} setBudget={setBudget} mode={mode} setMode={setMode} commanderCost={commander.reduce((n, c) => n + (c.price ?? 0), 0)} />
+          <Card className="gap-3 py-5">
+            <CardHeader>
+              <CardTitle className="flex items-baseline justify-between gap-2 text-base">
+                <span>Optimized</span>
+                <span className="tabular-nums">{cad(result.cost.total)}</span>
+              </CardTitle>
+              <p className="text-xs text-muted-foreground">
+                {result.changes.length} swap{result.changes.length === 1 ? "" : "s"} suggested, {chosenChanges.length} selected. Selected deck: {cad(picked?.cost.total ?? 0)}
+                {settledBudget !== Infinity && picked?.cost.total > settledBudget && <span className="text-warning"> (over budget: some unselected swaps saved money)</span>}.
+              </p>
+            </CardHeader>
+            <CardContent className="grid gap-2">
+              {ownDeck && (
+                <Button onClick={applyToDeck} disabled={!chosenChanges.length || applyState?.busy} className="gap-1.5">
+                  <Check aria-hidden="true" /> Apply {chosenChanges.length} to {savedDeck.name}
+                </Button>
+              )}
+              <Button variant={ownDeck ? "outline" : "default"} onClick={saveAsNew} disabled={!chosenChanges.length || applyState?.busy} className="gap-1.5">
+                Save as a new deck <ArrowRight aria-hidden="true" />
+              </Button>
+              <Button variant="outline" onClick={() => setAll(false)} disabled={!chosenChanges.length} className="gap-1.5">
+                <RotateCcw aria-hidden="true" /> Revert to my list
+              </Button>
+              {ownDeck && undo && (
+                <Button variant="outline" onClick={revertDeck} disabled={applyState?.busy} className="gap-1.5 text-destructive">
+                  <RotateCcw aria-hidden="true" /> Undo the optimization of {savedDeck.name}
+                </Button>
+              )}
+              {applyState?.done && (
+                <SuccessMessage>
+                  {applyState.done}{" "}
+                  {(applyState.link || ownDeck) && (
+                    <Link to={applyState.link ?? `/decks/${request.deckId}`} className="underline">
+                      Open the deck
+                    </Link>
+                  )}
+                </SuccessMessage>
+              )}
+              {applyState?.error && <p className="text-sm font-medium text-destructive">{applyState.error.message}</p>}
+              {ownDeck && undo && <p className="text-xs text-muted-foreground">Undo puts back the list from {new Date(undo.at).toLocaleString("en-CA")}. It's remembered in this browser.</p>}
+            </CardContent>
+          </Card>
+          {settledBudget !== budget && <p className="text-xs text-muted-foreground" role="status">Rebuilding for {money(budget)}…</p>}
+        </aside>
+      </div>
     </div>
   );
 }
