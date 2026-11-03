@@ -994,50 +994,19 @@ describe("decks", () => {
     expect(cards).toEqual([expect.objectContaining({ board: "main", quantity: 4 })]);
   });
 
-  test("edits a card's printing, finish and condition, like Moxfield", async () => {
-    const card = (await owner.get(`/api/decks/${deck.id}`)).body.cards[0];
-    expect(card).toMatchObject({ finish: "nonfoil", condition: "NM" });
-    const OTHER_BOLT = "e3285e6b-3e79-4d7c-bf96-d920f973b122";
-    searchPrintings.mockResolvedValueOnce([printing(OTHER_BOLT, "Lightning Bolt", "2xm", "141", { finishes: ["foil"] }), printing(LOTUS, "Black Lotus", "lea", "232")]);
-    const listed = await owner.get("/api/cards/printings?name=Lightning%20Bolt");
-    expect(listed.body.printings.map((p) => p.id)).toEqual([OTHER_BOLT]); // other names are dropped
-    expect(searchPrintings).toHaveBeenLastCalledWith('!"Lightning Bolt" game:paper', { order: "released", limit: 175 });
-
-    const url = `/api/decks/${deck.id}/cards/${card.id}`;
-    expect((await owner.send("patch", url, { condition: "MINT" })).status).toBe(400);
-    expect((await owner.send("patch", url, { printingId: LOTUS })).status).toBe(400); // another card
-    expect((await owner.send("patch", url, { finish: "etched" })).status).toBe(400); // M10 Bolt has no etched
-    const foil = await owner.send("patch", url, { finish: "foil", condition: "LP" });
-    expect(foil.body.card).toMatchObject({ id: card.id, finish: "foil", condition: "LP" });
-    // 2XM only comes in foil, so switching to it keeps a finish it has.
-    const moved = await owner.send("patch", url, { printingId: OTHER_BOLT });
-    expect(moved.body.card).toMatchObject({ finish: "foil", condition: "LP", quantity: 4, printing: { setCode: "2xm" } });
-    expect((await owner.get(`/api/decks/${deck.id}/export`)).text).toBe("Deck\n4 Lightning Bolt (2XM) 141 *F*\n");
-  });
-
   test("imports a decklist with sections, exports it, and shows what the viewer owns", async () => {
     lookupCollection.mockImplementationOnce(async (entries) => {
       const known = { "sc:c21:263": printing(RING, "Sol Ring", "c21", "263", { typeLine: "Artifact", manaCost: "{1}", colorIdentity: [], finishes: ["nonfoil", "etched"], setName: "Commander 2021" }), "n:black lotus": printing(LOTUS, "Black Lotus", "lea", "232", { typeLine: "Artifact", setName: "Limited Edition Alpha" }) };
       return new Map(entries.filter(([k]) => known[k]).map(([k]) => [k, known[k]]));
     });
-    const text = "Deck\n1 Sol Ring (C21) 263\n1x Black Lotus\nnot a card line\n\nSideboard\n1 Sol Ring (C21) 263 *E*";
+    const text = "Deck\n1 Sol Ring (C21) 263\n1x Black Lotus\nnot a card line\n\nSideboard\n1 Sol Ring (C21) 263";
     const res = await owner.send("post", `/api/decks/${deck.id}/import`, { text, replace: true });
     expect(res.body).toMatchObject({ added: 3, skippedCount: 1 });
     const { cards, owned } = (await owner.get(`/api/decks/${deck.id}`)).body;
-    expect(cards.map((c) => [c.printing.name, c.board, c.quantity, c.finish])).toEqual([
-      ["Black Lotus", "main", 1, "nonfoil"],
-      ["Sol Ring", "main", 1, "nonfoil"],
-      ["Sol Ring", "side", 1, "etched"],
-    ]);
-    // Replacing the list again (the optimizer's Apply) keeps each card's condition.
-    const lotus = cards.find((c) => c.printing.name === "Black Lotus");
-    await owner.send("patch", `/api/decks/${deck.id}/cards/${lotus.id}`, { condition: "HP" });
-    lookupCollection.mockImplementationOnce(async (entries) => new Map(entries.filter(([k]) => k === "sc:lea:232" || k === "sc:c21:263").map(([k]) => [k, k === "sc:lea:232" ? printing(LOTUS, "Black Lotus", "lea", "232", { typeLine: "Artifact" }) : printing(RING, "Sol Ring", "c21", "263", { typeLine: "Artifact", finishes: ["nonfoil", "etched"] })])));
-    await owner.send("post", `/api/decks/${deck.id}/import`, { text: "Deck\n1 Sol Ring (C21) 263\n1 Black Lotus (LEA) 232\n\nSideboard\n1 Sol Ring (C21) 263 *E*", replace: true });
-    expect((await owner.get(`/api/decks/${deck.id}`)).body.cards.map((c) => [c.printing.name, c.condition])).toEqual([
-      ["Black Lotus", "HP"],
-      ["Sol Ring", "NM"],
-      ["Sol Ring", "NM"],
+    expect(cards.map((c) => [c.printing.name, c.board, c.quantity])).toEqual([
+      ["Black Lotus", "main", 1],
+      ["Sol Ring", "main", 1],
+      ["Sol Ring", "side", 1],
     ]);
     expect(owned).toEqual({});
     await owner.add(RING, 1);
@@ -1045,7 +1014,7 @@ describe("decks", () => {
 
     const out = await owner.get(`/api/decks/${deck.id}/export`);
     expect(out.headers["content-type"]).toMatch(/text\/plain/);
-    expect(out.text).toBe("Deck\n1 Black Lotus (LEA) 232\n1 Sol Ring (C21) 263\n\nSideboard\n1 Sol Ring (C21) 263 *E*\n");
+    expect(out.text).toBe("Deck\n1 Black Lotus (LEA) 232\n1 Sol Ring (C21) 263\n\nSideboard\n1 Sol Ring (C21) 263\n");
   });
 
   test("puts the cards the player is missing on their want list, once", async () => {

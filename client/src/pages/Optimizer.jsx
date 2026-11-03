@@ -756,19 +756,14 @@ function Workspace({ data, request, savedDeck, budget, setBudget, mode, setMode,
   const picked = useMemo(() => report({ pool: data.pool, combos: data.combos, commanders: data.commanderNames, deck: applyChanges(data.original, chosenChanges), trials: 500 }), [data, result, unchosen]); // chosenChanges comes from these
 
   const ownDeck = Boolean(savedDeck);
-  // A card already in the deck keeps its printing and finish (Moxfield's *F* / *E* marks).
-  const mark = { foil: " *F*", etched: " *E*" };
-  const cardText = (c) => `(${c.printing.setCode.toUpperCase()}) ${c.printing.collectorNumber}${mark[c.finish] ?? ""}`;
   const printingOf = (n) => {
-    const card = request.deckCards?.find((c) => c.printing.name === n);
-    if (card) return cardText(card);
-    const p = data.byName.get(n);
-    return p?.setCode ? `(${p.setCode.toUpperCase()}) ${p.collectorNumber}` : "";
+    const own = request.deckCards?.find((c) => c.printing.name === n)?.printing ?? data.byName.get(n);
+    return own?.setCode ? `(${own.setCode.toUpperCase()}) ${own.collectorNumber}` : "";
   };
   // The sideboard and maybeboard ride along so replacing the deck's cards doesn't lose them.
   const otherBoards = (request.deckCards ?? [])
     .filter((c) => c.board === "side" || c.board === "maybe")
-    .reduce((out, c) => ({ ...out, [c.board]: [...(out[c.board] ?? []), `${c.quantity} ${c.printing.name} ${cardText(c)}`] }), {});
+    .reduce((out, c) => ({ ...out, [c.board]: [...(out[c.board] ?? []), `${c.quantity} ${c.printing.name} (${c.printing.setCode.toUpperCase()}) ${c.printing.collectorNumber}`] }), {});
   const extra = [otherBoards.side && ["", "Sideboard", ...otherBoards.side].join("\n"), otherBoards.maybe && ["", "Maybeboard", ...otherBoards.maybe].join("\n")].filter(Boolean).join("\n");
   const newList = applyChanges(data.original, chosenChanges);
   const newText = listText(data.commanderNames, newList, printingOf, extra);

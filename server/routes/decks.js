@@ -8,7 +8,6 @@ import { lookupCollection } from "../lib/scryfall.js";
 import { hasSlur, SLUR_MESSAGE } from "../lib/slurs.js";
 import { PRINTING_COLUMNS, printingView } from "../lib/views.js";
 import { MAX_WANTS } from "../lib/wants.js";
-import { CONDITIONS, FINISHES } from "../../shared/validation.js";
 import { importLimiter, requireAuth } from "../middleware.js";
 import { BOARDS, deckText, FORMATS, MAX_DECK_ROWS, MAX_DECKS, VISIBILITY } from "../../shared/decks.js";
 import { cachePrintings, fillCardDetails } from "./cards.js";
@@ -71,20 +70,17 @@ async function ownDeck(req) {
 }
 const touch = (c, deckId) => c.query("UPDATE decks SET updated_at = now() WHERE id = $1", [deckId]);
 
-const CARD_SELECT = `SELECT c.id, c.board, c.quantity, c.finish, c.condition, ${PRINTING_COLUMNS} FROM deck_cards c JOIN card_printings p ON p.id = c.printing_id`;
-const cardView = (r) => ({ id: r.id, board: r.board, quantity: r.quantity, finish: r.finish, condition: r.condition, printing: printingView(r, r.printing_id) });
+const CARD_SELECT = `SELECT c.id, c.board, c.quantity, ${PRINTING_COLUMNS} FROM deck_cards c JOIN card_printings p ON p.id = c.printing_id`;
+const cardView = (r) => ({ id: r.id, board: r.board, quantity: r.quantity, printing: printingView(r, r.printing_id) });
 const listCards = async (deckId) => (await query(`${CARD_SELECT} WHERE c.deck_id = $1 ORDER BY p.name, c.id`, [deckId])).rows.map(cardView);
 
-/**
- * Adds `quantity` of a printing in a finish to a board (or more copies to a row already there), capped at 99.
- * A row that's already there keeps its condition.
- */
-async function addCard(c, deckId, printingId, board, quantity, finish = "nonfoil", condition = "NM") {
+/** Adds `quantity` of a printing to a board (or more copies to a row already there), capped at 99. */
+async function addCard(c, deckId, printingId, board, quantity) {
   const { rows } = await c.query(
-    `INSERT INTO deck_cards (deck_id, printing_id, board, quantity, finish, condition) VALUES ($1, $2, $3, $4, $5, $6)
-     ON CONFLICT (deck_id, printing_id, board, finish) DO UPDATE SET quantity = LEAST(99, deck_cards.quantity + EXCLUDED.quantity)
+    `INSERT INTO deck_cards (deck_id, printing_id, board, quantity) VALUES ($1, $2, $3, $4)
+     ON CONFLICT (deck_id, printing_id, board) DO UPDATE SET quantity = LEAST(99, deck_cards.quantity + EXCLUDED.quantity)
      RETURNING id`,
-    [deckId, printingId, board, quantity, finish, condition],
+    [deckId, printingId, board, quantity],
   );
   return rows[0].id;
 }
@@ -203,10 +199,8 @@ router.post("/:id/cards", requireAuth, async (req, res) => {
   if (!Number.isInteger(quantity) || quantity < 1 || quantity > 99) throw new HttpError(400, "Quantity must be a whole number from 1 to 99.");
   await checkRoom(d.id);
   let printingId = req.body?.printingId;
-  let finishes;
   if (printingId !== undefined) {
-    finishes = isUuid(printingId) && (await query("SELECT finishes FROM card_printings WHERE id = $1", [printingId])).rows[0]?.finishes;
-    if (!finishes) throw new HttpError(400, "Choose a card from the search results.");
+    if (!isUuid(printingId) || !(await query("SELECT 1 FROM card_printings WHERE id = $1", [printingId])).rows[0]) throw new HttpError(400, "Choose a card from the search results.");
   } else {
     const name = typeof req.body?.name === "string" ? req.body.name.trim().slice(0, 200) : "";
     if (!name) throw new HttpError(400, "Type a card name.");
@@ -221,23 +215,16 @@ router.post("/:id/cards", requireAuth, async (req, res) => {
     if (!printing) throw new HttpError(404, `Scryfall doesn't know a card called "${name}".`);
     await cachePrintings([printing]);
     printingId = printing.id;
-    finishes = printing.finishes;
   }
-  const finish = req.body?.finish ?? (finishes.includes("nonfoil") ? "nonfoil" : finishes[0]);
-  if (!finishes.includes(finish)) throw new HttpError(400, "That printing doesn't come in that finish.");
   const id = await tx(async (c) => {
-    const cardId = await addCard(c, d.id, printingId, board, quantity, finish);
+    const cardId = await addCard(c, d.id, printingId, board, quantity);
     await touch(c, d.id);
     return cardId;
   });
   res.status(201).json({ card: cardView((await query(`${CARD_SELECT} WHERE c.id = $1`, [id])).rows[0]) });
 });
 
-/**
- * Change a card's quantity, board, printing (set), finish or condition, like Moxfield's card editor. A change that
- * lands on a row already in the deck (same printing, board and finish) joins its copies. Switching to a printing
- * that doesn't come in the card's finish picks one it does come in.
- */
+// Change a card's quantity or move it to another board (joining the copies already there).
 router.patch("/:id/cards/:cardId", requireAuth, async (req, res) => {
   const d = await ownDeck(req);
   const cardId = idFrom(req.params.cardId, "That card");
@@ -246,32 +233,14 @@ router.patch("/:id/cards/:cardId", requireAuth, async (req, res) => {
   if (!card) throw new HttpError(404, "That card isn't in this deck.");
   const quantity = req.body?.quantity === undefined ? card.quantity : Number(req.body.quantity);
   const board = req.body?.board ?? card.board;
-  const printingId = req.body?.printingId ?? card.printing_id;
-  const condition = req.body?.condition ?? card.condition;
   if (!Number.isInteger(quantity) || quantity < 1 || quantity > 99) throw new HttpError(400, "Quantity must be a whole number from 1 to 99.");
   if (!BOARD_KEYS.includes(board)) throw new HttpError(400, "Choose a board.");
-  if (!CONDITIONS.includes(condition)) throw new HttpError(400, "Choose a valid condition.");
-  const { rows: found } = isUuid(printingId) ? await query("SELECT name, finishes FROM card_printings WHERE id = $1", [printingId]) : { rows: [] };
-  const printing = found[0];
-  if (!printing) throw new HttpError(400, "Choose a printing from the list.");
-  if (printingId !== card.printing_id) {
-    const { rows: was } = await query("SELECT name FROM card_printings WHERE id = $1", [card.printing_id]);
-    if (was[0].name !== printing.name) throw new HttpError(400, "Choose a printing of the same card.");
-  }
-  let finish = req.body?.finish ?? card.finish;
-  if (!FINISHES.includes(finish)) throw new HttpError(400, "Choose a valid finish.");
-  if (!printing.finishes.includes(finish)) {
-    if (req.body?.finish !== undefined) throw new HttpError(400, "That printing doesn't come in that finish.");
-    finish = printing.finishes.includes("nonfoil") ? "nonfoil" : printing.finishes[0];
-  }
   const id = await tx(async (c) => {
     let keep = card.id;
-    const { rows: clash } = await c.query("SELECT id FROM deck_cards WHERE deck_id = $1 AND printing_id = $2 AND board = $3 AND finish = $4 AND id <> $5", [d.id, printingId, board, finish, card.id]);
-    if (clash[0]) {
+    if (board === card.board) await c.query("UPDATE deck_cards SET quantity = $2 WHERE id = $1", [card.id, quantity]);
+    else {
       await c.query("DELETE FROM deck_cards WHERE id = $1", [card.id]);
-      keep = await addCard(c, d.id, printingId, board, quantity, finish, condition);
-    } else {
-      await c.query("UPDATE deck_cards SET quantity = $2, condition = $3, printing_id = $4, board = $5, finish = $6 WHERE id = $1", [card.id, quantity, condition, printingId, board, finish]);
+      keep = await addCard(c, d.id, card.printing_id, board, quantity);
     }
     await touch(c, d.id);
     return keep;
@@ -311,25 +280,18 @@ router.post("/:id/import", requireAuth, importLimiter, async (req, res) => {
       skipped.push({ line: r.line, name: r.name, reason: "Scryfall doesn't know this card or printing." });
       continue;
     }
-    // A finish the printing wasn't made in ("*F*" on a non-foil-only card) falls back to one it was.
-    const finish = p.finishes.includes(r.finish) ? r.finish : p.finishes.includes("nonfoil") ? "nonfoil" : p.finishes[0];
-    const key = `${p.id}|${r.board}|${finish}`;
-    lines.set(key, { printing: p, board: r.board, finish, quantity: Math.min(99, (lines.get(key)?.quantity ?? 0) + r.quantity) });
+    const key = `${p.id}|${r.board}`;
+    lines.set(key, { printing: p, board: r.board, quantity: Math.min(99, (lines.get(key)?.quantity ?? 0) + r.quantity) });
   }
   await cachePrintings([...new Map([...lines.values()].map((l) => [l.printing.id, l.printing])).values()]);
   await tx(async (c) => {
-    // Replacing the list (the optimizer's Apply and Undo) keeps the condition of cards that stay.
-    const kept = new Map();
-    if (req.body?.replace === true) {
-      const { rows: old } = await c.query("DELETE FROM deck_cards WHERE deck_id = $1 RETURNING printing_id, board, finish, condition", [d.id]);
-      for (const o of old) kept.set(`${o.printing_id}|${o.board}|${o.finish}`, o.condition);
-    }
-    const all = [...lines.entries()];
+    if (req.body?.replace === true) await c.query("DELETE FROM deck_cards WHERE deck_id = $1", [d.id]);
+    const all = [...lines.values()];
     if (all.length) {
-      const values = valuesList(all.map(([key, l]) => [d.id, l.printing.id, l.board, l.quantity, l.finish, kept.get(key) ?? "NM"]));
+      const values = valuesList(all.map((l) => [d.id, l.printing.id, l.board, l.quantity]));
       await c.query(
-        `INSERT INTO deck_cards (deck_id, printing_id, board, quantity, finish, condition) VALUES ${values.sql}
-         ON CONFLICT (deck_id, printing_id, board, finish) DO UPDATE SET quantity = LEAST(99, deck_cards.quantity + EXCLUDED.quantity)`,
+        `INSERT INTO deck_cards (deck_id, printing_id, board, quantity) VALUES ${values.sql}
+         ON CONFLICT (deck_id, printing_id, board) DO UPDATE SET quantity = LEAST(99, deck_cards.quantity + EXCLUDED.quantity)`,
         values.params,
       );
     }

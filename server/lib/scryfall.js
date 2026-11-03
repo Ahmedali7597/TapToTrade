@@ -65,21 +65,21 @@ async function throttle(slow = false) {
  * Card name search. `unique: "prints"` (the add-card form) lists every printing; `"cards"` (the public card
  * browser) lists each card once, in its newest printing.
  */
-export async function searchPrintings(q, { unique = "prints", order = "name", limit = 40 } = {}) {
+export async function searchPrintings(q, { unique = "prints" } = {}) {
   // Serve repeat searches from the cache so typing the same name twice doesn't hit Scryfall again.
-  const key = `${unique}:${order}:${limit}:${q.toLowerCase()}`;
+  const key = `${unique}:${q.toLowerCase()}`;
   const hit = cache.get(key);
   if (hit && Date.now() - hit.at < TTL_MS) return hit.data;
 
   await throttle(true);
 
-  const url = `${API}/cards/search?unique=${unique}&order=${order}&q=${encodeURIComponent(q)}`;
+  const url = `${API}/cards/search?unique=${unique}&order=name&q=${encodeURIComponent(q)}`;
   const res = await fetch(url, { headers: HEADERS, signal: AbortSignal.timeout(5000) });
   // Scryfall answers 404 when nothing matches, which for us is just an empty list.
   let data;
   if (res.status === 404) data = [];
   else if (!res.ok) throw new Error(`Scryfall responded ${res.status}`);
-  else data = rankByName((await res.json()).data.map(toPrinting), q).slice(0, limit);
+  else data = rankByName((await res.json()).data.map(toPrinting), q).slice(0, 40);
 
   // Crude size cap: Maps keep insertion order, so the first key is the oldest entry.
   cache.set(key, { at: Date.now(), data });

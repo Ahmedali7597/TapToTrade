@@ -54,10 +54,6 @@ test("decklists round-trip through text, with sections and Archidekt tags", () =
     ["Lightning Bolt", "main", 4, "m10"],
     ["Shock", "side", 2, "m10"],
   ]);
-  // Foil and etched copies keep Moxfield's marks both ways.
-  const foils = deckText([{ ...card("Opt", "main"), finish: "foil" }, { ...card("Sol Ring", "main"), finish: "etched" }]);
-  expect(foils).toBe("Deck\n1 Opt (M10) 1 *F*\n1 Sol Ring (M10) 1 *E*\n");
-  expect(parseDeckList(foils).rows.map((r) => r.finish)).toEqual(["foil", "etched"]);
   const archidekt = parseDeckList("1x Krenko, Mob Boss (DDT) 52 [Commander{top}]\n1x Goblin Bombardment [Maybeboard]\nSIDEBOARD:\n2 Pyroblast\nbad line here");
   expect(archidekt.rows.map((r) => [r.name, r.board])).toEqual([
     ["Krenko, Mob Boss", "commander"],

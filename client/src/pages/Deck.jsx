@@ -21,7 +21,7 @@ import { Label } from "@/components/ui/label";
 import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
-import { CardImage, ErrorAlert, PageMessage, printingLabel, SegmentedControl, Spinner, SuccessMessage, useApi } from "@/components/common";
+import { CardImage, ErrorAlert, PageMessage, SegmentedControl, Spinner, SuccessMessage, useApi } from "@/components/common";
 import CardNameInput from "@/components/CardNameInput";
 import { GridView, StacksView } from "@/components/CollectionViews";
 import { ColourDots, DeckForm } from "@/pages/Decks";
@@ -32,7 +32,6 @@ import { cad, priceOf, usePrices } from "@/lib/prices";
 import { cn } from "@/lib/utils";
 import { BOARD_LABELS, BOARDS, colourPips, countOn, deckProblems, deckText, FORMAT_LABELS, manaCurve } from "@shared/decks";
 import { deckTitle } from "@shared/pages";
-import { CONDITION_LABELS, CONDITIONS, FINISH_LABELS } from "@shared/validation";
 
 // One deck, after Moxfield: the cards as deck-style stacks (or a grid, or the text list), with the commander
 // first and the sideboard and maybeboard after; a stats panel (size, value, mana curve, colours, format
@@ -295,22 +294,10 @@ function SampleHand({ cards }) {
   );
 }
 
-/** Everything about one card, like Moxfield's card editor: copies, board, printing (set), finish, condition, removal. */
+/** Quantity, board and removal for one card (the pencil on a card). */
 function CardEditor({ deckId, card, onSaved, onRemoved, onClose }) {
   const [quantity, setQuantity] = useState(String(card.quantity));
   const [board, setBoard] = useState(card.board);
-  const [printingId, setPrintingId] = useState(card.printing.id);
-  const [finish, setFinish] = useState(card.finish);
-  const [condition, setCondition] = useState(card.condition);
-  const { data: found, loading: finding } = useApi(`/cards/printings${qs({ name: card.printing.name })}`);
-  // The card's own printing stays in the list even if Scryfall's answer is missing it.
-  const printings = [card.printing, ...(found?.printings ?? []).filter((p) => p.id !== card.printing.id)];
-  const printing = printings.find((p) => p.id === printingId) ?? card.printing;
-  const pickPrinting = (id) => {
-    const next = printings.find((p) => p.id === id);
-    setPrintingId(id);
-    if (!next.finishes.includes(finish)) setFinish(next.finishes.includes("nonfoil") ? "nonfoil" : next.finishes[0]);
-  };
   const [error, setError] = useState(null);
   const [busy, setBusy] = useState(false);
   const save = async (e) => {
@@ -318,7 +305,7 @@ function CardEditor({ deckId, card, onSaved, onRemoved, onClose }) {
     setBusy(true);
     setError(null);
     try {
-      onSaved((await api(`/decks/${deckId}/cards/${card.id}`, { method: "PATCH", body: { quantity: Number(quantity), board, printingId, finish, condition } })).card, card.id);
+      onSaved((await api(`/decks/${deckId}/cards/${card.id}`, { method: "PATCH", body: { quantity: Number(quantity), board } })).card, card.id);
       onClose();
     } catch (err) {
       setError(err);
@@ -337,42 +324,8 @@ function CardEditor({ deckId, card, onSaved, onRemoved, onClose }) {
   };
   return (
     <form onSubmit={save} className="grid gap-4 sm:grid-cols-[10rem_1fr]">
-      <CardImage name={printing.name} setCode={printing.setCode} imageUrl={printing.imageUrl} finish={finish} className="mx-auto w-40" />
-      <div className="grid min-w-0 content-start gap-3">
-        <div className="grid gap-1">
-          <Label htmlFor="edit-printing">Printing</Label>
-          <NativeSelect id="edit-printing" value={printingId} onChange={(e) => pickPrinting(e.target.value)} className="w-full" disabled={finding}>
-            {printings.map((p) => (
-              <NativeSelectOption key={p.id} value={p.id}>
-                {p.setName ? `${p.setName} · ` : ""}
-                {printingLabel(p)}
-              </NativeSelectOption>
-            ))}
-          </NativeSelect>
-          {finding && <p className="text-xs text-muted-foreground">Loading every printing…</p>}
-        </div>
-        <div className="grid grid-cols-2 gap-3">
-          <div className="grid gap-1">
-            <Label htmlFor="edit-finish">Finish</Label>
-            <NativeSelect id="edit-finish" value={finish} onChange={(e) => setFinish(e.target.value)} className="w-full">
-              {printing.finishes.map((x) => (
-                <NativeSelectOption key={x} value={x}>
-                  {FINISH_LABELS[x]}
-                </NativeSelectOption>
-              ))}
-            </NativeSelect>
-          </div>
-          <div className="grid gap-1">
-            <Label htmlFor="edit-condition">Condition</Label>
-            <NativeSelect id="edit-condition" value={condition} onChange={(e) => setCondition(e.target.value)} className="w-full">
-              {CONDITIONS.map((x) => (
-                <NativeSelectOption key={x} value={x}>
-                  {CONDITION_LABELS[x]}
-                </NativeSelectOption>
-              ))}
-            </NativeSelect>
-          </div>
-        </div>
+      <CardImage name={card.printing.name} setCode={card.printing.setCode} imageUrl={card.printing.imageUrl} className="mx-auto w-40" />
+      <div className="grid content-start gap-3">
         <div className="grid grid-cols-2 gap-3">
           <div className="grid gap-1">
             <Label htmlFor="edit-qty">Copies</Label>
@@ -568,7 +521,7 @@ export default function Deck() {
   const deck = deckInfo ?? data?.deck;
   const mine = Boolean(data?.mine);
   const owned = data?.owned;
-  const prices = usePrices(list.map((c) => ({ printingId: c.printing.id, finish: c.finish })));
+  const prices = usePrices(list.map((c) => ({ printingId: c.printing.id, finish: "nonfoil" })));
 
   useEffect(() => {
     if (deck) document.title = deckTitle(deck);
@@ -578,8 +531,8 @@ export default function Deck() {
   if (error?.status === 404 || (!loading && !data && !error)) return <PageMessage code="404" title="Deck not found" body="It may be private, or it was deleted." action={user && <Button asChild><Link to="/decks">Your decks</Link></Button>} />;
   if (error) return <div className="mx-auto max-w-3xl px-4 py-10"><ErrorAlert error={error} title="Couldn't load this deck" onRetry={reload} /></div>;
 
-  // Cards as the views expect them. Near mint is the norm, so only other conditions show on a card.
-  const asItems = (rows) => sortItems(rows.map((c) => ({ ...c, condition: c.condition === "NM" ? "" : c.condition })), "name");
+  // Cards as the views expect them (no finish or condition in a deck).
+  const asItems = (rows) => sortItems(rows.map((c) => ({ ...c, finish: "nonfoil", condition: "" })), "name");
   const on = (board) => asItems(list.filter((c) => c.board === board));
   const groups = [
     ...(on("commander").length ? [{ label: "Commander", items: on("commander") }] : []),
@@ -602,7 +555,7 @@ export default function Deck() {
   let unpriced = 0;
   for (const c of list) {
     if (c.board === "maybe") continue;
-    const p = priceOf(prices, { printingId: c.printing.id, finish: c.finish })?.cad;
+    const p = priceOf(prices, { printingId: c.printing.id, finish: "nonfoil" })?.cad;
     if (p == null) unpriced += 1;
     else value += p * c.quantity;
   }
@@ -925,7 +878,7 @@ export default function Deck() {
         <DialogContent className="sm:max-w-xl">
           <DialogHeader>
             <DialogTitle>{editing?.printing.name}</DialogTitle>
-            <DialogDescription>Change the printing, finish, condition, copies or board, or remove it.</DialogDescription>
+            <DialogDescription>Change how many copies, move it to another board, or remove it.</DialogDescription>
           </DialogHeader>
           {editing && (
             <CardEditor
