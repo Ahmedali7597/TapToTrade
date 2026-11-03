@@ -23,16 +23,10 @@ const analysis = { commanders: [COMMANDER], identity: ["U"], original: ORIGINAL,
 test("locks the commander, rebuilds on a budget change, respects a rejection and saves the picks as a new deck", async () => {
   const user = userEvent.setup();
   let imported = null;
-  const feedback = [];
   mockApi({
     "GET /api/decks": { decks: [] },
-    // The player's rejections from an earlier visit come back with the analysis.
-    "POST /api/optimizer/analyze": { ...analysis, rejected: { adds: [], keeps: ["Filler 40"] }, learned: { pairs: [], adds: [] } },
+    "POST /api/optimizer/analyze": analysis,
     "POST /api/optimizer/listings": { listings: {} },
-    "POST /api/optimizer/feedback": (body) => {
-      feedback.push(body);
-      return { saved: body.swaps.length };
-    },
     "POST /api/decks": { deck: { id: 9 } },
     "POST /api/decks/9/import": (body) => {
       imported = body;
@@ -45,8 +39,7 @@ test("locks the commander, rebuilds on a budget change, respects a rejection and
 
   expect(await screen.findByText("Commander locked")).toBeInTheDocument();
   expect(screen.getAllByText("Talrand, Sky Summoner").length).toBeGreaterThan(0);
-  expect(screen.getByText(/keep Filler 40/)).toBeInTheDocument();
-  // The page starts on strictly better upgrades; this test rebuilds for maximum power.
+  // The page starts on like-for-like upgrades; this test rebuilds for maximum power.
   await user.click(screen.getByRole("button", { name: "Maximum competitive power" }));
   const summary = () => screen.getByText(/swaps? suggested/).textContent;
   await waitFor(() => expect(summary()).toMatch(/\d+ swaps? suggested/));
@@ -67,15 +60,9 @@ test("locks the commander, rebuilds on a budget change, respects a rejection and
   await user.click(within(first).getByRole("button", { name: /Reject/ }));
   expect(await screen.findByText(new RegExp(`never add ${added}`))).toBeInTheDocument();
   await waitFor(() => expect(within(swaps()).queryByText(added)).toBeNull());
-  // The optimizer learns from it.
-  expect(feedback[0]).toMatchObject({ commanders: ["Talrand, Sky Summoner"], swaps: [{ add: added, accepted: false }] });
 
   await user.click(screen.getByRole("button", { name: /Save as a new deck/ }));
   expect(await screen.findByText("Saved as a new private deck.")).toBeInTheDocument();
-  // ...and from the swaps the player took.
-  await waitFor(() => expect(feedback).toHaveLength(2));
-  expect(feedback[1].swaps.length).toBeGreaterThan(0);
-  expect(feedback[1].swaps.every((s) => s.accepted)).toBe(true);
   expect(imported.replace).toBe(true);
   expect(imported.text.startsWith("Commander\n1 Talrand, Sky Summoner (TST) 1\n\nDeck\n")).toBe(true);
   const total = imported.text

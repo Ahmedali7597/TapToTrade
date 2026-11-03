@@ -1,4 +1,4 @@
-import { buildPool, classify, commanderProblem, front, lookupNames, lowestUsd, manaAdded, poolCard, strategyOf, textDrawbacks, textFeatures, textJobs, tutorTargets } from "./cedh.js";
+import { buildPool, classify, commanderProblem, front, lookupNames, lowestUsd, manaAdded, poolCard, strategyOf, textFeatures, textJobs, tutorTargets } from "./cedh.js";
 import { commanderSuggestions, deckRecs } from "./edhrec.js";
 import { usdToCad } from "./prices.js";
 import { searchCards } from "./scryfall.js";
@@ -95,53 +95,6 @@ test("reads what else a card does for the plan, the way Scryfall Tagger tags it"
   expect(textJobs(RETURN_TO_NATURE, "Instant")).toEqual(["artifact-removal", "enchantment-removal", "graveyard-hate"]);
   expect(classify(card("Herd Heirloom", "Artifact", "{T}: Add one mana of any color. Spend this mana only to cast a creature spell.")).manaRestricted).toBe(true);
   expect(classify(card("Null Elemental Blast", "Instant", "Choose one —\n• Counter target multicolored spell.\n• Destroy target multicolored permanent.")).jobs).toEqual([]);
-});
-
-test("reads a card's downsides, which a strictly better card may not add", () => {
-  expect(textDrawbacks("Destroy target creature. You lose 2 life.")).toEqual(["life"]); // Infernal Grasp
-  expect(textDrawbacks("As an additional cost to cast this spell, pay X life.\nAll creatures get -X/-X until end of turn.")).toEqual(["life"]);
-  expect(textDrawbacks("{T}: Add {C}.\n{T}: Add {B} or {G}. Llanowar Wastes deals 1 damage to you.")).toEqual(["life"]);
-  expect(textDrawbacks("Destroy target permanent. Its controller creates a 3/3 green Beast creature token.")).toEqual(["helps-opponent"]);
-  expect(textDrawbacks("Exile target creature. Its controller gains life equal to its power.")).toEqual(["helps-opponent"]);
-  expect(textDrawbacks("At the beginning of each player's draw step, if this artifact is untapped, that player draws an additional card.")).toEqual(["symmetric"]);
-  expect(textDrawbacks("Each player discards their hand, then draws seven cards.")).toEqual(["symmetric"]);
-  expect(textDrawbacks("As an additional cost to cast this spell, sacrifice a creature.\nDestroy target creature.")).toEqual(["extra-cost"]);
-  expect(textDrawbacks("Cumulative upkeep {1}")).toEqual(["upkeep"]);
-  expect(textDrawbacks("Hexproof\nLotus Field enters tapped.\nWhen Lotus Field enters, sacrifice two untapped lands.\n{T}: Add three mana of any one color.")).toEqual(["extra-cost"]);
-  expect(textDrawbacks("Destroy target creature or planeswalker.")).toEqual([]); // Hero's Downfall
-  expect(textDrawbacks("Whenever you lose life, draw a card.")).toEqual([]); // a payoff, not a cost
-  expect(classify(card("Murder", "Instant", "Destroy target creature.")).drawbacks).toEqual([]);
-});
-
-test("tells a utility land from a plain one, and which colours a fetch land finds", () => {
-  const land = (name, text, type = "Land") => classify(card(name, type, text));
-  for (const [name, text] of [
-    ["Rogue's Passage", "{T}: Add {C}.\n{4}, {T}: Target creature can't be blocked this turn."],
-    ["Reliquary Tower", "You have no maximum hand size.\n{T}: Add {C}."],
-    ["Halimar Depths", "Halimar Depths enters tapped.\nWhen Halimar Depths enters, look at the top three cards of your library, then put them back in any order.\n{T}: Add {U}."],
-  ]) {
-    expect(land(name, text).utility).toBe(true);
-  }
-  expect(land("Ancient Den", "{T}: Add {W}.", "Artifact Land").utility).toBe(true);
-  for (const [name, text] of [
-    ["Island", "({T}: Add {U}.)"],
-    ["Godless Shrine", "({T}: Add {W} or {B}.)\nAs Godless Shrine enters, you may pay 2 life. If you don't, it enters tapped."],
-    ["Temple of Triumph", "Temple of Triumph enters tapped.\nWhen Temple of Triumph enters, scry 1.\n{T}: Add {R} or {W}."],
-    ["Thriving Bluff", "Thriving Bluff enters tapped. As it enters, choose a color other than red.\n{T}: Add {R} or one mana of the chosen color."],
-    ["City of Brass", "Whenever City of Brass becomes tapped, it deals 1 damage to you.\n{T}: Add one mana of any color."],
-    ["Mystic Gate", "{T}: Add {C}.\n{W/U}, {T}: Add {W}{W}, {W}{U}, or {U}{U}."],
-    ["Dimir Aqueduct", "Dimir Aqueduct enters tapped.\nWhen Dimir Aqueduct enters, return a land you control to its owner's hand.\n{T}: Add {U}{B}."],
-    ["Zagoth Triome", "({T}: Add {B}, {R}, or {G}.)\nThis land enters tapped.\nCycling {3}"],
-    ["Flooded Strand", "{T}, Pay 1 life, Sacrifice Flooded Strand: Search your library for a Plains or Island card, put it onto the battlefield, then shuffle."],
-  ]) {
-    expect([name, land(name, text).utility]).toEqual([name, false]);
-  }
-  expect(land("Scalding Tarn", "{T}, Pay 1 life, Sacrifice Scalding Tarn: Search your library for an Island or Mountain card, put it onto the battlefield, then shuffle.").fetches).toEqual(["U", "R"]);
-  expect(land("Fabled Passage", "{T}, Sacrifice Fabled Passage: Search your library for a basic land card, put it onto the battlefield tapped, then shuffle. Then if you control four or more lands, untap that land.").fetches).toBeUndefined();
-  // Evolving Wilds' land comes in tapped; Fabled Passage's untaps once you have four lands.
-  const wilds = card("Evolving Wilds", "Land", "{T}, Sacrifice Evolving Wilds: Search your library for a basic land card, put it onto the battlefield tapped, then shuffle.");
-  expect(poolCard(wilds, ["W", "U"], 1).tapped).toBe(true);
-  expect(poolCard(card("Cultivator", "Sorcery", "Search your library for a basic land card, put it onto the battlefield tapped."), [], 1).tapped).toBe(false);
 });
 
 test("reads what the commander rewards: Venom turns a sacrificed creature's mana value into cards", () => {
@@ -260,8 +213,5 @@ test("searches Scryfall for cards that do everything a deck card does, and keeps
   const names = data.pool.map((c) => c.name);
   expect(names).toContain("Heritage Reclamation");
   expect(names).not.toContain("Naturalize");
-  // Players on Strictly Better voted Heritage Reclamation strictly better than Return to Nature (server/data/strictly-better.json).
-  expect(data.pool.find((c) => c.name === "Return to Nature").superiors).toEqual([["Heritage Reclamation", expect.any(Number), expect.any(Number)]]);
-  expect(searchCards.mock.calls.some(([q]) => q.includes('!"heritage reclamation"'))).toBe(true);
   expect(data.strategy).toMatchObject({ name: "Titania", themes: ["Lands", "Elementals", "Ramp"] });
 });

@@ -116,15 +116,6 @@ try {
   console.warn("server/data/function-tags.json is missing: the optimizer reads card jobs from rules text only. Run npm run tags.");
 }
 
-// Strictly Better's community list of cards players voted strictly better than others (npm run strictly-better
-// writes the file): front name -> [[better card, upvotes, downvotes]].
-let SUPERIORS = new Map();
-try {
-  SUPERIORS = new Map(Object.entries(JSON.parse(readFileSync(path.resolve("server/data/strictly-better.json"), "utf8")).pairs));
-} catch {
-  console.warn("server/data/strictly-better.json is missing: the optimizer finds strictly better cards by its own check only. Run npm run strictly-better.");
-}
-
 /** Jobs (see JOBS in shared/optimizer.js) read from rules text, for cards the Tagger file doesn't cover. */
 export function textJobs(text, type) {
   const jobs = [];
@@ -168,22 +159,6 @@ export function textFeatures(text) {
   return out;
 }
 
-/** Downsides (see DRAWBACKS in shared/optimizer.js) read from rules text: what a strictly better card may not add. */
-export function textDrawbacks(text) {
-  const out = [];
-  const add = (d, re) => re.test(text) && out.push(d);
-  // Infernal Grasp's 2 life, Toxic Deluge's X, a pain land's 1 damage.
-  add("life", /\byou lose (?:\d+|X|that much) life\b|\byou lose life equal to|\bpay (?:\d+|X) life\b|deals? (?:\d+|X) damage to you\b/i);
-  // Beast Within's 3/3, Assassin's Trophy's basic land, Swords to Plowshares' life.
-  add("helps-opponent", /\b(?:its|that (?:creature|permanent|spell)'s) controller (?:may )?(?:search|creates?|draws?|gains?|puts?|returns?|reveals?|manifests?)|\btarget opponent (?:may )?(?:draws?|creates?|gains?|searches)/i);
-  // Howling Mine, Collective Voyage, a wheel.
-  add("symmetric", /\beach (?:other )?player (?:may )?(?:draws?|creates?|searches|gains?|puts? (?:a|up to|any number)|returns?)|\beach player's (?:upkeep|draw step)[^.]*draws?|\beach player discards [^.]*then draws/i);
-  // Or, like Lotus Field, to put it onto the battlefield.
-  add("extra-cost", /as an additional cost to cast this spell, (?:sacrifice|discard|exile|return)|when [^.]* enters, sacrifice (?:a|an|one|two|three)\b/i);
-  add("upkeep", /\bat the beginning of your upkeep, (?:sacrifice|you lose|pay|exile)|\bCumulative upkeep\b|(?:^|\n)Echo\b/i);
-  return out;
-}
-
 // What a commander rewards, read from its rules text: the plan, and the jobs and features that help it.
 const PLANS = [
   ["attacks", /whenever [^.]*\battacks\b|deals combat damage/i, ["gives-trample", "gives-haste", "gives-flying", "gives-menace", "extra-combat"]],
@@ -214,19 +189,11 @@ export function strategyOf(commanders, themes = []) {
   return { name: face.name.split(",")[0].trim(), fuel, plans, themes };
 }
 
-// What a plain land's rules text says: mana abilities, entering tapped, scry or life on entering, a bounce land's
-// return, fetching and cycling. A land with anything else (Rogue's Passage, Reliquary Tower) is a utility land.
-const PLAIN_LAND_LINE = /^(?:\(.*\)|(?:\{[^}]+\}, )*\{T\}[^:]*: Add .*|.*\benters (?:the battlefield )?tapped\b.*|As .* enters.*|If you (?:don't|do)\b.*|When .* enters, (?:scry \d+|you gain \d+ life|return a land you control to its owner's hand)\.|Whenever .* becomes tapped, it deals \d+ damage to you\.|Cycling \{.*|(?:\{[^}]+\}, )*\{T\}, (?:Pay \d+ life, )?Sacrifice [^:]*: Search .*)$/i;
-const BASIC_TYPES = { Plains: "W", Island: "U", Swamp: "B", Mountain: "R", Forest: "G" };
-
 export function classify(c) {
   const text = textOf(c);
   const type = typeOf(c);
   const mv = c.cmc ?? 0;
   const cost = costOf(c);
-  // The basic land types a fetch land finds (Scalding Tarn: Island or Mountain); none named means any basic land.
-  const sought = /search your library for ([^.]*?) cards?/i.exec(text)?.[1] ?? "";
-  const fetches = Object.entries(BASIC_TYPES).filter(([t]) => new RegExp(`\\b${t}\\b`).test(sought)).map(([, colour]) => colour);
   const out = {
     roles: [],
     free: false,
@@ -234,7 +201,6 @@ export function classify(c) {
     net: 0,
     finds: null,
     fetch: /search your library for [^.]*(?:land|Plains|Island|Swamp|Mountain|Forest) card/i.test(text),
-    ...(fetches.length && { fetches }),
     // Mana that only pays for some spells (Herd Heirloom's, creature spells only) isn't Mind Stone's any-spell mana.
     manaRestricted: /spend this mana only/i.test(text),
     madness: madnessCost(text),
@@ -251,8 +217,6 @@ export function classify(c) {
   };
   if (/\bLand\b/.test(type)) {
     out.roles.push("land");
-    // An artifact, creature or legendary land does something a basic doesn't too.
-    out.utility = /\b(?:Artifact|Creature|Legendary)\b/.test(type) || text.split("\n").some((l) => l.trim() && !PLAIN_LAND_LINE.test(l.trim()));
   } else {
     const added = manaAdded(text);
     const makesMana = added > 0 || (c.produced_mana?.length ?? 0) > 0;
@@ -301,7 +265,6 @@ export function classify(c) {
   out.jobs = Object.keys(JOBS).filter((j) => jobs.has(j));
   const features = new Set([...tagged, ...(/\bLand\b/.test(type) ? [] : textFeatures(text))]);
   out.features = Object.keys(FEATURES).filter((f) => features.has(f));
-  out.drawbacks = textDrawbacks(text);
   // How much damage-only removal deals (Lightning Bolt's 3 isn't Doom Blade's destroy, End the Festivities' 1 isn't
   // Blasphemous Act's 13), or how many -1/-1 counters it puts. X counts as 0: Chain Reaction's X creatures or Black
   // Sun's Zenith's X mana isn't sure to kill what Crux of Fate destroys. null when it destroys, exiles, shrinks or bounces.
@@ -395,8 +358,7 @@ export function poolCard(c, identity, usdCad, cedh = null, edh = null) {
     price: usd == null ? null : Math.round(usd * usdCad * 100) / 100,
     priceUsd: usd,
     produces: c.produced_mana ?? [],
-    // Evolving Wilds puts its land onto the battlefield tapped: as slow as a tapped land.
-    tapped: (/enters (?:the battlefield )?tapped/i.test(textOf(c)) || (/\bLand\b/.test(type) && /onto the battlefield tapped/i.test(textOf(c)))) && !/unless|you may pay|if you don't|if you control/i.test(textOf(c)),
+    tapped: /enters (?:the battlefield )?tapped/i.test(textOf(c)) && !/unless|you may pay|if you don't|if you control/i.test(textOf(c)),
     gameChanger: Boolean(c.game_changer),
     rank: c.edhrec_rank ?? null,
     cedh,
@@ -499,9 +461,7 @@ export async function buildPool(commanders, deckNames = []) {
   const recs = deckNames.length ? await deckRecs(names, deckNames) : null;
   const recAdd = new Map([...(recs?.adds ?? [])].map(([n, s]) => [front(n), s]));
   const recCut = new Map([...(recs?.cuts ?? [])].map(([n, s]) => [front(n), s]));
-  // Cards players voted strictly better than the player's own, checked on Scryfall like the rest.
-  const better = [...new Set(deckNames.map(front))].flatMap((n) => (SUPERIORS.get(n) ?? []).map(([name]) => name));
-  const [{ usdCad, date }, found] = await Promise.all([usdToCad(), lookupNames([...candidates, ...deckNames, ...names, ...(recs?.adds.keys() ?? []), ...better])]);
+  const [{ usdCad, date }, found] = await Promise.all([usdToCad(), lookupNames([...candidates, ...deckNames, ...names, ...(recs?.adds.keys() ?? [])])]);
   const toPool = (c) => ({
     ...poolCard(c, identity, usdCad, cedh.get(front(c.name)) ?? null, edh.get(front(c.name)) ?? null),
     recAdd: recAdd.get(front(c.name)) ?? null,
@@ -515,13 +475,8 @@ export async function buildPool(commanders, deckNames = []) {
   // The same card can be found under two keys (front face and full name), or by both lookups.
   const unique = [...new Map([...pool, ...alike].map((c) => [c.name, c])).values()];
   const inPool = new Set(unique.map((c) => c.name));
-  const nameOf = new Map(unique.map((c) => [front(c.name), c.name]));
-  // Strictly Better's votes, by the pool's own names, for the cards it has.
-  for (const c of unique) {
-    const votes = (SUPERIORS.get(front(c.name)) ?? []).map(([n, up, down]) => [nameOf.get(front(n)), up, down]).filter(([n]) => n);
-    if (votes.length) c.superiors = votes;
-  }
   // Spellbook names double-faced cards by their full name too; keep lines whose every piece we could check.
+  const nameOf = new Map(unique.map((c) => [front(c.name), c.name]));
   const usable = combos
     .map((l) => ({ ...l, pieces: l.pieces.map((p) => nameOf.get(front(p)) ?? p), battlefield: l.battlefield.map((p) => nameOf.get(front(p)) ?? p) }))
     .filter((l) => l.pieces.every((p) => inPool.has(p)));

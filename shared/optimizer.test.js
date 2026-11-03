@@ -1,4 +1,4 @@
-import { applyChanges, BUDGET_TIERS, cardValue, compare, deckCost, explain, lineEfficiency, mainJob, manaBase, MODES, optimize, pairChanges, replaces, report, strictlyBetter, theoreticalTurn } from "./optimizer.js";
+import { applyChanges, BUDGET_TIERS, cardValue, compare, deckCost, explain, lineEfficiency, mainJob, MODES, optimize, pairChanges, replaces, report, theoreticalTurn } from "./optimizer.js";
 import { hyperAtLeast } from "./probability.js";
 
 // A made-up mono-red pool: enough cards of every role to fill a deck at any budget, plus traps the optimizer must avoid.
@@ -259,31 +259,14 @@ test("a replacement does the old card's job and is concretely better, never a do
   expect(key.score).toBeLessThan(0);
 });
 
-// Players on Strictly Better voted Hero's Downfall strictly better than Murder, and Infernal Grasp not (it costs life).
-const DOWNFALL = rakdos("Hero's Downfall", ["interaction"], ["creature-removal", "planeswalker-removal"], { manaValue: 3, price: 0.5 });
-const VOTED_MURDER = { ...MURDER, superiors: [["Hero's Downfall", 307, 0], ["Infernal Grasp", 18, 82]] };
-const LIFE_GRASP = { ...GRASP, drawbacks: ["life"] };
-
-test("a strictly better card is one players voted so and our own check finds nothing worse in", () => {
-  expect(strictlyBetter(DOWNFALL, VOTED_MURDER)).toEqual({ up: 307, down: 0 });
-  // More players voted no; and without a vote even a cheaper card that does the job isn't "strictly" better.
-  expect(strictlyBetter(GRASP, VOTED_MURDER)).toBeNull();
-  expect(strictlyBetter(TRIUMPH, VOTED_MURDER)).toBeNull();
-  // A vote isn't enough if our check finds something worse: a drawback the old card didn't have.
-  expect(strictlyBetter(LIFE_GRASP, { ...MURDER, superiors: [["Infernal Grasp", 90, 3]] })).toBeNull();
-  expect(compare(LIFE_GRASP, MURDER).losses).toContain("it costs you life");
-  expect(compare(MURDER, LIFE_GRASP).gains).toContain("it doesn't cost you life, where Infernal Grasp costs you life");
-});
-
-test("preserve swaps in only strictly better cards, each with the vote, what's better and what it costs", () => {
+test("preserve suggests only like-for-like upgrades, each with the job, what's better and what it costs", () => {
   const original = ["Murder", "Demonic Tutor", "Skullclamp", "Bloodghast", ...Array.from({ length: 45 }, (_, i) => `Ogre ${i + 1}`), ...Array(50).fill("Swamp")];
-  const pool = [...KARDUR_POOL.filter((c) => c !== MURDER && c !== GRASP), VOTED_MURDER, LIFE_GRASP, DOWNFALL];
-  const r = optimize({ pool, commanders: [KARDUR], original, mode: "preserve" });
-  expect(r.changes.map((c) => [c.remove, c.add, c.kind])).toEqual([["Murder", "Hero's Downfall", "strict"]]);
+  const r = optimize({ pool: KARDUR_POOL, commanders: [KARDUR], original, mode: "preserve" });
+  expect(r.changes.map((c) => [c.remove, c.add])).toEqual([["Murder", "Infernal Grasp"]]);
   expect(r.changes[0].why).toEqual({
     cut: `Murder is a 3-mana instant: creature removal. EDHREC doesn't list it among the cards ${KARDUR} decks play.`,
-    add: `Hero's Downfall is a 3-mana instant: creature and planeswalker removal. EDHREC doesn't list it among the cards ${KARDUR} decks play.`,
-    effect: "Strictly better: players on Strictly Better voted 307 to 0 that Hero's Downfall does everything Murder does and more, and TapToTrade's own check finds nothing worse. Better because it also hits planeswalkers.",
+    add: `Infernal Grasp is a 2-mana instant: creature removal. It's in 40% of ${KARDUR} decks on EDHREC (synergy +10%: played more with ${KARDUR} than in other decks of its colours).`,
+    effect: `Direct upgrade: like Murder, it's creature removal. Better because it costs 1 less mana (2 instead of 3); 40% of ${KARDUR} decks on EDHREC play it, against 0% for Murder; it's +10% synergy with ${KARDUR} on EDHREC, against +0% for Murder. It costs CA$1.20 more.`,
   });
   // Over budget: the dear tutor makes way for a cheap one that also puts the card in hand, and the reason says why.
   const DIABOLIC = rakdos("Diabolic Tutor", ["tutor"], ["tutor"], { manaValue: 4, typeLine: "Sorcery", instant: false, finds: "any", tutorTo: "hand", price: 0.3, edh: 0.1 });
@@ -374,107 +357,24 @@ test("a budget swap keeps what the card does for the commander's plan, and a wip
   expect(r.changes.map((c) => [c.remove, c.add])).toEqual([["Avacyn, Angel of Horror", "Butcher of Malakir"]]);
 });
 
-test("a strictly better card always goes in; otherwise EDHREC's suggestions pick a card for one EDHREC rates weak", () => {
+test("EDHREC's suggestions for the list decide which cards may go, and the reasons quote them", () => {
   const venom = jund(VENOM, ["other"], [], [], { manaValue: 6, typeLine: "Legendary Creature" });
-  // Ogres are in most Venom decks here, so only Return to Nature can be weak.
-  const ogres = KARDUR_POOL.slice(1).map((c) => (c.name.startsWith("Ogre") ? { ...c, edh: 0.6 } : c));
   const original = ["Return to Nature", ...Array.from({ length: 45 }, (_, i) => `Ogre ${i + 1}`), ...Array(53).fill("Swamp")];
-  const run = (back, forth = { recAdd: 0.4, edh: 0.6 }) => optimize({ pool: [venom, ...ogres, { ...RETURN, ...back }, { ...HERITAGE, ...forth }], commanders: [VENOM], original, mode: "preserve", strategy: VENOM_PLAN });
-  // Players voted Heritage Reclamation strictly better: it goes in, even where EDHREC's decks would keep Return to Nature.
-  const [strict] = run({ recCut: 0.3, edh: 0.6, superiors: [["Heritage Reclamation", 30, 0]] }).changes;
-  expect([strict.remove, strict.add, strict.kind]).toEqual(["Return to Nature", "Heritage Reclamation", "strict"]);
-  // No vote: EDHREC's decks keep it (a low cut score, most decks play it), so it stays.
-  expect(run({ recCut: 0.3, edh: 0.6 }).changes).toEqual([]);
-  // EDHREC's suggestions say cut it: the card they suggest adding comes in, a card with the same job first.
-  const [swap] = run({ recCut: 0.87, edh: 0.6 }).changes;
-  expect([swap.remove, swap.add, swap.kind]).toEqual(["Return to Nature", "Heritage Reclamation", "edhrec"]);
+  const run = (recCut) => optimize({ pool: [venom, ...KARDUR_POOL.slice(1), { ...RETURN, recCut }, { ...HERITAGE, recAdd: 0.4 }], commanders: [VENOM], original, mode: "preserve", strategy: VENOM_PLAN });
+  // EDHREC's decks say Return to Nature belongs in this list: it stays, even with a direct upgrade on offer.
+  expect(run(0.3).changes).toEqual([]);
+  const [swap] = run(0.87).changes;
+  expect([swap.remove, swap.add]).toEqual(["Return to Nature", "Heritage Reclamation"]);
   expect(swap.why.cut).toContain("EDHREC's suggestions for your exact list rate it 87/100 to cut.");
   expect(swap.why.add).toContain("EDHREC's suggestions for your exact list rate it 40/100 to add.");
-  expect(swap.why.effect).toBe("EDHREC's pick: nothing strictly better than Return to Nature fits, and EDHREC's suggestions for your list say to cut it, so this is a card EDHREC's suggestions for your list say to add. Same job: artifact removal. Better because it also draws a card.");
-  // Few Venom decks play it: weak too. But a card EDHREC barely suggests doesn't come in.
-  expect(run({ recCut: 0, edh: 0.1 }).changes[0].why.effect).toContain("only 10% of Venom decks on EDHREC still play it");
-  expect(run({ recCut: 0.87 }, { recAdd: 0.1 }).changes).toEqual([]);
 });
 
-test("the land base: Karsten's land count for the curve, and sources for each colour's most demanding card", () => {
-  const golgari = (name, cost, manaValue, extra = {}) => jund(name, ["other"], [], [], { manaCost: cost, manaValue, typeLine: "Creature", instant: false, colorIdentity: ["B", "G"], ...extra });
-  const land = (name, produces, extra = {}) => jund(name, ["land"], [], [], { manaValue: 0, typeLine: "Land", instant: false, produces, colorIdentity: [], ...extra });
-  const pool = [
-    golgari("Golgari Boss", "{2}{B}{G}", 4, { typeLine: "Legendary Creature" }),
-    ...Array.from({ length: 60 }, (_, i) => golgari(`Elf ${i + 1}`, "{1}{G}", 2, { edh: 0.5 })),
-    golgari("Gray Merchant", "{3}{B}{B}", 5, { edh: 0.5 }),
-    ...Array.from({ length: 10 }, (_, i) => golgari(`Spare ${i + 1}`, "{1}{G}", 2, { edh: 0.5, recCut: i / 10 })),
-    land("Forest", ["G"], { basic: true, price: 0.1 }),
-    land("Swamp", ["B"], { basic: true, price: 0.1 }),
-    land("Woodland Cemetery", ["B", "G"], { price: 4, edh: 0.5 }),
-    land("Golgari Guildgate", ["B", "G"], { price: 0.2, tapped: true }),
-    land("Llanowar Wastes", ["B", "G"], { price: 1, edh: 0.3 }),
-    land("Bojuka Bog", ["B"], { price: 0.5, tapped: true, jobs: ["graveyard-hate"] }),
-    land("Rogue's Passage", [], { price: 0.4, utility: true }),
-    land("Lotus Field", ["B", "G"], { price: 3, tapped: true, drawbacks: ["extra-cost"] }),
-  ];
-  const byName = new Map(pool.map((c) => [c.name, c]));
-  const deck = [...Array.from({ length: 60 }, (_, i) => `Elf ${i + 1}`), "Gray Merchant", ...Array(29).fill("Forest"), "Rogue's Passage", "Swamp", ...Array.from({ length: 7 }, (_, i) => `Spare ${i + 1}`)];
-  const base = manaBase(deck, byName, ["B", "G"], ["Golgari Boss"]);
-  // 68 spells averaging 2.04 mana, none cheap ramp or draw: 31.42 + 3.13 × 2.04 = 37.8, so 38 lands.
-  expect(base).toMatchObject({ lands: 31, wanted: 38 });
-  // Gray Merchant ({3}{B}{B}) wants 23 black sources with 41 lands: 18 with 31. The deck has one. An Elf ({1}{G}) wants 19: 15.
-  expect(base.colours).toEqual([
-    { colour: "B", sources: 1, need: 18, card: "Gray Merchant" },
-    { colour: "G", sources: 29, need: 15, card: "Elf 1" },
-  ]);
-  expect(base.short).toEqual(["B"]);
-  // An X spell is counted as cast with X = 3: {X}{G}{G}{G} wants 28 sources (3CCC), not 36 (CCC).
-  const zenith = golgari("Green Zenith", "{X}{G}{G}{G}", 3);
-  expect(manaBase(["Green Zenith", ...Array(41).fill("Forest")], new Map([...byName, ["Green Zenith", zenith]]), ["G"]).colours[0].need).toBe(28);
-  const r = optimize({ pool, commanders: ["Golgari Boss"], original: deck, mode: "preserve" });
-  const lands = r.changes.filter((c) => c.kind === "land");
-  // Short of lands first: the spells EDHREC most wants cut make way for the best duals (untapped first), then basics.
-  const added = lands.filter((c) => c.remove.startsWith("Spare"));
-  expect(added.map((c) => [c.remove, c.add])).toEqual(expect.arrayContaining([["Spare 7", "Woodland Cemetery"], ["Spare 6", "Llanowar Wastes"]]));
-  expect(added).toHaveLength(4);
-  expect(added[0].why.effect).toMatch(/^Land base: the deck has 3\d lands, and Frank Karsten's formula for a Commander deck with this curve says 38 \(give or take 3\)\. It saves CA\$0\.90\.$/);
-  // Then black: Forests make way for Swamps (no dual left but a tapped one) for as long as green keeps its 17. With
-  // Rogue's Passage staying, 35 lands make 36 coloured sources, one short of black's 20 and green's 17.
-  const after = manaBase(r.deck, byName, ["B", "G"], ["Golgari Boss"]);
-  expect(after.lands).toBe(35);
-  expect(after.colours).toEqual([
-    { colour: "B", sources: 19, need: 20, card: "Gray Merchant" },
-    { colour: "G", sources: 17, need: 17, card: "Elf 1" },
-  ]);
-  expect(r.deck).not.toContain("Golgari Guildgate"); // a tapped dual doesn't replace an untapped basic
-  expect(r.deck).toContain("Rogue's Passage"); // a utility land isn't traded for a basic
-  expect(r.deck).not.toContain("Lotus Field"); // nor a land in for one that costs two lands
-  expect(lands.find((c) => c.remove === "Forest").why.effect).toMatch(/^Land base: Black has \d+ sources, and Gray Merchant needs 20 to be cast on curve with 35 lands, by Frank Karsten's numbers\. Swamp makes black mana\./);
-});
-
-test("the optimizer learns: swaps players take rank higher, ones they keep turning down stop, and the reason says so", () => {
-  const original = ["Murder", ...Array.from({ length: 45 }, (_, i) => `Ogre ${i + 1}`), ...Array(53).fill("Swamp")];
-  const BREATHE = rakdos("Breathe Your Last", ["interaction"], ["creature-removal", "planeswalker-removal"], { manaValue: 3, price: 0.5 });
-  const pool = [...KARDUR_POOL.filter((c) => c !== MURDER), { ...MURDER, superiors: [["Hero's Downfall", 307, 0], ["Breathe Your Last", 94, 1]] }, DOWNFALL, BREATHE];
-  const run = (learned) => optimize({ pool, commanders: [KARDUR], original, mode: "preserve", learned }).changes.map((c) => c.add);
-  expect(run({})).toEqual(["Hero's Downfall"]);
-  // Players took Breathe Your Last for Murder twice: it ranks first now, and the reason says so.
-  const took = optimize({ pool, commanders: [KARDUR], original, mode: "preserve", learned: { pairs: [["Murder", "Breathe Your Last", 2, 0]] } }).changes[0];
-  expect(took.add).toBe("Breathe Your Last");
-  expect(took.why.effect).toContain("Players shown this swap before took it 2 times and turned it down 0 times.");
-  // Turned down three times out of three: not suggested again, so the other one is.
-  expect(run({ pairs: [["Murder", "Hero's Downfall", 0, 3]] })).toEqual(["Breathe Your Last"]);
-  // Players of this commander keep turning a card down, whatever it replaces: it stops coming in (5 or more no's,
-  // under 25% taken: 1 of 6 is 2/8 smoothed, just enough to stay).
-  expect(run({ adds: [["Hero's Downfall", 0, 5], ["Breathe Your Last", 1, 5]] })).toEqual(["Breathe Your Last"]);
-  expect(run({ adds: [["Hero's Downfall", 0, 5], ["Breathe Your Last", 1, 6]] })).toEqual([]);
-});
-
-test("preserve upgrades the Venom deck only where a card is strictly better, and says what each card does for Venom", () => {
-  // Even if players voted for Eerie Gravestone and Psychosis Crawler, one gives up Uprising's trample and repeat draw
-  // and the other is a smaller creature for Venom to sacrifice: not strictly better here.
-  const voted = (c, name) => ({ ...c, superiors: [[name, 30, 0]] });
-  const pool = [jund(VENOM, ["other"], [], [], { manaValue: 6, typeLine: "Legendary Creature" }), ...KARDUR_POOL.slice(1), voted(UPRISING, "Eerie Gravestone"), GRAVESTONE, voted(RETURN, "Heritage Reclamation"), HERITAGE, TEAR, voted(TYRANT, "Psychosis Crawler"), CRAWLER];
+test("preserve upgrades the Venom deck only where a card is a direct upgrade, and says what each card does for Venom", () => {
+  const pool = [jund(VENOM, ["other"], [], [], { manaValue: 6, typeLine: "Legendary Creature" }), ...KARDUR_POOL.slice(1), UPRISING, GRAVESTONE, RETURN, HERITAGE, TEAR, TYRANT, CRAWLER];
   const original = ["Garruk's Uprising", "Return to Nature", "Vaultborn Tyrant", ...Array.from({ length: 45 }, (_, i) => `Ogre ${i + 1}`), ...Array(51).fill("Swamp")];
   const r = optimize({ pool, commanders: [VENOM], original, mode: "preserve", strategy: VENOM_PLAN });
   expect(r.changes.map((c) => [c.remove, c.add])).toEqual([["Return to Nature", "Heritage Reclamation"]]);
-  expect(r.changes[0].why.effect).toBe("Strictly better: players on Strictly Better voted 30 to 0 that Heritage Reclamation does everything Return to Nature does and more, and TapToTrade's own check finds nothing worse. Better because it also draws a card.");
+  expect(r.changes[0].why.effect).toBe("Direct upgrade: like Return to Nature, it's artifact and enchantment removal and graveyard hate. Better because it also draws a card.");
   const context = { byName: new Map(pool.map((c) => [c.name, c])), commanders: [VENOM], identity: ["G"], lines: [], oldLines: [], counts: {}, strategy: VENOM_PLAN };
   expect(explain({ remove: "Garruk's Uprising" }, context).cut).toBe(
     "Garruk's Uprising is a 3-mana enchantment: card draw. It keeps drawing cards, gives your creatures trample and rewards creatures with high power. That suits Venom, which attacks. It's in 31% of Venom decks on EDHREC (synergy +13%: played more with Venom than in other decks of its colours).",
