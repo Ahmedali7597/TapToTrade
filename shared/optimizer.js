@@ -198,7 +198,7 @@ export function linesIn(names, combos, commanders) {
   return combos.filter((l) => l.pieces.every((p) => have.has(p)));
 }
 
-/** One-for-one swaps that turn `before` into `after` (both multisets of names): same-role pairs first, then the rest. */
+/** One-for-one swaps that turn `before` into `after` (both multisets of names), paired by role where possible. */
 export function pairChanges(before, after, byName) {
   const count = (list) => list.reduce((m, n) => m.set(n, (m.get(n) ?? 0) + 1), new Map());
   const a = count(before);
@@ -207,126 +207,43 @@ export function pairChanges(before, after, byName) {
   const added = [];
   for (const [n, k] of a) for (let i = 0; i < k - (b.get(n) ?? 0); i++) removed.push(n);
   for (const [n, k] of b) for (let i = 0; i < k - (a.get(n) ?? 0); i++) added.push(n);
-  const role = (n) => primary(byName.get(n) ?? {});
   const pairs = [];
-  const unmatched = [];
+  const left = [...added];
   for (const r of removed) {
-    const i = added.findIndex((n) => role(n) === role(r));
-    if (i < 0) unmatched.push(r);
-    else pairs.push({ remove: r, add: added.splice(i, 1)[0] });
+    const role = primary(byName.get(r) ?? {});
+    let i = left.findIndex((n) => primary(byName.get(n) ?? {}) === role);
+    if (i < 0) i = 0;
+    pairs.push({ remove: r, add: left.splice(i, 1)[0] ?? null });
   }
-  for (const r of unmatched) pairs.push({ remove: r, add: added.shift() ?? null });
-  for (const n of added) pairs.push({ remove: null, add: n });
+  for (const n of left) pairs.push({ remove: null, add: n });
   return pairs;
 }
 
 const pct = (x) => `${Math.round(x * 100)}%`;
 const money = (n) => `CA$${Math.abs(n).toFixed(2)}`;
-const COLOUR_NAMES = { W: "white", U: "blue", B: "black", R: "red", G: "green" };
-const ROLE_ONE = { fastMana: "fast mana card", ramp: "ramp card", tutor: "tutor", draw: "card-draw card", interaction: "interaction card", protection: "protection card", wincon: "win condition", land: "land", other: "card of another kind" };
-const ROLE_PLURAL = { fastMana: "fast mana", ramp: "ramp", tutor: "tutors", draw: "card draw", interaction: "interaction", protection: "protection", wincon: "win conditions", land: "lands", other: "other cards" };
-const capital = (s) => s[0].toUpperCase() + s.slice(1);
-const list = (xs) => (xs.length < 2 ? xs.join("") : `${xs.slice(0, -1).join(", ")} or ${xs.at(-1)}`);
 
-/** The card's main type, e.g. "creature", from the front face's type line. */
-function typeOf(c) {
-  const t = (c.typeLine ?? "").split(" // ")[0];
-  return ["Creature", "Planeswalker", "Battle", "Instant", "Sorcery", "Artifact", "Enchantment", "Land"].find((x) => t.includes(x))?.toLowerCase() ?? "card";
-}
-
-/** What the deck really pays for a card: its madness cost when it has one (Anje-style decks discard them). */
-const castFor = (c) => c.madness ?? c.manaValue ?? 0;
-const manaText = (c) => `${castFor(c)}-mana`;
-const NUMBERS = ["none", "one", "two", "three", "four", "five"];
-
-/** Which of the deck's colours a land can make (a fetch land finds a land of any of them). */
-const coloursOf = (c, identity) => (c.fetch ? identity : identity.filter((x) => c.produces?.includes(x)));
-
-/** What a card does in the deck, in a few words, from the role data the pool has for it. */
-function jobOf(c, identity) {
-  const job = baseJob(c, identity);
-  return c.madness != null ? `${job}, cast for its madness cost` : job;
-}
-function baseJob(c, identity) {
-  const role = primary(c);
-  const mv = castFor(c);
-  if (role === "land") {
-    const colours = coloursOf(c, identity).map((x) => COLOUR_NAMES[x]);
-    const kind = c.basic ? "a basic land" : c.fetch ? "a fetch land" : "a land";
-    const makes = c.fetch ? `that finds a land for ${list(colours)} mana` : colours.length ? `that makes ${list(colours)} mana` : "that makes only colourless mana";
-    return `${kind} ${makes}${c.tapped ? " and enters tapped" : ""}`;
-  }
-  if (role === "fastMana") return `fast mana: it gives back ${c.net || 1} more mana than it costs`;
-  if (role === "ramp") return `ramp that costs ${mv}`;
-  if (role === "tutor") return c.finds === "any" || !c.finds?.length ? `a ${manaText(c)} tutor that finds any card` : `a ${manaText(c)} tutor for ${list(c.finds)} cards`;
-  if (role === "draw") return `${manaText(c)} card draw`;
-  if (role === "interaction") return `${c.free ? "free" : manaText(c)} interaction (removal, a counterspell or graveyard hate)`;
-  if (role === "protection") return `${c.free ? "free" : manaText(c)} protection for your combo turn`;
-  if (role === "wincon") return "a win condition";
-  return `a ${mv}-mana ${typeOf(c)}`;
-}
-
-/** Share of the commander's cEDH decks on EDHREC that play a card. */
-const played = (c) => c.cedh ?? 0;
-
-/**
- * Why one swap is made, built only from what we know about the two cards and the deck:
- * { cut, add, effect } sentences (any may be ""). `counts` are the original deck's role counts.
- */
-export function explain({ remove, add }, { byName, commanders, identity, lines, oldLines, counts }) {
+/** A plain-language reason for one swap, built only from the data we have about both cards. */
+export function reasonFor({ remove, add }, byName, commanders, lines) {
   const out = byName.get(remove);
   const inn = byName.get(add);
-  const commander = commanders[0];
-  let cut = "";
-  if (out) {
-    const role = primary(out);
-    if (!out.legal) cut = `${remove} is banned or not legal in Commander, so it has to go.`;
-    else if (!out.inIdentity) cut = `${remove} is outside ${commanders.join(" and ")}'s colour identity, so it isn't allowed in this deck.`;
-    else if (out.basic) cut = `${remove} is ${jobOf(out, identity)}.`;
-    else {
-      cut = `${remove} is ${jobOf(out, identity)}, and ${played(out) ? `only ${pct(played(out))} of` : "none of"} the cEDH ${commander} decks on EDHREC play it.`;
-      if (role !== "land" && castFor(out) >= 4) cut += ` At ${castFor(out)} mana it's slow for a format where games are often decided by turn 4.`;
-      if (role !== "land" && role !== "other" && (counts[role] ?? 0) > (TARGETS[role] ?? 99)) cut += ` The deck already has ${counts[role]} ${ROLE_PLURAL[role]}, more than the ${TARGETS[role]} a cEDH deck usually runs.`;
-    }
-    const lost = oldLines.find((l) => l.pieces.includes(remove) && !lines.some((x) => x.id === l.id));
-    if (lost) cut += ` This breaks ${lost.pieces.join(" + ")} (${lost.produces[0] ?? "a combo"}); ${lines.length ? `the new deck wins with ${lines[0].pieces.join(" + ")} instead.` : "the new deck has no combo in its place."}`;
-  }
-  let addText = "";
-  if (inn) {
-    const line = lines.find((l) => l.pieces.includes(add));
-    addText = `${add} is ${jobOf(inn, identity)}${inn.cedh ? `, played in ${pct(inn.cedh)} of cEDH ${commander} decks on EDHREC` : ""}.`;
-    if (line) addText += ` It's part of ${line.pieces.join(" + ")} (${line.produces[0] ?? "a combo"}), a combo the new deck can assemble.`;
-  }
-  let effect = "";
-  if (inn && out) {
-    const a = primary(inn);
-    const r = primary(out);
-    const popularity = `${pct(played(inn))} of cEDH ${commander} decks play ${add}, against ${pct(played(out))} for ${remove}`;
-    if (a === "land" && r === "land") {
-      const now = coloursOf(out, identity).length;
-      const next = coloursOf(inn, identity).length;
-      const all = identity.length === 2 ? "both of your colours" : `all ${NUMBERS[identity.length] ?? identity.length} of your colours`;
-      if (next > now) effect = `Makes ${next === identity.length ? all : `${NUMBERS[next]} of your colours`} instead of ${NUMBERS[now]}, so your opening hands can cast more of their spells.`;
-      else if (out.tapped && !inn.tapped) effect = "Enters untapped, so it doesn't cost you a turn's mana.";
-      else if (next < now) effect = `A utility land that ${pct(played(inn))} of cEDH ${commander} decks play. It makes fewer of your colours than ${remove}, so it costs a little colour consistency.`;
-      else effect = out.basic ? `A utility land that ${pct(played(inn))} of cEDH ${commander} decks play, in place of a basic.` : `${capital(popularity)}.`;
-    } else if (a === r && a !== "other") {
-      const bits = [];
-      const mv = castFor(out) - castFor(inn);
-      if (mv > 0) bits.push(`costs ${mv} less mana`);
-      if (inn.free && !out.free) bits.push("can be cast for free");
-      effect = `Same job (${ROLES[a]})${bits.length ? ` and ${list(bits)}` : ""}. ${capital(popularity)}.`;
-    } else if (a === r) {
-      effect = lines.some((l) => l.pieces.includes(add)) ? `Trades a card cEDH ${commander} decks rarely play for a combo piece.` : `${capital(popularity)}.`;
-    } else {
-      const now = (role) => counts[role] ?? 0;
-      effect = `One more ${ROLE_ONE[a]} (${now(a)} to ${now(a) + 1}${TARGETS[a] ? `; cEDH decks run about ${TARGETS[a]}` : ""}) and one ${ROLE_ONE[r]} fewer (${now(r)} to ${now(r) - 1}).`;
-    }
+  const parts = [];
+  if (out && !out.legal) parts.push(`${remove} is banned or not legal in Commander`);
+  else if (out && !out.inIdentity) parts.push(`${remove} is outside ${commanders.join(" and ")}'s colour identity`);
+  const line = lines.find((l) => add && l.pieces.includes(add));
+  if (line) parts.push(`${add} completes ${line.pieces.join(" + ")} (${line.produces[0] ?? "a combo"})`);
+  if (inn && out && remove !== add) {
+    const role = ROLES[primary(inn)];
+    if (inn.cedh != null && out.legal && out.inIdentity && (out.cedh ?? 0) + 0.05 < inn.cedh) parts.push(`${add} is in ${pct(inn.cedh)} of cEDH ${commanders[0]} decks on EDHREC, ${remove} in ${pct(out.cedh ?? 0)}`);
+    if (inn.free && !out.free) parts.push(`${add} can be cast for free`);
+    if ((inn.manaValue ?? 0) < (out.manaValue ?? 0) && !isLand(inn)) parts.push(`${add} costs ${out.manaValue - inn.manaValue} less mana`);
+    if (primary(inn) !== primary(out)) parts.push(`the deck needs ${role} more than ${ROLES[primary(out)]}`);
     const diff = (inn.price ?? 0) - (out.price ?? 0);
-    if (diff < 0 && cardValue(inn) < cardValue(out)) effect += ` Saves ${money(diff)} to stay in the budget.`;
-  } else if (inn) effect = "Fills an empty slot (your list had fewer than 99 cards).";
-  else if (out) effect = "Cut to bring the deck down to 99 cards.";
-  return { cut, add: addText, effect };
+    if (cardValue(inn) < cardValue(out) && diff < 0) parts.push(`saves ${money(diff)} to stay in budget`);
+  }
+  if (!out && inn) parts.push(`fills an empty slot with ${ROLES[primary(inn)]}`);
+  if (out && !inn) parts.push(`${remove} is cut to make room`);
+  if (!parts.length && inn) parts.push(`${add} is the stronger ${ROLES[primary(inn)]} by TapToTrade's card score (${Math.round(cardValue(inn))} vs ${Math.round(cardValue(out ?? inn))})`);
+  return parts.join("; ") + ".";
 }
 
 /** Same-role (or any role, for "value") upgrades to `deck`, best first, kept within the budget. Locked cards stay. */
@@ -475,19 +392,11 @@ export function optimize({ pool, combos = [], commanders, original = [], budget 
   const cost = deckCost(deck, byName, commanders);
   if (budget !== Infinity && cost.total > budget) notes.push(`Even the cheapest version found costs ${money(cost.total)}, over the ${money(budget)} budget. The commander alone costs ${money(deckCost([], byName, commanders).total)}.`);
   const lines = linesIn(deck, combos, commanders).map((l) => ({ ...l, efficiency: lineEfficiency(l, byName, commanders), mana: lineMana(l, byName) })).sort((a, b) => b.efficiency - a.efficiency);
-  const counts = {};
-  for (const n of original) counts[primary(byName.get(n) ?? {})] = (counts[primary(byName.get(n) ?? {})] ?? 0) + 1;
-  const identity = [..."WUBRG"].filter((x) => commanders.some((n) => byName.get(n)?.colorIdentity?.includes(x)));
-  const context = { byName, commanders, identity, lines, oldLines: linesIn(original, combos, commanders), counts };
-  const changes = pairChanges(original, deck, byName).map((p) => {
-    const why = explain(p, context);
-    return {
-      ...p,
-      costDiff: Math.round(((byName.get(p.add)?.price ?? 0) - (byName.get(p.remove)?.price ?? 0)) * 100) / 100,
-      why,
-      reason: [why.cut, why.add, why.effect].filter(Boolean).join(" "),
-    };
-  });
+  const changes = pairChanges(original, deck, byName).map((p) => ({
+    ...p,
+    costDiff: Math.round(((byName.get(p.add)?.price ?? 0) - (byName.get(p.remove)?.price ?? 0)) * 100) / 100,
+    reason: reasonFor(p, byName, commanders, lines),
+  }));
   return { deck, cost, lines, primary: lines[0] ?? null, changes, notes };
 }
 

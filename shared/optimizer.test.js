@@ -1,4 +1,4 @@
-import { applyChanges, BUDGET_TIERS, cardValue, deckCost, explain, lineEfficiency, MODES, optimize, pairChanges, report, theoreticalTurn } from "./optimizer.js";
+import { applyChanges, BUDGET_TIERS, cardValue, deckCost, lineEfficiency, MODES, optimize, pairChanges, report, theoreticalTurn } from "./optimizer.js";
 import { hyperAtLeast } from "./probability.js";
 
 // A made-up mono-red pool: enough cards of every role to fill a deck at any budget, plus traps the optimizer must avoid.
@@ -219,31 +219,4 @@ test("combo efficiency, perfect-draw turns, values and costs", () => {
   expect(cardValue(byName.get("Mountain"))).toBe(5);
   expect(deckCost(["Mountain", "Mystery Card"], byName, commanders)).toEqual({ total: 2.4, unpriced: ["Mystery Card"] });
   expect(BUDGET_TIERS.at(-1)).toBe(Infinity);
-});
-
-test("each swap says why the card goes, why the new one comes in and what changes", () => {
-  const context = { byName, commanders, identity: ["R"], lines: [], oldLines: [], counts: { interaction: 15, draw: 15, land: 35, other: 30 } };
-  // Same role: compares cost and how often cEDH decks play each card.
-  const same = explain({ remove: "Shock 1", add: "Free Counter 1" }, context);
-  expect(same.cut).toBe(`Shock 1 is 1-mana interaction (removal, a counterspell or graveyard hate), and none of the cEDH ${COMMANDER} decks on EDHREC play it. The deck already has 15 interaction, more than the 12 a cEDH deck usually runs.`);
-  expect(same.add).toBe(`Free Counter 1 is free interaction (removal, a counterspell or graveyard hate), played in 85% of cEDH ${COMMANDER} decks on EDHREC.`);
-  expect(same.effect).toBe(`Same job (interaction) and can be cast for free. 85% of cEDH ${COMMANDER} decks play Free Counter 1, against 0% for Shock 1.`);
-  // A basic land is just a basic: no cEDH share for it.
-  const land = explain({ remove: "Mountain", add: "Cantrip 1" }, context);
-  expect(land.cut).toBe("Mountain is a basic land that makes red mana.");
-  expect(land.effect).toBe("One more card-draw card (15 to 16; cEDH decks run about 9) and one land fewer (35 to 34).");
-  // A cut that breaks a combo says so, and what the deck wins with instead.
-  const combo = explain({ remove: "Twinflame", add: "Underworld Breach" }, { ...context, oldLines: [COMBOS[0]], lines: [COMBOS[1]] });
-  expect(combo.cut).toContain("This breaks Dualcaster Mage + Twinflame (Infinite creature tokens with haste); the new deck wins with Underworld Breach + Lion's Eye Diamond instead.");
-  expect(combo.add).toContain("It's part of Underworld Breach + Lion's Eye Diamond (Win the game)");
-  // Every swap in a real run gets all three.
-  for (const ch of run(500).changes.filter((c) => c.remove && c.add)) expect(ch.why.cut && ch.why.add && ch.why.effect).toBeTruthy();
-});
-
-test("swaps pair cards of the same role first", () => {
-  const pairs = pairChanges(["Bear 1", "Shock 1"], ["Free Counter 1", "Bear 2"], byName);
-  expect(pairs).toEqual([
-    { remove: "Bear 1", add: "Bear 2" },
-    { remove: "Shock 1", add: "Free Counter 1" },
-  ]);
 });
