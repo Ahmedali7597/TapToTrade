@@ -16,7 +16,7 @@ import { undoKey } from "@/pages/Deck";
 import { api, qs } from "@/lib/api";
 import { cad } from "@/lib/prices";
 import { cn } from "@/lib/utils";
-import { applyChanges, BUDGET_TIERS, cardValue, manaBase, MODES, optimize, report, ROLES, SCORE_NOTES, SOURCE_SLACK } from "@shared/optimizer";
+import { applyChanges, BUDGET_TIERS, cardValue, manaBase, MODES, optimize, report, ROLES, SCORE_NOTES } from "@shared/optimizer";
 
 // The Commander deck optimizer: pick a commander (locked), paste or load a 99, set a budget in CAD, and the page
 // rebuilds the 99 on every change (shared/optimizer.js runs here, so the slider never waits on the server). The
@@ -306,88 +306,23 @@ function Dashboard({ before, after, budget, picked }) {
   );
 }
 
-/**
- * The swaps stacked by the card they cut, so copies of a basic read as one entry: [{ remove, total, adds: [{ c, count }] }],
- * `count` identical swaps (two Swamps for two Mountains) sharing one row. In the order the swaps came.
- */
-function stackChanges(changes) {
-  const stacks = new Map();
-  for (const c of changes) {
-    const at = c.remove ?? changeKey(c); // a card added to fill an empty slot stacks only with its own copies
-    const s = stacks.get(at) ?? stacks.set(at, { remove: c.remove, total: 0, adds: [] }).get(at);
-    s.total++;
-    const same = s.adds.find((a) => a.c.add === c.add);
-    if (same) same.count++;
-    else s.adds.push({ c, count: 1 });
-  }
-  return [...stacks.values()];
-}
-
-/**
- * Each swap as a card: what goes out, what comes in, the cost difference and why, with a checkbox and Reject. Swaps
- * that cut copies of the same card are one card: "Cut 3 × Forest", then each replacement with its own checkbox.
- */
+/** Each swap as a card: what goes out, what comes in, the cost difference and why, with a checkbox and Reject. */
 function Changes({ changes, chosen, toggle, setAll, reject, byName }) {
   if (!changes.length) return <p className="rounded-xl border border-dashed p-6 text-center text-muted-foreground">No changes: this is already the best 99 the optimizer can find for this budget and goal.</p>;
-  const times = (count) => (count > 1 ? `${count} × ` : "");
-  // `below` (a replacement in a stack) goes under the name, beside a smaller image, to keep the stack short.
-  const card = (n, kind, count = 1, below = null) => (
-    <div className={cn("flex min-w-0 gap-3", below ? "items-start" : "items-center")}>
-      {n && byName.get(n)?.imageUrl ? <CardImage name={n} imageUrl={byName.get(n).imageUrl} printingId={byName.get(n).printingId} className={cn("shrink-0", below ? "w-10" : "w-14")} /> : <div className={cn("aspect-[488/680] shrink-0 rounded-md border border-dashed", below ? "w-10" : "w-14")} aria-hidden="true" />}
-      <div className="min-w-0 flex-1">
+  const card = (n, kind) => (
+    <div className="flex min-w-0 items-center gap-3">
+      {n && byName.get(n)?.imageUrl ? <CardImage name={n} imageUrl={byName.get(n).imageUrl} printingId={byName.get(n).printingId} className="w-14 shrink-0" /> : <div className="aspect-[488/680] w-14 shrink-0 rounded-md border border-dashed" aria-hidden="true" />}
+      <div className="min-w-0">
         <p className="text-xs font-semibold tracking-wide text-muted-foreground uppercase">{kind === "add" ? "Add" : "Cut"}</p>
-        <p className={cn("font-medium break-words", !n ? "text-muted-foreground" : kind === "add" ? "text-success" : "text-destructive")}>
-          {times(count)}
-          {n ?? "Nothing"}
-        </p>
-        {below}
+        <p className={cn("font-medium break-words", !n ? "text-muted-foreground" : kind === "add" ? "text-success" : "text-destructive")}>{n ?? "Nothing"}</p>
       </div>
     </div>
   );
-  const checkbox = (c, count) => (
-    <input type="checkbox" className="mt-1 size-5 shrink-0 accent-primary" checked={chosen.has(changeKey(c))} onChange={() => toggle(changeKey(c))} aria-label={`Take: ${times(count)}${c.remove ?? "nothing"} out, ${times(count)}${c.add ?? "nothing"} in`} />
-  );
-  const cost = (c, count) => (
-    <p className={cn("shrink-0 text-sm font-semibold tabular-nums", c.costDiff > 0 ? "text-foreground" : "text-success")} title="Cost difference">
-      {c.costDiff > 0 ? "+" : c.costDiff < 0 ? "−" : ""}
-      {cad(Math.abs(c.costDiff * count))}
-    </p>
-  );
-  const badge = (c) =>
-    KINDS[c.kind] && (
-      <Badge variant={c.kind === "strict" ? "default" : "outline"} className="w-fit">
-        {KINDS[c.kind]}
-      </Badge>
-    );
-  const reasons = (c) => (
-    <dl className="grid gap-1.5 text-sm">
-      {[
-        ["Why cut", c.why?.cut],
-        ["Why add", c.why?.add],
-        ["What changes", c.why?.effect],
-      ]
-        .filter(([, v]) => v)
-        .map(([k, v]) => (
-          <div key={k}>
-            <dt className="inline font-semibold">{k}: </dt>
-            <dd className="inline text-muted-foreground">{v}</dd>
-          </div>
-        ))}
-    </dl>
-  );
-  const rejectButton = (c) => (
-    <div>
-      <Button size="sm" variant="outline" className="gap-1 text-destructive" onClick={() => reject(c)} aria-label={`Reject ${c.add ? `adding ${c.add}` : ""}${c.add && c.remove ? " and " : ""}${c.remove ? `cutting ${c.remove}` : ""}`}>
-        <X aria-hidden="true" /> Reject this swap
-      </Button>
-    </div>
-  );
-  const selected = changes.filter((c) => chosen.has(changeKey(c))).length;
   return (
     <div className="grid gap-3">
       <div className="flex flex-wrap items-center gap-2 text-sm">
         <span className="text-muted-foreground">
-          {selected} of {changes.length} swaps selected
+          {chosen.size} of {changes.length} swaps selected
         </span>
         <Button size="sm" variant="outline" onClick={() => setAll(true)}>
           Select all
@@ -397,53 +332,46 @@ function Changes({ changes, chosen, toggle, setAll, reject, byName }) {
         </Button>
       </div>
       <ul className="grid gap-3" aria-label="Suggested swaps">
-        {stackChanges(changes).map(({ remove, total, adds }) => {
-          if (adds.length === 1) {
-            const { c, count } = adds[0];
-            return (
-              <li key={changeKey(c)} className={cn("grid gap-3 rounded-xl border bg-card p-3 shadow-xs transition-opacity sm:p-4", !chosen.has(changeKey(c)) && "opacity-60")}>
-                <div className="flex items-start gap-3">
-                  {checkbox(c, count)}
-                  <div className="grid min-w-0 flex-1 gap-3 sm:grid-cols-2">
-                    {card(c.remove, "remove", count)}
-                    {card(c.add, "add", count)}
-                  </div>
-                  {cost(c, count)}
-                </div>
-                {badge(c)}
-                {reasons(c)}
-                {rejectButton(c)}
-              </li>
-            );
-          }
+        {changes.map((c) => {
+          const key = changeKey(c);
+          const on = chosen.has(key);
           return (
-            <li key={remove} className="grid gap-3 rounded-xl border bg-card p-3 shadow-xs sm:p-4">
-              {card(remove, "remove", total)}
-              <ul className="grid gap-2" aria-label={`What replaces each ${remove}`}>
-                {adds.map(({ c, count }) => (
-                  <li key={changeKey(c)} className={cn("grid gap-2 rounded-lg border p-2 transition-opacity", !chosen.has(changeKey(c)) && "opacity-60")}>
-                    <div className="flex items-start gap-3">
-                      {checkbox(c, count)}
-                      <div className="min-w-0 flex-1">
-                        {card(
-                          c.add,
-                          "add",
-                          count,
-                          <div className="mt-1 flex flex-wrap items-start gap-2">
-                            {badge(c)}
-                            <details className="min-w-0 flex-1 text-sm">
-                              <summary className="cursor-pointer font-semibold">Why</summary>
-                              <div className="mt-1.5">{reasons(c)}</div>
-                            </details>
-                            {rejectButton(c)}
-                          </div>,
-                        )}
-                      </div>
-                      {cost(c, count)}
+            <li key={key} className={cn("grid gap-3 rounded-xl border bg-card p-3 shadow-xs transition-opacity sm:p-4", !on && "opacity-60")}>
+              <div className="flex items-start gap-3">
+                <input type="checkbox" className="mt-1 size-5 shrink-0 accent-primary" checked={on} onChange={() => toggle(key)} aria-label={`Take: ${c.remove ?? "nothing"} out, ${c.add ?? "nothing"} in`} />
+                <div className="grid min-w-0 flex-1 gap-3 sm:grid-cols-2">
+                  {card(c.remove, "remove")}
+                  {card(c.add, "add")}
+                </div>
+                <p className={cn("shrink-0 text-sm font-semibold tabular-nums", c.costDiff > 0 ? "text-foreground" : "text-success")} title="Cost difference">
+                  {c.costDiff > 0 ? "+" : c.costDiff < 0 ? "−" : ""}
+                  {cad(Math.abs(c.costDiff))}
+                </p>
+              </div>
+              {KINDS[c.kind] && (
+                <Badge variant={c.kind === "strict" ? "default" : "outline"} className="w-fit">
+                  {KINDS[c.kind]}
+                </Badge>
+              )}
+              <dl className="grid gap-1.5 text-sm">
+                {[
+                  ["Why cut", c.why?.cut],
+                  ["Why add", c.why?.add],
+                  ["What changes", c.why?.effect],
+                ]
+                  .filter(([, v]) => v)
+                  .map(([k, v]) => (
+                    <div key={k}>
+                      <dt className="inline font-semibold">{k}: </dt>
+                      <dd className="inline text-muted-foreground">{v}</dd>
                     </div>
-                  </li>
-                ))}
-              </ul>
+                  ))}
+              </dl>
+              <div>
+                <Button size="sm" variant="outline" className="gap-1 text-destructive" onClick={() => reject(c)} aria-label={`Reject ${c.add ? `adding ${c.add}` : ""}${c.add && c.remove ? " and " : ""}${c.remove ? `cutting ${c.remove}` : ""}`}>
+                  <X aria-hidden="true" /> Reject this swap
+                </Button>
+              </div>
             </li>
           );
         })}
@@ -460,7 +388,7 @@ function LandBase({ before, after }) {
   const row = (c, i) => {
     const old = before.colours[i];
     return (
-      <li key={c.colour} className={cn(after.short.includes(c.colour) && "text-warning")}>
+      <li key={c.colour} className={cn(c.sources < c.need && "text-warning")}>
         {COLOUR_NAMES[c.colour]}: {old.sources === c.sources ? c.sources : `${old.sources} → ${c.sources}`} sources{c.card ? `, ${c.need} wanted for ${c.card}` : ""}
       </li>
     );
@@ -471,7 +399,7 @@ function LandBase({ before, after }) {
         Land base
       </h3>
       <p className="text-muted-foreground">
-        {before.lands === after.lands ? after.lands : `${before.lands} → ${after.lands}`} lands. Frank Karsten's formula for this curve says {after.wanted}, give or take 3. Each colour wants enough sources to cast its most demanding card on curve 9 times in 10, give or take {SOURCE_SLACK}. Mana rocks count as ¾ of a source and mana creatures as ½.
+        {before.lands === after.lands ? after.lands : `${before.lands} → ${after.lands}`} lands. Frank Karsten's formula for this curve says {after.wanted}, give or take 3. Mana rocks count as ¾ of a source and mana creatures as ½.
       </p>
       {after.colours.length > 0 && <ul className="grid gap-0.5 text-muted-foreground">{after.colours.map(row)}</ul>}
     </section>

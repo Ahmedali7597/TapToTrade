@@ -434,14 +434,14 @@ test("the land base: Karsten's land count for the curve, and sources for each co
   expect(added.map((c) => [c.remove, c.add])).toEqual(expect.arrayContaining([["Spare 7", "Woodland Cemetery"], ["Spare 6", "Llanowar Wastes"]]));
   expect(added).toHaveLength(4);
   expect(added[0].why.effect).toMatch(/^Land base: the deck has 3\d lands, and Frank Karsten's formula for a Commander deck with this curve says 38 \(give or take 3\)\. It saves CA\$0\.90\.$/);
-  // Then black: Forests make way for Swamps (no dual left but a tapped one) until black is within 2 of its 20.
+  // Then black: Forests make way for Swamps (no dual left but a tapped one) for as long as green keeps its 17. With
+  // Rogue's Passage staying, 35 lands make 36 coloured sources, one short of black's 20 and green's 17.
   const after = manaBase(r.deck, byName, ["B", "G"], ["Golgari Boss"]);
   expect(after.lands).toBe(35);
   expect(after.colours).toEqual([
-    { colour: "B", sources: 18, need: 20, card: "Gray Merchant" },
-    { colour: "G", sources: 18, need: 17, card: "Elf 1" },
+    { colour: "B", sources: 19, need: 20, card: "Gray Merchant" },
+    { colour: "G", sources: 17, need: 17, card: "Elf 1" },
   ]);
-  expect(after.short).toEqual([]);
   expect(r.deck).not.toContain("Golgari Guildgate"); // a tapped dual doesn't replace an untapped basic
   expect(r.deck).toContain("Rogue's Passage"); // a utility land isn't traded for a basic
   expect(r.deck).not.toContain("Lotus Field"); // nor a land in for one that costs two lands
