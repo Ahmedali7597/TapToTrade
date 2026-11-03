@@ -1,6 +1,3 @@
-import { readFileSync } from "node:fs";
-import path from "node:path";
-import { JOBS, REMOVAL } from "../../shared/optimizer.js";
 import { commanderSuggestions } from "./edhrec.js";
 import { usdToCad } from "./prices.js";
 import { searchCards } from "./scryfall.js";
@@ -66,8 +63,7 @@ export const STAPLES = {
 };
 
 const BASICS = { W: "Plains", U: "Island", B: "Swamp", R: "Mountain", G: "Forest" };
-// A card with several roles is filed under the first: a mana rock that cycles itself (Commander's Sphere) is ramp.
-const ORDER = ["land", "fastMana", "tutor", "interaction", "protection", "ramp", "draw", "wincon", "other"];
+const ORDER = ["land", "fastMana", "tutor", "interaction", "protection", "draw", "ramp", "wincon", "other"];
 const NUMBERS = { one: 1, two: 2, three: 3, four: 4, five: 5 };
 const TYPES = ["artifact", "creature", "enchantment", "instant", "sorcery", "planeswalker", "equipment", "aura"];
 
@@ -106,60 +102,12 @@ function madnessCost(text) {
   return [...cost.matchAll(/\{([^}]+)\}/g)].reduce((n, [, s]) => n + (/^\d+$/.test(s) ? Number(s) : s === "X" ? 0 : 1), 0);
 }
 
-// Scryfall Tagger's function tags for the most played Commander cards (npm run tags writes the file). Read from the
-// project folder, where the app always runs (like the migrations).
-const TAGS = new Map();
-try {
-  const { jobs } = JSON.parse(readFileSync(path.resolve("server/data/function-tags.json"), "utf8"));
-  for (const [job, names] of Object.entries(jobs)) for (const n of names) TAGS.set(n, [...(TAGS.get(n) ?? []), job]);
-} catch {
-  console.warn("server/data/function-tags.json is missing: the optimizer reads card jobs from rules text only. Run npm run tags.");
-}
-
-/** Jobs (see JOBS in shared/optimizer.js) read from rules text, for cards the Tagger file doesn't cover. */
-export function textJobs(text, type) {
-  const jobs = [];
-  const add = (job, re) => re.test(text) && jobs.push(job);
-  add("board-wipe", /destroy all (?:creatures|nonland permanents|artifacts|other creatures)|exile all (?:creatures|nonland permanents)|deals? (?:\d+|X) damage to each creature|all creatures get -/i);
-  add("counterspell", /counter target/i);
-  add("creature-removal", /(?:destroy|exile) target (?:[a-z]+ )*creature(?! card)|deals? (?:\d+|X) damage to (?:any target|target creature)|target creature gets -\d+\/-\d+|(?:target player|each opponent) sacrifices a creature|destroy target (?:nonland )?permanent/i);
-  add("artifact-removal", /(?:destroy|exile) target (?:[a-z]+ )*artifact(?! card)|destroy target (?:nonland )?permanent|destroy all artifacts/i);
-  add("enchantment-removal", /(?:destroy|exile) target (?:[a-z]+ )*enchantment(?! card)|destroy target (?:nonland )?permanent/i);
-  add("planeswalker-removal", /(?:destroy|exile) target (?:[a-z]+ )*planeswalker(?! card)|damage to any target|destroy target (?:nonland )?permanent/i);
-  add("graveyard-hate", /exile (?:each|target player's|all cards from (?:target player's|all)) graveyards?|exile all graveyards/i);
-  add("reanimate", /(?:return|put) target creature card from (?:a|your|any) graveyard (?:to|onto) the battlefield/i);
-  add("recursion", /return target [^.]*card from your graveyard to your hand/i);
-  add("wheel", /discards? (?:their|his or her|your) hand[^.]*(?:,|then)[^.]*draws? seven/i);
-  add("discard-outlet", /discard a card:|, discard a card:/i);
-  add("sacrifice-outlet", /sacrifice (?:a|another) (?:creature|permanent|artifact)(?: you control)?:/i);
-  if (/Instant|Sorcery/.test(type)) add("burn", /deals? (?:\d+|X) damage to (?:any target|target player|each opponent)/i);
-  return jobs;
-}
-
 export function classify(c) {
   const text = textOf(c);
   const type = typeOf(c);
   const mv = c.cmc ?? 0;
   const cost = costOf(c);
-  const out = {
-    roles: [],
-    free: false,
-    cheap: mv <= 2,
-    net: 0,
-    finds: null,
-    fetch: /search your library for [^.]*(?:land|Plains|Island|Swamp|Mountain|Forest) card/i.test(text),
-    madness: madnessCost(text),
-    // Castable on an opponent's turn: an instant, or a card with flash.
-    instant: /\bInstant\b/.test(type) || /(?:^|\n)Flash\b/.test(text),
-    // Where a tutor puts the card: Entomb's graveyard isn't Demonic Tutor's hand.
-    tutorTo: /search your library[^.]*(?:put (?:it|that card|them) into your graveyard|into your graveyard)/i.test(text)
-      ? "graveyard"
-      : /search your library[^.]*onto the battlefield/i.test(text)
-        ? "battlefield"
-        : /search your library[^.]*on top/i.test(text)
-          ? "top"
-          : "hand",
-  };
+  const out = { roles: [], free: false, cheap: mv <= 2, net: 0, finds: null, fetch: /search your library for [^.]*(?:land|Plains|Island|Swamp|Mountain|Forest) card/i.test(text), madness: madnessCost(text) };
   if (/\bLand\b/.test(type)) {
     out.roles.push("land");
   } else {
@@ -193,27 +141,6 @@ export function classify(c) {
   }
   const staple = STAPLES[c.name] ?? STAPLES[c.card_faces?.[0]?.name];
   if (staple) Object.assign(out, staple, { roles: staple.roles, staple: true });
-  // Jobs: the Tagger's (human-checked), plus what the rules text shows, plus the mana and tutor roles found above.
-  const tagged = TAGS.get(front(c.name)) ?? [];
-  const jobs = new Set([...tagged, ...(/\bLand\b/.test(type) ? [] : textJobs(text, type))]);
-  // Colour hosers (Red Elemental Blast: "destroy target blue permanent") only hit one colour: not general removal.
-  if (/target (?:white|blue|black|red|green) (?:spell|permanent)|if (?:it|that (?:spell|permanent))'s (?:white|blue|black|red|green)/i.test(text)) for (const j of [...REMOVAL, "counterspell", "board-wipe"]) jobs.delete(j);
-  if (out.roles.includes("tutor")) jobs.add("tutor");
-  if (out.roles.includes("fastMana") || out.roles.includes("ramp")) {
-    jobs.add(/\b(Instant|Sorcery)\b/.test(type) ? "ritual" : /Creature/.test(type) ? "mana-dork" : /Artifact/.test(type) ? "mana-rock" : "land-ramp");
-  }
-  if (out.roles.includes("draw") && ![...jobs].some((j) => ["wheel", "cantrip", "draw"].includes(j))) jobs.add("draw");
-  out.jobs = Object.keys(JOBS).filter((j) => jobs.has(j));
-  // The jobs also fix roles the role reading missed (Blasphemous Act's "13 damage to each creature" is a board wipe).
-  // A creature's planeswalker damage or burn alone (Hellrider) doesn't make it interaction.
-  if (!staple && !/\bLand\b/.test(type)) {
-    // A creature that exiles a card from a graveyard on the side (Abyssal Harvester) isn't interaction either.
-    const answers = ["board-wipe", "counterspell", "creature-removal", "artifact-removal", "enchantment-removal", ...(/Creature/.test(type) ? [] : ["graveyard-hate"])];
-    if ([...jobs].some((j) => answers.includes(j))) out.roles.push("interaction");
-    if (tagged.includes("ritual") && !out.roles.includes("fastMana")) out.roles.push("fastMana");
-    if (tagged.some((j) => ["mana-rock", "mana-dork", "land-ramp"].includes(j)) && !out.roles.includes("fastMana")) out.roles.push("ramp");
-    if (tagged.some((j) => ["wheel", "cantrip", "draw"].includes(j))) out.roles.push("draw");
-  }
   out.roles = [...new Set(out.roles)].sort((a, b) => ORDER.indexOf(a) - ORDER.indexOf(b));
   if (!out.roles.length) out.roles.push("other");
   return out;
@@ -261,11 +188,8 @@ export function lowestUsd(c) {
   return all.length ? Math.min(...all) : null;
 }
 
-/**
- * One pool card for the optimizer (see shared/optimizer.js) from a raw Scryfall card. `cedh` is the share of the
- * commander's cEDH decks on EDHREC that run it; `edh` is { inclusion, synergy } from its regular EDHREC page.
- */
-export function poolCard(c, identity, usdCad, cedh = null, edh = null) {
+/** One pool card for the optimizer (see shared/optimizer.js) from a raw Scryfall card. */
+export function poolCard(c, identity, usdCad, cedh = null) {
   const usd = lowestUsd(c);
   const images = c.image_uris ?? c.card_faces?.[0]?.image_uris;
   const type = typeOf(c);
@@ -285,12 +209,10 @@ export function poolCard(c, identity, usdCad, cedh = null, edh = null) {
     price: usd == null ? null : Math.round(usd * usdCad * 100) / 100,
     priceUsd: usd,
     produces: c.produced_mana ?? [],
-    tapped: /enters (?:the battlefield )?tapped/i.test(textOf(c)) && !/unless|you may pay|if you don't|if you control/i.test(textOf(c)),
+    tapped: /enters (?:the battlefield )?tapped/i.test(textOf(c)) && !/unless|you may pay/i.test(textOf(c)),
     gameChanger: Boolean(c.game_changer),
     rank: c.edhrec_rank ?? null,
     cedh,
-    edh: edh?.inclusion ?? null,
-    synergy: edh?.synergy ?? null,
     ...classify(c),
   };
 }
@@ -330,11 +252,6 @@ export async function buildPool(commanders, deckNames = []) {
     ]);
     const cedh = new Map();
     for (const l of cedhPage?.lists ?? []) for (const c of l.cards) cedh.set(front(c.name), Math.max(cedh.get(front(c.name)) ?? 0, c.inclusion ?? 0));
-    // Every deck for the commander, not just cEDH ones: how many play each card and how much more than other decks.
-    const edh = new Map();
-    for (const l of page?.lists ?? []) {
-      for (const c of l.cards) if ((c.inclusion ?? 0) >= (edh.get(front(c.name))?.inclusion ?? -1)) edh.set(front(c.name), { inclusion: c.inclusion ?? 0, synergy: c.synergy ?? null });
-    }
     // The most played lines with at most four pieces, so the pool stays a few hundred cards.
     const combos = lines.filter((l) => l.pieces.length <= 4).sort((a, b) => b.popularity - a.popularity).slice(0, 150);
     const candidates = [
@@ -344,13 +261,13 @@ export async function buildPool(commanders, deckNames = []) {
       ...Object.keys(STAPLES),
       ...(identity.length ? identity.map((x) => BASICS[x]) : ["Wastes"]),
     ];
-    base = { at: Date.now(), value: { candidates, cedh, edh, combos, sources: { cedh: cedhPage?.url ?? null, edhrec: page?.url ?? null } } };
+    base = { at: Date.now(), value: { candidates, cedh, combos, sources: { cedh: cedhPage?.url ?? null, edhrec: page?.url ?? null } } };
     pools.set(key, base);
     if (pools.size > 100) pools.delete(pools.keys().next().value);
   }
-  const { candidates, cedh, edh, combos, sources } = base.value;
+  const { candidates, cedh, combos, sources } = base.value;
   const [{ usdCad, date }, found] = await Promise.all([usdToCad(), lookupNames([...candidates, ...deckNames, ...names])]);
-  const pool = [...found.values()].map((c) => poolCard(c, identity, usdCad, cedh.get(front(c.name)) ?? null, edh.get(front(c.name)) ?? null));
+  const pool = [...found.values()].map((c) => poolCard(c, identity, usdCad, cedh.get(front(c.name)) ?? null));
   // The same card can be found under two keys (front face and full name).
   const unique = [...new Map(pool.map((c) => [c.name, c])).values()];
   const inPool = new Set(unique.map((c) => c.name));

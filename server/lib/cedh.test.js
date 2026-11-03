@@ -55,15 +55,6 @@ test("reads mana, tutor targets and roles from rules text", () => {
   expect(classify(card("Dark Withering", "Instant", "Destroy target nonblack creature.\nMadness {B}", { cmc: 6 }))).toMatchObject({ roles: ["interaction"], madness: 1 });
   expect(classify(card("Polluted Delta", "Land", "Search your library for an Island or Swamp card, put it onto the battlefield, then shuffle."))).toMatchObject({ roles: ["land"], fetch: true });
   expect(classify(card("A Land", "Land", "{T}: Add {R}.")).fetch).toBe(false);
-  // Jobs come from Scryfall Tagger's tags (server/data/function-tags.json) and the rules text.
-  expect(classify(card("Blasphemous Act", "Sorcery", "Blasphemous Act deals 13 damage to each creature.", { cmc: 9 }))).toMatchObject({ roles: ["interaction"], jobs: expect.arrayContaining(["board-wipe"]), instant: false });
-  expect(classify(card("Hellrider", "Creature — Devil", "Whenever a creature you control attacks, Hellrider deals 1 damage to the player or planeswalker it's attacking.", { cmc: 4 })).roles).toEqual(["other"]);
-  expect(classify(card("A Fresh Kill", "Instant", "Destroy target creature or planeswalker."))).toMatchObject({ roles: ["interaction"], jobs: ["creature-removal", "planeswalker-removal"], instant: true });
-  expect(classify(card("A Flash Bear", "Creature", "Flash\nWhen this creature enters, draw a card.")).instant).toBe(true);
-  expect(classify(card("Red Elemental Blast", "Instant", "Choose one —\n• Counter target blue spell.\n• Destroy target blue permanent.")).jobs).toEqual([]);
-  expect(classify(card("A Sphere", "Artifact", "{T}: Add one mana of any color.\nSacrifice this artifact: Draw a card.", { cmc: 3 })).roles).toEqual(["ramp", "draw"]);
-  expect(classify(card("Entomb", "Instant", "Search your library for a card, put that card into your graveyard, then shuffle.")).tutorTo).toBe("graveyard");
-  expect(classify(card("Vampiric Tutor", "Instant", "Search your library for a card, then shuffle and put that card on top.")).tutorTo).toBe("top");
   // Well-known staples use the curated roles, whatever their text says.
   expect(classify(card("Demonic Tutor", "Sorcery", "Search your library for a card"))).toMatchObject({ roles: ["tutor"], finds: "any", staple: true });
   expect(classify(card("Mana Vault", "Artifact", "{T}: Add {C}{C}{C}."))).toMatchObject({ roles: ["fastMana"], net: 2, staple: true });

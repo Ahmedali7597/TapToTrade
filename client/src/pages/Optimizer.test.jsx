@@ -39,8 +39,6 @@ test("locks the commander, rebuilds on a budget change, respects a rejection and
 
   expect(await screen.findByText("Commander locked")).toBeInTheDocument();
   expect(screen.getAllByText("Talrand, Sky Summoner").length).toBeGreaterThan(0);
-  // The page starts on like-for-like upgrades; this test rebuilds for maximum power.
-  await user.click(screen.getByRole("button", { name: "Maximum competitive power" }));
   const summary = () => screen.getByText(/swaps? suggested/).textContent;
   await waitFor(() => expect(summary()).toMatch(/\d+ swaps? suggested/));
   const atDefault = summary();
@@ -99,7 +97,6 @@ test("a saved commander deck has an Optimize tab that applies the picks to the d
 
   expect(await screen.findByText("Commander locked")).toBeInTheDocument();
   expect(screen.getByLabelText("Budget")).toBeInTheDocument();
-  await user.click(screen.getByRole("button", { name: "Maximum competitive power" }));
   await user.click(screen.getByRole("button", { name: /Apply \d+ to Talrand tempo/ }));
   await waitFor(() => expect(imported?.replace).toBe(true));
   expect(imported.text.startsWith("Commander\n1 Talrand, Sky Summoner (TST) 1\n\nDeck\n")).toBe(true);
