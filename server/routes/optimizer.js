@@ -72,7 +72,6 @@ router.post("/analyze", optimizerLimiter, async (req, res) => {
     pool,
     combos: data.combos,
     rate: data.rate,
-    strategy: data.strategy,
     sources: data.sources,
   });
 });

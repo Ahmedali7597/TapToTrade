@@ -6,11 +6,7 @@
 //
 // Pool card: { name, roles: [primary, ...], price (CAD or null), manaValue, typeLine, legal, inIdentity, basic, cedh
 //   (share of cEDH decks for this commander running it, from EDHREC), staple, free, cheap, net (mana a fast-mana card
-//   adds), finds (what a tutor can find: "any" or type words), produces (land colours), tapped, rank (EDHREC rank),
-//   jobs and features (Scryfall Tagger tags, see JOBS and FEATURES), power, toughness }
-// Strategy: what the commander rewards, from its rules text and EDHREC's themes (server/lib/cedh.js strategyOf):
-//   { fuel ("mana value", "power" or "toughness": the creature stat it turns into value, or null),
-//     plans: [{ text, tags }] ("attacks", with the jobs and features that help it), themes: [names] }
+//   adds), finds (what a tutor can find: "any" or type words), produces (land colours), tapped, rank (EDHREC rank) }
 // Combo: { id, pieces: [names], produces: [text], win, manaNeeded (mana value to run it), prerequisites, popularity }
 import { hash, hyperAtLeast, hyperBetween, margin, seenBy, simulate } from "./probability.js";
 
@@ -58,28 +54,6 @@ export const JOBS = {
 };
 /** Removal jobs: a replacement has to hit at least everything the old card hit. */
 export const REMOVAL = ["creature-removal", "artifact-removal", "enchantment-removal", "planeswalker-removal"];
-/**
- * What else a card does for the deck's plan, also Scryfall Tagger tags. A direct replacement keeps every one of
- * these: Eerie Gravestone draws a card once, so it can't replace Garruk's Uprising, which keeps drawing and gives trample.
- */
-export const FEATURES = {
-  "repeatable-draw": "keeps drawing cards",
-  "gives-trample": "gives your creatures trample",
-  "gives-haste": "gives creatures haste",
-  "gives-flying": "gives creatures flying",
-  "gives-menace": "gives creatures menace",
-  "gives-hexproof": "gives creatures hexproof",
-  "gives-indestructible": "makes creatures indestructible",
-  "power-matters": "rewards creatures with high power",
-  "death-trigger": "does something when a creature dies",
-  "cheat-into-play": "puts cards onto the battlefield without casting them",
-  "extra-combat": "gives extra combats",
-  "cost-reducer": "reduces mana costs",
-  "counters-matter": "uses counters",
-  "self-mill": "fills your graveyard",
-  landfall: "rewards lands entering",
-};
-const featuresOf = (c) => c.features ?? [];
 
 /** How many cards of each role a cEDH deck usually wants; past these the next copy of a role is worth half. */
 export const TARGETS = { fastMana: 10, ramp: 4, tutor: 9, draw: 9, interaction: 12, protection: 4, wincon: 2, other: 12 };
@@ -133,31 +107,21 @@ const ROLE_JOBS = {
 };
 const SYNERGY_JOBS = ["reanimate", "recursion", "discard-outlet", "sacrifice-outlet"];
 
-/**
- * The one job a replacement must also do: the most specific of the card's jobs that fits its role, or null. A card
- * that keeps drawing (Garruk's Uprising) is card draw first, even if it also draws a card when it enters.
- */
+/** The one job a replacement must also do: the most specific of the card's jobs that fits its role, or null. */
 export function mainJob(c) {
   const allowed = ROLE_JOBS[primary(c)] ?? SYNERGY_JOBS;
-  return Object.keys(JOBS).find((j) => allowed.includes(j) && c.jobs?.includes(j) && !(j === "cantrip" && featuresOf(c).includes("repeatable-draw") && c.jobs.includes("draw"))) ?? null;
+  return Object.keys(JOBS).find((j) => allowed.includes(j) && c.jobs?.includes(j)) ?? null;
 }
 
 /** Which of the deck's colours a land can make (a fetch land finds a land of any of them). */
 const coloursOf = (c, identity) => (c.fetch ? identity : identity.filter((x) => c.produces?.includes(x)));
 
-/** A creature's mana value, power or toughness: the stat a commander like Venom turns into cards (strategy.fuel). */
-const fuelOf = (c, fuel) => (fuel === "mana value" ? (c.manaValue ?? 0) : fuel === "power" ? c.power : c.toughness) ?? 0;
-const fuels = (c, strategy) => Boolean(strategy?.fuel) && typeOf(c) === "creature";
-
 /**
- * Can `x` take `y`'s slot as a direct replacement? It has to do `y`'s main job (and removal has to hit at least
- * everything `y` hits). `exact` (the default) also asks for everything else `y` does for the deck: its other jobs and
- * features (Garruk's Uprising's trample, Return to Nature's graveyard exile), and the stat the commander feeds on
- * (a creature `strategy.fuel` turns into cards is never swapped for a smaller one). Fitting a budget may give those
- * up (exact: false) and says so. A land is replaced by a land that makes at least as many of the deck's colours
- * and doesn't enter tapped when `y` didn't.
+ * Can `x` take `y`'s slot as a like-for-like replacement? It has to do `y`'s main job (and removal has to hit at least
+ * everything `y` hits). A land is replaced by a land that makes at least as many of the deck's colours and doesn't
+ * enter tapped when `y` didn't.
  */
-export function replaces(x, y, identity = [], { strategy = null, exact = true } = {}) {
+export function replaces(x, y, identity = []) {
   if (isLand(y) || isLand(x)) {
     return isLand(y) && isLand(x) && coloursOf(x, identity).length >= coloursOf(y, identity).length && !(x.tapped && !y.tapped);
   }
@@ -171,13 +135,7 @@ export function replaces(x, y, identity = [], { strategy = null, exact = true } 
   if (spell(x) !== spell(y)) return false;
   // A tutor has to put the card where the old one did (a hand tutor may replace one that puts it on top).
   if (job === "tutor" && (x.tutorTo ?? "hand") !== (y.tutorTo ?? "hand") && !(x.tutorTo === "hand" && y.tutorTo === "top")) return false;
-  if (REMOVAL.includes(job) && !y.jobs.filter((j) => REMOVAL.includes(j)).every((j) => x.jobs.includes(j))) return false;
-  if (!exact) return true;
-  // A creature stays a creature (it can be sacrificed, reanimated, attack), and does everything `y` did.
-  if ((typeOf(x) === "creature") !== (typeOf(y) === "creature")) return false;
-  if (!shownJobs(y).every((j) => x.jobs.includes(j)) || !featuresOf(y).every((f) => featuresOf(x).includes(f))) return false;
-  if (x.manaRestricted && !y.manaRestricted) return false;
-  return !(fuels(y, strategy) && fuelOf(x, strategy.fuel) < fuelOf(y, strategy.fuel));
+  return REMOVAL.includes(job) ? y.jobs.filter((j) => REMOVAL.includes(j)).every((j) => x.jobs.includes(j)) : true;
 }
 
 /** Share of the commander's decks on EDHREC playing a card: cEDH decks when building for maximum power, all decks otherwise. */
@@ -187,59 +145,27 @@ const playRate = (c, mode) => (mode === "max" ? c.cedh : c.edh) ?? 0;
  * What `x` does better and worse than `y`, as short clauses about `x` ("it costs 1 less mana (2 instead of 3)"), and a
  * score for how much better it is: { gains: [...], losses: [...], score }. Only things we know about both cards count.
  */
-export function compare(x, y, { mode = "preserve", identity = [], commander = "your commander", strategy = null } = {}) {
+export function compare(x, y, { mode = "preserve", identity = [], commander = "your commander" } = {}) {
   const gains = [];
   const losses = [];
   let score = 0;
   // Jobs the old card did that the new one doesn't (Commander's Sphere also draws a card; Bojuka Bog exiles a graveyard).
   const lost = (isLand(y) ? (y.jobs ?? []) : shownJobs(y)).filter((j) => !x.jobs?.includes(j) && !(REMOVAL.includes(j) && x.jobs?.includes("board-wipe")));
   if (lost.length) (losses.push(`it gives up ${y.name}'s ${list(lost.map((j) => JOBS[j]), "and")}`), (score -= 5 * lost.length));
-  const lostFeatures = featuresOf(y).filter((f) => !featuresOf(x).includes(f));
-  if (lostFeatures.length) (losses.push(`it gives up that ${y.name} ${list(lostFeatures.map((f) => FEATURES[f]), "and")}`), (score -= 5 * lostFeatures.length));
   if (isLand(x) && isLand(y)) {
     const more = coloursOf(x, identity).length - coloursOf(y, identity).length;
-    const colours = `it makes ${coloursOf(x, identity).length} of your colours instead of ${coloursOf(y, identity).length}`;
-    if (more > 0) gains.push(colours);
-    if (more < 0) losses.push(colours);
-    score += 8 * more;
+    if (more > 0) (gains.push(`it makes ${coloursOf(x, identity).length} of your colours instead of ${coloursOf(y, identity).length}`), (score += 8 * more));
     if (y.tapped && !x.tapped) (gains.push("it enters untapped, so it doesn't cost you a turn's mana"), (score += 6));
-    if (x.tapped && !y.tapped) (losses.push("it enters tapped"), (score -= 6));
   } else {
-    // What it does on top of everything the old card did (Heritage Reclamation is Return to Nature that also draws).
-    const extra = [
-      ...shownJobs(x).filter((j) => !REMOVAL.includes(j) && !y.jobs?.includes(j) && !(j === "draw" && x.jobs.includes("cantrip"))).map((j) => (j === "cantrip" ? "it also draws a card" : j === "draw" ? "it also draws cards" : `it's also ${aJob(j)}`)),
-      ...featuresOf(x).filter((f) => !featuresOf(y).includes(f)).map((f) => `it also ${FEATURES[f]}`),
-    ];
-    gains.push(...extra);
-    // An extra job or a feature the commander's plan uses is worth about a mana; others (Dragon's Hoard's counters in a
-    // deck without counters) barely count.
-    const wanted = new Set(["repeatable-draw", ...(strategy?.plans ?? []).flatMap((p) => p.tags)]);
-    const extraJobs = extra.length - featuresOf(x).filter((f) => !featuresOf(y).includes(f)).length;
-    const extraWanted = featuresOf(x).filter((f) => !featuresOf(y).includes(f) && wanted.has(f)).length;
-    score += 6 * Math.min(2, extraJobs + extraWanted) + 2 * (extra.length - extraJobs - extraWanted);
-    // A creature the commander turns into value (Venom draws cards equal to the sacrificed creature's mana value): a
-    // bigger one is better and a smaller one worse, whatever it costs to cast.
-    const fuel = fuels(y, strategy) && fuels(x, strategy) ? strategy.fuel : null;
-    if (fuel) {
-      const more = fuelOf(x, fuel) - fuelOf(y, fuel);
-      const clause = `its ${fuel} is ${fuelOf(x, fuel)} instead of ${fuelOf(y, fuel)}, and ${commander} gets more from a creature with higher ${fuel}`;
-      if (more > 0) gains.push(clause);
-      if (more < 0) losses.push(clause);
-      score += more * 4;
-    }
-    // For such a creature a higher cost is the point, so it's only mentioned, not counted.
     const mana = castFor(y) - castFor(x);
-    // A free spell's alternative cost is its own clause below.
-    if (mana > 0 && fuel !== "mana value" && !x.free) gains.push(`it costs ${mana} less mana (${castFor(x)} instead of ${castFor(y)})`);
-    if (mana < 0 && !y.free) losses.push(`it costs ${-mana} more mana (${castFor(x)} instead of ${castFor(y)})`);
-    if (fuel !== "mana value") score += mana * 6;
-    if (x.manaRestricted && !y.manaRestricted) (losses.push(`its mana can only pay for some spells, where ${y.name}'s pays for any`), (score -= 8));
-    if (y.free && !x.free) losses.push(`it costs ${castFor(x)} mana, where ${y.name} can be cast for free`);
-    if (x.free && !y.free) (gains.push(`it can be cast for free with its alternative cost, where ${y.name} costs ${castFor(y)} mana`), (score += 8));
+    if (mana > 0) gains.push(`it costs ${mana} less mana (${castFor(x)} instead of ${castFor(y)})`);
+    if (mana < 0) losses.push(`it costs ${-mana} more mana (${castFor(x)} instead of ${castFor(y)})`);
+    score += mana * 6;
+    if (x.free && !y.free) (gains.push("it can be cast for free"), (score += 8));
     if (x.instant && !y.instant) (gains.push("it can be cast at instant speed, on an opponent's turn"), (score += 4));
     if (y.instant && !x.instant) (losses.push(`it's cast at sorcery speed, where ${y.name} was instant speed`), (score -= 4));
-    const hits = REMOVAL.filter((j) => x.jobs?.includes(j) && !y.jobs?.includes(j)).map((j) => JOBS[j].replace(" removal", "s"));
-    if (hits.length && y.jobs?.some((j) => REMOVAL.includes(j))) (gains.push(`it also hits ${list(hits, "and")}`), (score += 3 * hits.length));
+    const extra = REMOVAL.filter((j) => x.jobs?.includes(j) && !y.jobs?.includes(j)).map((j) => JOBS[j].replace(" removal", "s"));
+    if (extra.length && y.jobs?.some((j) => REMOVAL.includes(j))) (gains.push(`it also hits ${list(extra, "and")}`), (score += 3 * extra.length));
     if (x.finds === "any" && Array.isArray(y.finds)) (gains.push(`it finds any card, not just ${list(y.finds)} cards`), (score += 5));
     if ((x.net ?? 0) > (y.net ?? 0) && primary(y) === "fastMana") (gains.push(`it makes ${x.net - y.net} more mana`), (score += 5 * (x.net - y.net)));
   }
@@ -404,7 +330,7 @@ export function linesIn(names, combos, commanders) {
  * One-for-one swaps that turn `before` into `after` (both multisets of names), each cut paired with the most similar
  * add: one that does its job, then the same role, then the same card type, then the nearest mana value.
  */
-export function pairChanges(before, after, byName, identity = [], made = [], strategy = null) {
+export function pairChanges(before, after, byName, identity = [], made = []) {
   const count = (list) => list.reduce((m, n) => m.set(n, (m.get(n) ?? 0) + 1), new Map());
   const a = count(before);
   const b = count(after);
@@ -416,7 +342,7 @@ export function pairChanges(before, after, byName, identity = [], made = [], str
     const x = byName.get(a);
     const y = byName.get(r);
     if (!x || !y) return 0;
-    let s = replaces(x, y, identity, { strategy }) ? 100 : replaces(x, y, identity, { exact: false }) ? 60 : 0;
+    let s = replaces(x, y, identity) ? 100 : 0;
     if (primary(x) === primary(y)) s += primary(y) === "other" ? 10 : 40;
     if (typeOf(x) === typeOf(y)) s += 10;
     return s - Math.min(9, Math.abs(castFor(x) - castFor(y)));
@@ -443,7 +369,7 @@ const money = (n) => `CA$${Math.abs(n).toFixed(2)}`;
 const COLOUR_NAMES = { W: "white", U: "blue", B: "black", R: "red", G: "green" };
 const ROLE_ONE = { fastMana: "fast mana card", ramp: "ramp card", tutor: "tutor", draw: "card-draw card", interaction: "interaction card", protection: "protection card", wincon: "win condition", land: "land", other: "card with no other job" };
 const capital = (s) => s[0].toUpperCase() + s.slice(1);
-const an = (word) => (/^(?:[aeiou]|8|1[18]-)/i.test(word) ? "an" : "a"); // "an 8-mana", "an 11-mana"
+const an = (word) => (/^[aeiou]/i.test(word) ? "an" : "a");
 const list = (xs, and = "or") => (xs.length < 2 ? xs.join("") : `${xs.slice(0, -1).join(", ")} ${and} ${xs.at(-1)}`);
 
 /** The card's main type, e.g. "creature", from the front face's type line. */
@@ -452,8 +378,8 @@ function typeOf(c) {
   return ["Creature", "Planeswalker", "Battle", "Instant", "Sorcery", "Artifact", "Enchantment", "Land"].find((x) => t.includes(x))?.toLowerCase() ?? "card";
 }
 
-/** What the deck really pays for a card: nothing for a free spell (Deadly Rollick), its madness cost when it has one (Anje-style decks discard them). */
-const castFor = (c) => (c.free ? 0 : (c.madness ?? c.manaValue ?? 0));
+/** What the deck really pays for a card: its madness cost when it has one (Anje-style decks discard them). */
+const castFor = (c) => c.madness ?? c.manaValue ?? 0;
 const manaText = (c) => `${castFor(c)}-mana`;
 
 /** The jobs worth naming for a card: ones that fit its roles, so Hellrider's damage to planeswalkers isn't called removal. */
@@ -462,17 +388,12 @@ function shownJobs(c) {
   return (c.jobs ?? []).filter((j) => allowed.has(j));
 }
 
-/** "a board wipe", but "recursion": a job as it reads after "it's". */
-const COUNTABLE = new Set(["board-wipe", "counterspell", "ritual", "mana-rock", "mana-dork", "tutor", "wheel", "cantrip", "discard-outlet", "sacrifice-outlet"]);
-const aJob = (j) => (COUNTABLE.has(j) ? `${an(JOBS[j])} ${JOBS[j]}` : JOBS[j]);
-
 /** "creature, artifact and planeswalker removal, recursion and burn": a card's jobs in a few words. */
 function jobsText(c) {
   const jobs = shownJobs(c);
   const removal = REMOVAL.filter((j) => jobs.includes(j)).map((j) => JOBS[j].replace(" removal", ""));
   // A board wipe already says what it removes.
-  // A card that draws more than once is card draw, not also a cantrip.
-  const parts = [...(removal.length && !jobs.includes("board-wipe") ? [`${list(removal, "and")} removal`] : []), ...jobs.filter((j) => !REMOVAL.includes(j) && !(j === "cantrip" && jobs.includes("draw"))).map(aJob)];
+  const parts = [...(removal.length && !jobs.includes("board-wipe") ? [`${list(removal, "and")} removal`] : []), ...jobs.filter((j) => !REMOVAL.includes(j)).map((j) => JOBS[j])];
   return list(parts.slice(0, 3), "and");
 }
 
@@ -490,7 +411,7 @@ function baseJob(c, identity) {
     return `${kind} ${makes}${c.tapped ? " and enters tapped" : ""}`;
   }
   const type = c.instant && typeOf(c) !== "instant" ? `${typeOf(c)} with flash` : typeOf(c);
-  const what = c.free ? `${an(type)} ${type} you can cast for free` : `${an(manaText(c))} ${manaText(c)} ${type}`;
+  const what = c.free ? `${an(type)} ${type} you can cast for free` : `a ${manaText(c)} ${type}`;
   if (role === "fastMana") return `${what}: fast mana that gives back ${c.net || 1} more mana than it costs`;
   if (role === "tutor") return `${what}: a tutor that finds ${c.finds === "any" || !c.finds?.length ? "any card" : `${list(c.finds)} cards`}`;
   if (role === "protection") return `${what}: protection for your key turn`;
@@ -508,75 +429,40 @@ function statOf(c, commander, mode) {
 }
 
 /**
- * Why a card is in this deck: what it does, what else it does for the plan, how that fits what the commander rewards
- * (`strategy`), then EDHREC's numbers. A card with none of that we can name is left to EDHREC's numbers, and says so.
- */
-function purpose(c, { identity, commander, mode, strategy }) {
-  const features = featuresOf(c).map((f) => FEATURES[f]);
-  const has = new Set([...(c.jobs ?? []), ...featuresOf(c)]);
-  const plans = (strategy?.plans ?? []).filter((p) => p.tags.some((t) => has.has(t))).map((p) => p.text);
-  const stat = statOf(c, commander, mode);
-  // Worth saying only for a big one: Venom draws 7 off a 7-drop.
-  const big = fuels(c, strategy) && fuelOf(c, strategy.fuel) >= 5;
-  if (primary(c) === "other" && !shownJobs(c).length && !features.length && !plans.length && !big) {
-    return `${c.name} is ${jobOf(c, identity)} with no specific job TapToTrade can name, so EDHREC's numbers speak for it: ${stat}.`;
-  }
-  let s = `${c.name} is ${jobOf(c, identity)}.`;
-  if (features.length) s += ` It ${list(features, "and")}.`;
-  if (plans.length) s += ` That suits ${commander}, which ${list(plans.slice(0, 2), "and")}.`;
-  if (big) s += ` ${commander} gets more from a creature with higher ${strategy.fuel}, and this one's is ${fuelOf(c, strategy.fuel)}.`;
-  return `${s} ${capital(stat)}.`;
-}
-
-/**
  * Why one swap is made, built only from what we know about the two cards and the deck: { cut, add, effect } sentences
  * (any may be ""). `effect` names the job both cards do and exactly what's better, with any trade-off.
  * `counts` are the original deck's role counts; `mode` picks cEDH or all of the commander's decks for the numbers.
  */
-export function explain({ remove, add }, { byName, commanders, identity, lines, oldLines, counts, mode = "preserve", budget = null, strategy = null }) {
+export function explain({ remove, add }, { byName, commanders, identity, lines, oldLines, counts, mode = "preserve", budget = null }) {
   const out = byName.get(remove);
   const inn = byName.get(add);
-  const commander = strategy?.name ?? commanders[0];
-  const ctx = { identity, commander, mode, strategy };
+  const commander = commanders[0];
   let cut = "";
   if (out) {
     if (!out.legal) cut = `${remove} is banned or not legal in Commander, so it has to go.`;
     else if (!out.inIdentity) cut = `${remove} is outside ${commanders.join(" and ")}'s colour identity, so it isn't allowed in this deck.`;
     else if (out.basic) cut = `${remove} is ${jobOf(out, identity)}.`;
-    else cut = purpose(out, ctx);
+    else cut = `${remove} is ${jobOf(out, identity)}; ${statOf(out, commander, mode)}.`;
     const lost = oldLines.find((l) => l.pieces.includes(remove) && !lines.some((x) => x.id === l.id));
     if (lost) cut += ` This breaks ${lost.pieces.join(" + ")} (${lost.produces[0] ?? "a combo"}); ${lines.length ? `the new deck wins with ${lines[0].pieces.join(" + ")} instead.` : "the new deck has no combo in its place."}`;
   }
   let addText = "";
   if (inn) {
     const line = lines.find((l) => l.pieces.includes(add));
-    addText = inn.basic ? `${add} is ${jobOf(inn, identity)}.` : purpose(inn, ctx);
+    addText = `${add} is ${jobOf(inn, identity)}${inn.basic ? "" : `; ${statOf(inn, commander, mode)}`}.`;
     if (line) addText += ` It's part of ${line.pieces.join(" + ")} (${line.produces[0] ?? "a combo"}), a combo the new deck can assemble.`;
   }
   let effect = "";
   if (inn && out) {
-    const { gains, losses } = compare(inn, out, { mode, identity, commander, strategy });
+    const { gains, losses } = compare(inn, out, { mode, identity, commander });
     const job = isLand(out) ? "a land" : JOBS[mainJob(out)];
-    const exact = replaces(inn, out, identity, { strategy });
-    // A land for a land is always the same job; the trade-offs say if it makes fewer colours or enters tapped.
-    if (exact || replaces(inn, out, identity, { strategy, exact: false }) || (isLand(inn) && isLand(out))) {
+    if (replaces(inn, out, identity)) {
       const why = inn.staple && !out.staple
         ? `${add} is one of the proven cEDH staples the rebuild draws on.`
         : (inn.price ?? 0) < (out.price ?? 0)
           ? "Picked because it costs less, leaving money for stronger cards elsewhere."
           : "The rebuild rated it higher overall (play rate, mana value and role).";
-      // "it's card draw and it keeps drawing cards": everything the old card did, which the new one does too.
-      const features = featuresOf(out).map((f) => FEATURES[f]);
-      const did = `it's ${jobsText(out)}${features.length ? ` and it ${list(features, "and")}` : ""}`;
-      // A swap made to fit the budget is never called an upgrade.
-      effect = isLand(out)
-        ? "Same job: a land."
-        : exact && budget == null
-          ? `Direct upgrade: like ${remove}, ${did}.`
-          : exact
-            ? `Same job: ${job}.`
-            : `Same main job: ${job}, but it doesn't do everything ${remove} did.`;
-      effect += ` ${gains.length ? `Better because ${gains.join("; ")}.` : why}`;
+      effect = `Same job: ${job}. ${gains.length ? `Better because ${gains.join("; ")}.` : why}`;
       if (losses.length) effect += ` Trade-off: ${losses.join("; ")}.`;
     } else if (!isLand(out) && !isLand(inn) && !shownJobs(out).length && !shownJobs(inn).length && typeOf(inn) === typeOf(out)) {
       effect = `Both are ${typeOf(out)}s without a specific job like removal, ramp or card draw.${gains.length ? ` ${capital(gains.join("; "))}.` : ""}`;
@@ -584,8 +470,7 @@ export function explain({ remove, add }, { byName, commanders, identity, lines, 
     } else {
       // Not like-for-like (the deck is rebuilt for maximum power, or the old card had to go): say what's gained and lost.
       // "a 1-mana sorcery: creature removal", or just "a 4-mana creature" for a card with no listed job.
-      // "a 2-mana artifact that gives creatures haste" for Lightning Greaves.
-      const described = (c) => (isLand(c) ? "a land" : `${baseJob(c, identity)}${featuresOf(c).length ? ` that ${list(featuresOf(c).map((f) => FEATURES[f]), "and")}` : ""}`);
+      const described = (c) => (isLand(c) ? "a land" : baseJob(c, identity));
       effect = `A different job: the deck gains ${described(inn)} and gives up ${described(out)}.`;
       const a = primary(inn);
       const r = primary(out);
@@ -593,7 +478,7 @@ export function explain({ remove, add }, { byName, commanders, identity, lines, 
         const now = (role) => counts[role] ?? 0;
         effect += ` That makes ${now(a) + 1} ${ROLE_ONE[a]}s${TARGETS[a] && mode === "max" ? ` (cEDH decks run about ${TARGETS[a]})` : ""} and ${now(r) - 1} ${ROLE_ONE[r]}s.`;
       }
-      if (gains.length) effect += ` ${capital(gains.join("; "))}.`;
+      if (gains.length) effect += ` Also, ${gains.join("; ")}.`;
     }
     const diff = (inn.price ?? 0) - (out.price ?? 0);
     if (budget != null && diff < 0) effect = `Swapped to fit your ${money(budget)} budget: it saves ${money(diff)}. ${effect}`;
@@ -611,7 +496,7 @@ const MIN_GAIN = 6;
  * job (replaces) and is clearly better (compare), never more than one mana dearer. "value" ranks them by gain per
  * dollar and may also (`crossRole`) swap a card with no job for one of a role the deck is short of. Locked cards stay.
  */
-function upgrade({ deck, pool, byName, commanders, budget, banned, keep, perDollar, crossRole, maxSwaps, mode, identity, strategy }) {
+function upgrade({ deck, pool, byName, commanders, budget, banned, keep, perDollar, crossRole, maxSwaps, mode, identity }) {
   const out = [...deck];
   const inDeck = new Set(out);
   let spent = deckCost(out, byName, commanders).total;
@@ -626,8 +511,8 @@ function upgrade({ deck, pool, byName, commanders, budget, banned, keep, perDoll
         y.name,
         candidates
           // Never more than a mana dearer, nor played by noticeably fewer of the commander's decks.
-          .filter((x) => replaces(x, y, identity, { strategy }) && (castFor(x) <= castFor(y) + 1 || (fuels(y, strategy) && strategy.fuel === "mana value")) && playRate(x, mode) >= playRate(y, mode) - 0.05)
-          .map((x) => ({ x, gain: compare(x, y, { mode, identity, strategy }) }))
+          .filter((x) => replaces(x, y, identity) && castFor(x) <= castFor(y) + 1 && playRate(x, mode) >= playRate(y, mode) - 0.05)
+          .map((x) => ({ x, gain: compare(x, y, { mode, identity }) }))
           .filter((o) => o.gain.score >= MIN_GAIN && o.gain.gains.length),
       );
     }
@@ -673,7 +558,7 @@ function upgrade({ deck, pool, byName, commanders, budget, banned, keep, perDoll
  * Cheaper replacements until `deck` fits the budget, losing as little as possible per dollar saved: a card that does
  * the same job, a basic for a land, and for a card with no job a cheaper card of the same type that has none either.
  */
-function downgrade({ deck, pool, byName, commanders, budget, banned, keep, mode, identity, strategy }) {
+function downgrade({ deck, pool, byName, commanders, budget, banned, keep, mode, identity }) {
   const out = [...deck];
   let spent = deckCost(out, byName, commanders).total;
   const basicsFor = basics(pool, out, 30, byName);
@@ -687,11 +572,11 @@ function downgrade({ deck, pool, byName, commanders, budget, banned, keep, mode,
       const options = isLand(y)
         ? basicsFor.slice(0, 1).map((n) => byName.get(n))
         : mainJob(y)
-          ? pool.filter((c) => cheaper(c) && replaces(c, y, identity, { strategy, exact: false }))
+          ? pool.filter((c) => cheaper(c) && replaces(c, y, identity))
           : pool.filter((c) => cheaper(c) && !isLand(c) && !mainJob(c) && typeOf(c) === typeOf(y));
       for (const x of options) {
         const saved = y.price - x.price;
-        const loss = Math.max(0, -compare(x, y, { mode, identity, strategy }).score) + Math.max(0, cardValue(y) - cardValue(x)) / 4;
+        const loss = Math.max(0, -compare(x, y, { mode, identity }).score) + Math.max(0, cardValue(y) - cardValue(x)) / 4;
         const score = loss / saved;
         if (!best || score < best.score) best = { i, x, saved, score };
       }
@@ -709,10 +594,9 @@ function downgrade({ deck, pool, byName, commanders, budget, banned, keep, mode,
  * the commander (Infinity for no limit), `rejected` = { adds: [names never to add], keeps: [names never to cut] }.
  * `consider` are decks found earlier (at lower budgets, same goal and rejections): one that fits and scores higher is
  * used instead, so raising the budget never shows a deck more than a point (simulation noise) weaker than a lower budget did.
- * `strategy` (see the top of this file) makes swaps keep what the commander feeds on and explains each card by it.
  * Returns { deck, cost, lines, primary, changes, notes }.
  */
-export function optimize({ pool, combos = [], commanders, original = [], budget = Infinity, mode = "max", rejected = {}, consider = [], strategy = null }) {
+export function optimize({ pool, combos = [], commanders, original = [], budget = Infinity, mode = "max", rejected = {}, consider = [] }) {
   const byName = new Map(pool.map((c) => [c.name, c]));
   const banned = new Set(rejected.adds ?? []);
   const isOk = (n) => byName.has(n) && playable(byName.get(n), commanders);
@@ -772,8 +656,8 @@ export function optimize({ pool, combos = [], commanders, original = [], budget 
       start = [...start].sort((x, y) => (lock.has(y) - lock.has(x)) || cardValue(byName.get(y)) - cardValue(byName.get(x))).slice(0, 99);
     }
     // Both passes swap cards slot by slot, so each slot that changed is one real swap: the list pairs them as made.
-    const cheaper = budget === Infinity ? start : downgrade({ deck: start, pool, byName, commanders, budget, banned, keep: lock, mode, identity, strategy });
-    deck = upgrade({ deck: cheaper, pool, byName, commanders, budget, banned, keep: lock, perDollar: mode === "value", crossRole: mode === "value", maxSwaps: mode === "value" ? 30 : 15, mode, identity, strategy });
+    const cheaper = budget === Infinity ? start : downgrade({ deck: start, pool, byName, commanders, budget, banned, keep: lock, mode, identity });
+    deck = upgrade({ deck: cheaper, pool, byName, commanders, budget, banned, keep: lock, perDollar: mode === "value", crossRole: mode === "value", maxSwaps: mode === "value" ? 30 : 15, mode, identity });
     made = start.map((n, i) => ({ remove: n, add: deck[i], budget: cheaper[i] !== n && cheaper[i] === deck[i] })).filter((p) => p.remove !== p.add);
   }
   const fits = (d) =>
@@ -792,9 +676,9 @@ export function optimize({ pool, combos = [], commanders, original = [], budget 
   const lines = linesIn(deck, combos, commanders).map((l) => ({ ...l, efficiency: lineEfficiency(l, byName, commanders), mana: lineMana(l, byName) })).sort((a, b) => b.efficiency - a.efficiency);
   const counts = {};
   for (const n of original) counts[primary(byName.get(n) ?? {})] = (counts[primary(byName.get(n) ?? {})] ?? 0) + 1;
-  const context = { byName, commanders, identity, lines, oldLines: linesIn(original, combos, commanders), counts, mode, strategy };
+  const context = { byName, commanders, identity, lines, oldLines: linesIn(original, combos, commanders), counts, mode };
   const forBudget = new Set(made.filter((m) => m.budget).map((m) => `${m.remove}|${m.add}`));
-  const changes = pairChanges(original, deck, byName, identity, made, strategy).map((p) => {
+  const changes = pairChanges(original, deck, byName, identity, made).map((p) => {
     const why = explain(p, { ...context, budget: forBudget.has(`${p.remove}|${p.add}`) ? budget : null });
     return {
       ...p,

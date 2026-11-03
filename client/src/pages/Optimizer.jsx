@@ -137,7 +137,7 @@ function Setup({ initial, onAnalyze, busy }) {
 }
 
 /** Budget slider, typed amount, presets and Unlimited. */
-function BudgetControls({ budget, setBudget, mode, setMode, commanderCost, strategy }) {
+function BudgetControls({ budget, setBudget, mode, setMode, commanderCost }) {
   const unlimited = budget === Infinity;
   const [typed, setTyped] = useState(unlimited ? "" : String(budget));
   useEffect(() => setTyped(unlimited ? "" : String(budget)), [budget, unlimited]);
@@ -202,27 +202,12 @@ function BudgetControls({ budget, setBudget, mode, setMode, commanderCost, strat
           <SegmentedControl label="Optimization goal" value={mode} onChange={setMode} options={MODES.map(([value, label]) => ({ value, label }))} className="max-w-full flex-wrap" />
           <p className="text-xs text-muted-foreground">
             {mode === "max" && "Rebuilds all 99 for the strongest deck the budget allows, including a new combo plan if it's better."}
-            {mode === "preserve" && "Keeps your combos and most of your cards, swapping a card only for a direct upgrade: one that does everything it did, and more."}
+            {mode === "preserve" && "Keeps your combos and most of your cards, swapping weaker cards for stronger ones in the same role."}
             {mode === "value" && "Starts from your deck and makes the upgrades with the biggest gain per dollar first."}
           </p>
-          <StrategyNote strategy={strategy} />
         </div>
       </CardContent>
     </Card>
-  );
-}
-
-/** What the commander rewards, which the swaps keep: "Venom attacks and sacrifices creatures; bigger mana value creatures fuel it." */
-function StrategyNote({ strategy }) {
-  if (!strategy?.name || (!strategy.plans.length && !strategy.fuel && !strategy.themes.length)) return null;
-  const and = (xs) => (xs.length < 2 ? xs.join("") : `${xs.slice(0, -1).join(", ")} and ${xs.at(-1)}`);
-  return (
-    <p className="text-xs text-muted-foreground">
-      <span className="font-medium text-foreground">{strategy.name}&apos;s plan: </span>
-      {strategy.plans.length > 0 && `it ${and(strategy.plans.map((p) => p.text))}. `}
-      {strategy.fuel && `Creatures with a bigger ${strategy.fuel} give it more. `}
-      {strategy.themes.length > 0 && `EDHREC's most common themes for it: ${and(strategy.themes)}.`}
-    </p>
   );
 }
 
@@ -592,7 +577,7 @@ function BudgetCompare({ data, rejected, original, current }) {
     // Cheapest first, each tier also weighing the decks below it, so a bigger budget never shows a weaker build.
     const out = [];
     for (const budget of tiers) {
-      const r = optimize({ pool: data.pool, combos: data.combos, commanders: data.commanderNames, original, budget, mode: "max", rejected, consider: out.map((o) => o.deck), strategy: data.strategy });
+      const r = optimize({ pool: data.pool, combos: data.combos, commanders: data.commanderNames, original, budget, mode: "max", rejected, consider: out.map((o) => o.deck) });
       out.push({ budget, deck: r.deck, rep: report({ pool: data.pool, combos: data.combos, commanders: data.commanderNames, deck: r.deck }) });
     }
     setRows(out);
@@ -761,7 +746,7 @@ function Workspace({ data, request, savedDeck, budget, setBudget, mode, setMode,
     const key = String(settledBudget);
     if (!results.has(key)) {
       const consider = [...results.values()].map((r) => r.deck);
-      results.set(key, optimize({ pool: data.pool, combos: data.combos, commanders: data.commanderNames, original: data.original, budget: settledBudget, mode, rejected, consider, strategy: data.strategy }));
+      results.set(key, optimize({ pool: data.pool, combos: data.combos, commanders: data.commanderNames, original: data.original, budget: settledBudget, mode, rejected, consider }));
     }
     return results.get(key);
   }, [data, results, settledBudget, mode, rejected]);
@@ -974,7 +959,7 @@ function Workspace({ data, request, savedDeck, budget, setBudget, mode, setMode,
       </div>
 
       <aside className="order-first grid gap-4 lg:sticky lg:top-24 lg:order-none" aria-label="Budget and actions">
-        <BudgetControls budget={budget} setBudget={setBudget} mode={mode} setMode={setMode} commanderCost={commander.reduce((n, c) => n + (c.price ?? 0), 0)} strategy={data.strategy} />
+        <BudgetControls budget={budget} setBudget={setBudget} mode={mode} setMode={setMode} commanderCost={commander.reduce((n, c) => n + (c.price ?? 0), 0)} />
         <Card className="gap-3 py-5">
           <CardHeader>
             <CardTitle className="flex items-baseline justify-between gap-2 text-base">
