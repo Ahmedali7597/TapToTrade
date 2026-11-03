@@ -65,21 +65,21 @@ async function throttle(slow = false) {
  * Card name search. `unique: "prints"` (the add-card form) lists every printing; `"cards"` (the public card
  * browser) lists each card once, in its newest printing.
  */
-export async function searchPrintings(q, { unique = "prints", order = "name", limit = 40 } = {}) {
+export async function searchPrintings(q, { unique = "prints" } = {}) {
   // Serve repeat searches from the cache so typing the same name twice doesn't hit Scryfall again.
-  const key = `${unique}:${order}:${limit}:${q.toLowerCase()}`;
+  const key = `${unique}:${q.toLowerCase()}`;
   const hit = cache.get(key);
   if (hit && Date.now() - hit.at < TTL_MS) return hit.data;
 
   await throttle(true);
 
-  const url = `${API}/cards/search?unique=${unique}&order=${order}&q=${encodeURIComponent(q)}`;
+  const url = `${API}/cards/search?unique=${unique}&order=name&q=${encodeURIComponent(q)}`;
   const res = await fetch(url, { headers: HEADERS, signal: AbortSignal.timeout(5000) });
   // Scryfall answers 404 when nothing matches, which for us is just an empty list.
   let data;
   if (res.status === 404) data = [];
   else if (!res.ok) throw new Error(`Scryfall responded ${res.status}`);
-  else data = rankByName((await res.json()).data.map(toPrinting), q).slice(0, limit);
+  else data = rankByName((await res.json()).data.map(toPrinting), q).slice(0, 40);
 
   // Crude size cap: Maps keep insertion order, so the first key is the oldest entry.
   cache.set(key, { at: Date.now(), data });
@@ -104,25 +104,6 @@ export async function autocompleteNames(q) {
   cache.set(key, { at: Date.now(), data });
   if (cache.size > 500) cache.delete(cache.keys().next().value);
   return data;
-}
-
-/**
- * Raw Scryfall cards for a search, following up to `pages` pages of 175 (the deck optimizer reads oracle text and
- * prices). A search with no matches is an empty list.
- */
-export async function searchCards(q, { pages = 1 } = {}) {
-  const out = [];
-  let url = `${API}/cards/search?q=${encodeURIComponent(q)}`;
-  for (let page = 0; url && page < pages; page++) {
-    await throttle(true);
-    const res = await fetch(url, { headers: HEADERS, signal: AbortSignal.timeout(10000) });
-    if (res.status === 404) break;
-    if (!res.ok) throw new Error(`Scryfall responded ${res.status}: ${(await res.json().catch(() => ({}))).details ?? ""}`);
-    const json = await res.json();
-    out.push(...json.data);
-    url = json.has_more ? json.next_page : null;
-  }
-  return out;
 }
 
 // Scryfall's bulk lookup accepts at most 75 identifiers per request.

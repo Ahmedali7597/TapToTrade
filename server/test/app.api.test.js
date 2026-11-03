@@ -10,14 +10,12 @@ import { autocompleteNames, cardDetails, lookupCollection, searchPrintings, show
 import { localParts, nextDay } from "../lib/events.js";
 import { priceCards } from "../lib/prices.js";
 import { commanderSuggestions } from "../lib/edhrec.js";
-import { buildPool, lookupNames } from "../lib/cedh.js";
 import { TERMS_UPDATED } from "../../shared/pages.js";
 
 jest.mock("../lib/email.js", () => ({ ...jest.requireActual("../lib/email.js"), sendEmail: jest.fn().mockResolvedValue(true) }));
 // Google and Scryfall are external services; the tests stand in for their answers.
 jest.mock("../lib/google.js", () => ({ ...jest.requireActual("../lib/google.js"), googleConfigured: () => true, exchangeCode: jest.fn() }));
 jest.mock("../lib/edhrec.js", () => ({ ...jest.requireActual("../lib/edhrec.js"), commanderSuggestions: jest.fn() }));
-jest.mock("../lib/cedh.js", () => ({ ...jest.requireActual("../lib/cedh.js"), lookupNames: jest.fn(), buildPool: jest.fn() }));
 jest.mock("../lib/prices.js", () => ({ ...jest.requireActual("../lib/prices.js"), priceCards: jest.fn() }));
 jest.mock("../lib/scryfall.js", () => ({
   ...jest.requireActual("../lib/scryfall.js"),
@@ -994,50 +992,19 @@ describe("decks", () => {
     expect(cards).toEqual([expect.objectContaining({ board: "main", quantity: 4 })]);
   });
 
-  test("edits a card's printing, finish and condition, like Moxfield", async () => {
-    const card = (await owner.get(`/api/decks/${deck.id}`)).body.cards[0];
-    expect(card).toMatchObject({ finish: "nonfoil", condition: "NM" });
-    const OTHER_BOLT = "e3285e6b-3e79-4d7c-bf96-d920f973b122";
-    searchPrintings.mockResolvedValueOnce([printing(OTHER_BOLT, "Lightning Bolt", "2xm", "141", { finishes: ["foil"] }), printing(LOTUS, "Black Lotus", "lea", "232")]);
-    const listed = await owner.get("/api/cards/printings?name=Lightning%20Bolt");
-    expect(listed.body.printings.map((p) => p.id)).toEqual([OTHER_BOLT]); // other names are dropped
-    expect(searchPrintings).toHaveBeenLastCalledWith('!"Lightning Bolt" game:paper', { order: "released", limit: 175 });
-
-    const url = `/api/decks/${deck.id}/cards/${card.id}`;
-    expect((await owner.send("patch", url, { condition: "MINT" })).status).toBe(400);
-    expect((await owner.send("patch", url, { printingId: LOTUS })).status).toBe(400); // another card
-    expect((await owner.send("patch", url, { finish: "etched" })).status).toBe(400); // M10 Bolt has no etched
-    const foil = await owner.send("patch", url, { finish: "foil", condition: "LP" });
-    expect(foil.body.card).toMatchObject({ id: card.id, finish: "foil", condition: "LP" });
-    // 2XM only comes in foil, so switching to it keeps a finish it has.
-    const moved = await owner.send("patch", url, { printingId: OTHER_BOLT });
-    expect(moved.body.card).toMatchObject({ finish: "foil", condition: "LP", quantity: 4, printing: { setCode: "2xm" } });
-    expect((await owner.get(`/api/decks/${deck.id}/export`)).text).toBe("Deck\n4 Lightning Bolt (2XM) 141 *F*\n");
-  });
-
   test("imports a decklist with sections, exports it, and shows what the viewer owns", async () => {
     lookupCollection.mockImplementationOnce(async (entries) => {
       const known = { "sc:c21:263": printing(RING, "Sol Ring", "c21", "263", { typeLine: "Artifact", manaCost: "{1}", colorIdentity: [], finishes: ["nonfoil", "etched"], setName: "Commander 2021" }), "n:black lotus": printing(LOTUS, "Black Lotus", "lea", "232", { typeLine: "Artifact", setName: "Limited Edition Alpha" }) };
       return new Map(entries.filter(([k]) => known[k]).map(([k]) => [k, known[k]]));
     });
-    const text = "Deck\n1 Sol Ring (C21) 263\n1x Black Lotus\nnot a card line\n\nSideboard\n1 Sol Ring (C21) 263 *E*";
+    const text = "Deck\n1 Sol Ring (C21) 263\n1x Black Lotus\nnot a card line\n\nSideboard\n1 Sol Ring (C21) 263";
     const res = await owner.send("post", `/api/decks/${deck.id}/import`, { text, replace: true });
     expect(res.body).toMatchObject({ added: 3, skippedCount: 1 });
     const { cards, owned } = (await owner.get(`/api/decks/${deck.id}`)).body;
-    expect(cards.map((c) => [c.printing.name, c.board, c.quantity, c.finish])).toEqual([
-      ["Black Lotus", "main", 1, "nonfoil"],
-      ["Sol Ring", "main", 1, "nonfoil"],
-      ["Sol Ring", "side", 1, "etched"],
-    ]);
-    // Replacing the list again (the optimizer's Apply) keeps each card's condition.
-    const lotus = cards.find((c) => c.printing.name === "Black Lotus");
-    await owner.send("patch", `/api/decks/${deck.id}/cards/${lotus.id}`, { condition: "HP" });
-    lookupCollection.mockImplementationOnce(async (entries) => new Map(entries.filter(([k]) => k === "sc:lea:232" || k === "sc:c21:263").map(([k]) => [k, k === "sc:lea:232" ? printing(LOTUS, "Black Lotus", "lea", "232", { typeLine: "Artifact" }) : printing(RING, "Sol Ring", "c21", "263", { typeLine: "Artifact", finishes: ["nonfoil", "etched"] })])));
-    await owner.send("post", `/api/decks/${deck.id}/import`, { text: "Deck\n1 Sol Ring (C21) 263\n1 Black Lotus (LEA) 232\n\nSideboard\n1 Sol Ring (C21) 263 *E*", replace: true });
-    expect((await owner.get(`/api/decks/${deck.id}`)).body.cards.map((c) => [c.printing.name, c.condition])).toEqual([
-      ["Black Lotus", "HP"],
-      ["Sol Ring", "NM"],
-      ["Sol Ring", "NM"],
+    expect(cards.map((c) => [c.printing.name, c.board, c.quantity])).toEqual([
+      ["Black Lotus", "main", 1],
+      ["Sol Ring", "main", 1],
+      ["Sol Ring", "side", 1],
     ]);
     expect(owned).toEqual({});
     await owner.add(RING, 1);
@@ -1045,7 +1012,7 @@ describe("decks", () => {
 
     const out = await owner.get(`/api/decks/${deck.id}/export`);
     expect(out.headers["content-type"]).toMatch(/text\/plain/);
-    expect(out.text).toBe("Deck\n1 Black Lotus (LEA) 232\n1 Sol Ring (C21) 263\n\nSideboard\n1 Sol Ring (C21) 263 *E*\n");
+    expect(out.text).toBe("Deck\n1 Black Lotus (LEA) 232\n1 Sol Ring (C21) 263\n\nSideboard\n1 Sol Ring (C21) 263\n");
   });
 
   test("puts the cards the player is missing on their want list, once", async () => {
@@ -1682,108 +1649,4 @@ test("unknown API routes return a JSON 404 and errors never leak internals (5.2.
   const bad = await p.agent.post("/api/auth/login").set("X-CSRF-Token", p.csrf).set("Content-Type", "application/json").send("{bad json");
   expect(bad.status).toBe(400);
   expect(bad.body.error).toBe("Request body is not valid JSON.");
-});
-
-describe("deck optimizer", () => {
-  let player;
-  let seller;
-  // Raw Scryfall cards (lookupNames) and pool cards (buildPool), trimmed to what the route reads.
-  const raw = (name, type, colorIdentity = [], extra = {}) => ({ id: BOLT, name, type_line: type, oracle_text: "", cmc: 2, color_identity: colorIdentity, legalities: { commander: "legal" }, prices: { usd: "1.00" }, set: "tst", collector_number: "1", ...extra });
-  const KINNAN = raw("Kinnan, Bonder Prodigy", "Legendary Creature — Human Druid", ["G", "U"]);
-  const card = (name, extra = {}) => ({ name, legal: true, inIdentity: true, basic: false, roles: ["other"], price: 1, ...extra });
-  const POOL = [card("Kinnan, Bonder Prodigy"), card("Sol Ring"), card("Basalt Monolith"), card("Island", { basic: true }), card("Lightning Bolt", { inIdentity: false }), card("Mana Crypt", { legal: false }), card("Swords to Plowshares", { inIdentity: false })];
-  const data = { pool: POOL, combos: [{ id: "1", pieces: ["Kinnan, Bonder Prodigy", "Basalt Monolith"] }], identity: ["G", "U"], rate: { usdCad: 1.4, date: "2026-10-30" }, sources: { cedh: null } };
-  beforeAll(async () => {
-    player = await newPlayer("opt_player");
-    seller = await newPlayer("opt_seller", "Toronto, ON");
-  });
-
-  test("needs an account, a commander Scryfall knows, and one that can lead a deck", async () => {
-    const anon = await new Player().init();
-    expect((await anon.send("post", "/api/optimizer/analyze", { commanders: ["Kinnan, Bonder Prodigy"] })).status).toBe(401);
-    expect((await player.send("post", "/api/optimizer/analyze", { commanders: [], text: "1 Sol Ring" })).body.fields.commander).toBe("Choose your commander.");
-    expect((await player.send("post", "/api/optimizer/analyze", { commanders: ["A", "B", "C"] })).status).toBe(400);
-    lookupNames.mockResolvedValueOnce(new Map());
-    expect((await player.send("post", "/api/optimizer/analyze", { commanders: ["Nobody Real"] })).body.error).toBe("Scryfall doesn't know a card called \"Nobody Real\".");
-    lookupNames.mockResolvedValueOnce(new Map([["sol ring", raw("Sol Ring", "Artifact")]]));
-    expect((await player.send("post", "/api/optimizer/analyze", { commanders: ["Sol Ring"] })).body.error).toMatch(/isn't a legendary creature/);
-    lookupNames.mockRejectedValueOnce(new Error("Scryfall responded 429"));
-    const down = await player.send("post", "/api/optimizer/analyze", { commanders: ["Kinnan, Bonder Prodigy"] });
-    expect(down.status).toBe(503);
-    expect(down.body.error).not.toMatch(/429/); // safe message only (5.2.2)
-    lookupNames.mockResolvedValueOnce(new Map([["kinnan, bonder prodigy", KINNAN]]));
-    buildPool.mockRejectedValueOnce(new Error("EDHREC responded 502"));
-    expect((await player.send("post", "/api/optimizer/analyze", { commanders: ["Kinnan, Bonder Prodigy"] })).status).toBe(503);
-  });
-
-  test("locks the chosen commander and returns the 99, skipped lines and the usable pool", async () => {
-    lookupNames.mockResolvedValueOnce(new Map([["kinnan, bonder prodigy", KINNAN]]));
-    buildPool.mockResolvedValueOnce(data);
-    // The list names a different commander and puts Kinnan in the 99: the chosen commander still wins.
-    const text = "Commander\n1 Urza, Lord High Artificer\n\nDeck\n1 Sol Ring\n1 Kinnan, Bonder Prodigy\n1 Lightning Bolt\n1 Not A Card\n30 Island";
-    const res = await player.send("post", "/api/optimizer/analyze", { commanders: ["kinnan, bonder prodigy"], text });
-    expect(res.status).toBe(200);
-    expect(buildPool.mock.calls.at(-1)[0]).toEqual([KINNAN]);
-    expect(res.body.commanders.map((c) => c.name)).toEqual(["Kinnan, Bonder Prodigy"]);
-    expect(res.body.original.filter((n) => n === "Island")).toHaveLength(30);
-    expect(res.body.original).toEqual(expect.arrayContaining(["Sol Ring", "Lightning Bolt"]));
-    expect(res.body.original).not.toContain("Kinnan, Bonder Prodigy");
-    expect(res.body.skipped.map((s) => s.name)).toEqual(["Kinnan, Bonder Prodigy", "Not A Card"]);
-    // The off-colour card in the list stays (so the page can say why it goes); other illegal cards are left out.
-    const names = res.body.pool.map((c) => c.name);
-    expect(names).toEqual(expect.arrayContaining(["Lightning Bolt", "Sol Ring"]));
-    expect(names).not.toContain("Mana Crypt");
-    expect(names).not.toContain("Swords to Plowshares");
-    expect(res.body.rate).toEqual({ usdCad: 1.4, date: "2026-10-30" });
-  });
-
-  test("learns from the swaps players take and reject, and gives a player's own rejections back", async () => {
-    const other = await newPlayer("opt_other");
-    const feedback = (who, swaps, commanders = ["Kinnan, Bonder Prodigy"]) => who.send("post", "/api/optimizer/feedback", { commanders, swaps });
-    // A commander, at least one swap, and for each a card and whether it was taken.
-    expect((await feedback(player, [{ remove: "Sol Ring", add: "Basalt Monolith", accepted: false }], [])).status).toBe(400);
-    expect((await feedback(player, [])).status).toBe(400);
-    expect((await feedback(player, [{ remove: "", add: " ", accepted: true }])).status).toBe(400);
-    expect((await feedback(player, [{ remove: "Sol Ring", add: "Basalt Monolith" }])).status).toBe(400);
-    expect((await feedback(await new Player().init(), [{ remove: "Sol Ring", add: "Basalt Monolith", accepted: true }])).status).toBe(401);
-    // The player takes one swap and rejects another, then changes their mind on the first: the latest answer counts.
-    expect((await feedback(player, [{ remove: "Sol Ring", add: "Basalt Monolith", accepted: true }, { remove: "Island", add: "Mana Crypt", accepted: false }])).body).toEqual({ saved: 2 });
-    await feedback(player, [{ remove: "Sol Ring", add: "Basalt Monolith", accepted: false }]);
-    await feedback(other, [{ remove: "Sol Ring", add: "Basalt Monolith", accepted: true }]);
-    const analyze = async () => {
-      lookupNames.mockResolvedValueOnce(new Map([["kinnan, bonder prodigy", KINNAN]]));
-      buildPool.mockResolvedValueOnce(data);
-      return (await player.send("post", "/api/optimizer/analyze", { commanders: ["Kinnan, Bonder Prodigy"], text: "1 Sol Ring\n30 Island" })).body;
-    };
-    let res = await analyze();
-    // Every player's answers for the deck's cards and the commander's adds; this player's rejections for this commander.
-    expect(res.learned.pairs).toEqual(expect.arrayContaining([["Sol Ring", "Basalt Monolith", 1, 1], ["Island", "Mana Crypt", 0, 1]]));
-    expect(res.learned.adds).toEqual(expect.arrayContaining([["Basalt Monolith", 1, 1], ["Mana Crypt", 0, 1]]));
-    expect(res.rejected.adds.sort()).toEqual(["Basalt Monolith", "Mana Crypt"]);
-    expect(res.rejected.keeps.sort()).toEqual(["Island", "Sol Ring"]);
-    // Clear rejections forgets this player's, not what anyone took.
-    expect((await player.send("delete", "/api/optimizer/feedback", { commanders: ["Kinnan, Bonder Prodigy"] })).body).toEqual({ cleared: 2 });
-    res = await analyze();
-    expect(res.rejected).toEqual({ adds: [], keeps: [] });
-    expect(res.learned.pairs).toEqual([["Sol Ring", "Basalt Monolith", 1, 0]]);
-  });
-
-  test("finds other players' real listings for suggested cards, nearest first", async () => {
-    const MONOLITH = "6b7f2b4f-1b2a-4c55-9f0e-2a2f7a3a6b11";
-    await pool.query("INSERT INTO card_printings (id, name, set_code, set_name, collector_number) VALUES ($1, 'Basalt Monolith', '3ed', 'Revised', '230')", [MONOLITH]);
-    await seller.add(MONOLITH, 2, { condition: "LP" });
-    await player.add(MONOLITH, 1); // your own copy isn't a listing to trade for
-    expect((await player.send("post", "/api/optimizer/listings", { names: [] })).body).toEqual({ listings: {} });
-    const res = await player.send("post", "/api/optimizer/listings", { names: ["Basalt Monolith", "Sol Ring", "Nobody Has This", 42] });
-    expect(res.status).toBe(200);
-    expect(Object.keys(res.body.listings).sort()).toEqual(["Basalt Monolith", "Sol Ring"]);
-    expect(res.body.listings["Basalt Monolith"]).toEqual({
-      total: 1,
-      nearest: [{ itemId: expect.any(Number), quantity: 2, condition: "LP", finish: "nonfoil", printing: "3ED #230", owner: { username: "opt_seller", city: "Toronto, ON", store: null }, distanceKm: 63 }],
-    }); // no asking price: listings are for trading
-    const ring = res.body.listings["Sol Ring"];
-    expect(ring.nearest.length).toBeLessThanOrEqual(5);
-    expect(ring.total).toBeGreaterThanOrEqual(ring.nearest.length);
-    expect(ring.nearest.map((l) => l.distanceKm)).toEqual([...ring.nearest.map((l) => l.distanceKm)].sort((a, b) => a - b));
-  });
 });

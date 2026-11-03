@@ -5,7 +5,7 @@ import { LINE } from "./collectionImport.js";
 //   "1 Sol Ring (C21) 263 *F*" card lines, and Archidekt's "[Commander{top}]" / "[Sideboard]" category tags.
 const SECTIONS = { commander: "commander", commanders: "commander", deck: "main", main: "main", mainboard: "main", sideboard: "side", side: "side", companion: "side", maybeboard: "maybe", maybe: "maybe", considering: "maybe" };
 
-/** { rows: [{ line, quantity, name, setCode, collectorNumber, finish, board }], skipped: [{ line, name, reason }] }. */
+/** { rows: [{ line, quantity, name, setCode, collectorNumber, board }], skipped: [{ line, name, reason }] }. */
 export function parseDeckList(text) {
   const rows = [];
   const skipped = [];
@@ -21,7 +21,7 @@ export function parseDeckList(text) {
       const m = LINE.exec(line);
       if (!m) return skipped.push({ line: i + 1, name: line.slice(0, 80), reason: "Couldn't read this line." });
       const tagged = tags.some((t) => t.includes("commander")) ? "commander" : tags.some((t) => t.includes("sideboard")) ? "side" : tags.some((t) => t.includes("maybe")) ? "maybe" : null;
-      rows.push({ line: i + 1, quantity: Math.min(99, Number(m[1])), name: m[2].trim(), setCode: m[3]?.toLowerCase() ?? null, collectorNumber: m[4] ?? null, finish: m[5]?.toUpperCase() === "E" ? "etched" : m[5] ? "foil" : "nonfoil", board: tagged ?? board });
+      rows.push({ line: i + 1, quantity: Math.min(99, Number(m[1])), name: m[2].trim(), setCode: m[3]?.toLowerCase() ?? null, collectorNumber: m[4] ?? null, board: tagged ?? board });
     });
   return { rows: rows.filter((r) => r.quantity > 0), skipped };
 }

@@ -166,21 +166,6 @@ router.get("/search", requireAuth, async (req, res) => {
   }
 });
 
-// Every printing of one card, newest first, for switching a deck card's set (Scryfall sends up to 175).
-router.get("/printings", requireAuth, async (req, res) => {
-  const name = typeof req.query.name === "string" ? req.query.name.trim().slice(0, 200) : "";
-  if (!name) throw new HttpError(400, "Name a card.");
-  try {
-    const printings = (await searchPrintings(`!"${name.replace(/"/g, "")}" game:paper`, { order: "released", limit: 175 })).filter((p) => p.name === name);
-    await cachePrintings(printings);
-    res.json({ printings });
-  } catch (err) {
-    console.warn(`Scryfall printings lookup failed, using local cache: ${err.message}`);
-    const { rows } = await query("SELECT * FROM card_printings WHERE name = $1 ORDER BY set_code", [name]);
-    res.json({ printings: rows.map((r) => printingView(r)) });
-  }
-});
-
 // Everything the zoomed-in card view shows: text, rulings, legalities, prices and links to Scryfall.
 router.get("/:id", async (req, res) => {
   if (!isUuid(req.params.id)) throw new HttpError(404, "That card was not found.");

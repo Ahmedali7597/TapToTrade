@@ -20,7 +20,7 @@ Tap to Trade is a free website that helps Magic: The Gathering players across Ca
 - **Reputation:** after a trade, both players confirm it happened and rate each other from 1 to 5 stars.
 - **Prices:** card prices in Canadian dollars for reference, from Scryfall (TCGplayer market price) and Face to Face Games. Tap to Trade never handles money.
 - **Stores and events:** a directory of local game stores and their upcoming events.
-- **Decks:** a deck builder with Commander card suggestions from EDHREC, and a Commander deck optimizer: keep your commander, set a budget in CAD, and it rebuilds the 99 for competitive play with combos from Commander Spellbook, exact draw odds and local listings for the cards it adds. Or it upgrades your own list: cards players voted strictly better on [Strictly Better](https://www.strictlybetter.eu), a land base checked against Frank Karsten's land count and coloured-source numbers, and EDHREC's suggestions for the rest. It learns from the swaps players take and reject.
+- **Decks:** a deck builder with Commander card suggestions from EDHREC.
 - **Safety:** player reports, a moderation queue and a slur filter on messages and usernames.
 
 ## Tech stack
