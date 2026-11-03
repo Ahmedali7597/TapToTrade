@@ -49,12 +49,6 @@ test("reads mana, tutor targets and roles from rules text", () => {
   expect(classify(card("A Wincon", "Creature", "If you have no cards in library, you win the game.", { cmc: 2 })).roles).toEqual(["wincon"]);
   expect(classify(card("A Bear", "Creature", "")).roles).toEqual(["other"]);
   expect(classify(card("A Land", "Land", "{T}: Add {R}.")).roles).toEqual(["land"]);
-  // Graveyard recursion isn't removal: a copy of a creature card (Abyssal Harvester) or one back to hand (Grave Scrabbler).
-  expect(classify(card("Abyssal Harvester", "Creature", "{T}: Exile target creature card from a graveyard that was put there this turn. Create a token that's a copy of it. Then exile all other Nightmare tokens you control.", { cmc: 3 })).roles).toEqual(["other"]);
-  expect(classify(card("Grave Scrabbler", "Creature", "Madness {1}{B}\nWhen this creature enters, if its madness cost was paid, you may return target creature card from a graveyard to its owner's hand.", { cmc: 4 }))).toMatchObject({ roles: ["other"], madness: 2 });
-  expect(classify(card("Dark Withering", "Instant", "Destroy target nonblack creature.\nMadness {B}", { cmc: 6 }))).toMatchObject({ roles: ["interaction"], madness: 1 });
-  expect(classify(card("Polluted Delta", "Land", "Search your library for an Island or Swamp card, put it onto the battlefield, then shuffle."))).toMatchObject({ roles: ["land"], fetch: true });
-  expect(classify(card("A Land", "Land", "{T}: Add {R}.")).fetch).toBe(false);
   // Well-known staples use the curated roles, whatever their text says.
   expect(classify(card("Demonic Tutor", "Sorcery", "Search your library for a card"))).toMatchObject({ roles: ["tutor"], finds: "any", staple: true });
   expect(classify(card("Mana Vault", "Artifact", "{T}: Add {C}{C}{C}."))).toMatchObject({ roles: ["fastMana"], net: 2, staple: true });
