@@ -21,10 +21,9 @@ export const commanderSlug = (names) => names.map(edhrecSlug).sort().join("-");
 /**
  * { slug, url, lists: [{ tag, header, cards: [{ name, synergy, inclusion }] }] } for a commander page, or null
  * if EDHREC has no page for it. `synergy` and `inclusion` are fractions (0.72 = 72%). Throws if EDHREC is down.
- * `variant` picks one of the page's filtered versions, e.g. "cedh" for competitive decks only.
  */
-export async function commanderSuggestions(names, variant = "") {
-  const slug = commanderSlug(names) + (variant ? `/${variant}` : "");
+export async function commanderSuggestions(names) {
+  const slug = commanderSlug(names);
   const hit = cache.get(slug);
   if (hit && Date.now() - hit.at < DAY) return hit.value;
   const res = await fetch(`https://json.edhrec.com/pages/commanders/${slug}.json`, {

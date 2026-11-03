@@ -34,7 +34,6 @@ const Wants = page(() => import("@/pages/Wants"));
 const Decks = page(() => import("@/pages/Decks"));
 const Faq = page(() => import("@/pages/Faq"));
 const DeckPage = page(() => import("@/pages/Deck"));
-const Optimizer = page(() => import("@/pages/Optimizer"));
 const TradesPage = page(trades, "TradesPage");
 const NewTrade = page(trades, "NewTrade");
 const TradeDetail = page(trades, "TradeDetail");
@@ -114,7 +113,6 @@ export default function App() {
             <Route path="trades/:id" element={<TradeDetail />} />
             <Route path="trades/:id/counter" element={<CounterTrade />} />
             <Route path="settings" element={<Settings />} />
-            <Route path="optimizer" element={<Optimizer />} />
             <Route path="suggestions" element={<Suggestions />} />
           </Route>
           <Route element={<RequireAuth roles={["moderator", "admin"]} />}>

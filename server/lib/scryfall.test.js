@@ -1,4 +1,4 @@
-import { autocompleteNames, cardDetails, rankByName, sample, searchCards, searchPrintings, showcasePool, toDetails, toPrinting } from "./scryfall.js";
+import { autocompleteNames, cardDetails, rankByName, sample, searchPrintings, showcasePool, toDetails, toPrinting } from "./scryfall.js";
 
 const card = {
   id: "435589bb-27c6-4a6d-9d63-394d5092b9d8",
@@ -153,28 +153,4 @@ test("the showcase pool is fetched once and shared by callers", async () => {
   await showcasePool();
   expect(fetchMock).toHaveBeenCalledTimes(5);
   fetchMock.mockRestore();
-});
-
-describe("searchCards", () => {
-  afterEach(() => jest.restoreAllMocks());
-
-  test("follows Scryfall's pages up to the limit, and reads a 404 as no matches", async () => {
-    const page = (data, next) => ({ ok: true, status: 200, json: async () => ({ data, has_more: Boolean(next), next_page: next }) });
-    const fetchMock = jest
-      .spyOn(global, "fetch")
-      .mockResolvedValueOnce(page([{ name: "A" }], "https://api.scryfall.com/cards/search?page=2"))
-      .mockResolvedValueOnce(page([{ name: "B" }], "https://api.scryfall.com/cards/search?page=3"));
-    expect((await searchCards("t:land", { pages: 2 })).map((c) => c.name)).toEqual(["A", "B"]);
-    expect(fetchMock).toHaveBeenCalledTimes(2); // stopped at two pages though there was a third
-    expect(fetchMock.mock.calls[1][0]).toBe("https://api.scryfall.com/cards/search?page=2");
-    jest.spyOn(global, "fetch").mockResolvedValueOnce({ ok: false, status: 404 });
-    expect(await searchCards("nothing")).toEqual([]);
-  });
-
-  test("passes on Scryfall's reason for an error, such as a rate limit", async () => {
-    jest.spyOn(global, "fetch").mockResolvedValueOnce({ ok: false, status: 429, json: async () => ({ details: "You are being rate-limited." }) });
-    await expect(searchCards("x")).rejects.toThrow("Scryfall responded 429: You are being rate-limited.");
-    jest.spyOn(global, "fetch").mockResolvedValueOnce({ ok: false, status: 500, json: async () => { throw new Error("not json"); } });
-    await expect(searchCards("x")).rejects.toThrow("Scryfall responded 500: ");
-  });
 });
