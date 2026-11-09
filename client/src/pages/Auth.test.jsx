@@ -5,8 +5,10 @@ import { safeNext } from "@shared/validation";
 import { Login, Register, VerifyEmail } from "./Auth";
 
 describe("Register (4.1.2)", () => {
-  test("FE-01 renders every required field with a label", () => {
+  test("FE-01 renders every required field with a label", async () => {
+    mockApi({});
     renderAt(<Register />, { user: null });
+    await waitFor(() => expect(screen.getAllByRole("img", { name: /card image$/ })).toHaveLength(3));
     for (const label of ["Email", "Username", "Password", "City"]) {
       expect(screen.getByLabelText(label)).toBeInTheDocument();
     }
