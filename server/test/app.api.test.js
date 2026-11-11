@@ -492,6 +492,31 @@ describe("moderation (4.6) and roles (4.7)", () => {
     const { rows } = await pool.query("SELECT count(*)::int AS n FROM mod_actions WHERE action = 'set_role'");
     expect(rows[0].n).toBe(2);
   });
+
+  test("4.6.2 reports are dismissed or reviewed once; suspending from a report closes it and logs it (5.2.3)", async () => {
+    const report = async (reason) => (await reporter.send("post", "/api/reports", { reportedUserId: seller.user.id, reason })).body.report.id;
+    const queue = async (status) => (await mod.get(`/api/moderation/reports?status=${status}`)).body.reports.map((r) => Number(r.id));
+
+    // Dismiss: moderators only, a valid status, and only once.
+    const rude = Number(await report("Rude in trade messages."));
+    expect((await reporter.send("post", `/api/moderation/reports/${rude}/resolve`, { status: "dismissed" })).status).toBe(403);
+    expect((await mod.send("post", `/api/moderation/reports/${rude}/resolve`, { status: "deleted" })).status).toBe(400);
+    expect((await mod.send("post", `/api/moderation/reports/${rude}/resolve`, { status: "dismissed", reason: "Not against the rules." })).status).toBe(200);
+    expect((await mod.send("post", `/api/moderation/reports/${rude}/resolve`, { status: "reviewed" })).status).toBe(409);
+    expect(await queue("dismissed")).toContain(rude);
+
+    // Suspend from a report: the report moves to reviewed, a second suspend is refused, and the log names the report.
+    const proxies = Number(await report("Sells proxies as real cards."));
+    expect((await mod.send("post", `/api/moderation/users/${seller.user.id}/suspend`, { reason: "abc" })).status).toBe(400); // reason too short
+    expect((await mod.send("post", `/api/moderation/users/${seller.user.id}/suspend`, { reason: "Proxies again.", reportId: proxies })).status).toBe(200);
+    expect((await mod.send("post", `/api/moderation/users/${seller.user.id}/suspend`, { reason: "Proxies again." })).status).toBe(409);
+    expect(await queue("reviewed")).toContain(proxies);
+    expect(await queue("pending")).not.toContain(proxies);
+    const { rows } = await pool.query("SELECT action, report_id::int AS report, reason FROM mod_actions WHERE target_user_id = $1 ORDER BY id DESC LIMIT 1", [seller.user.id]);
+    expect(rows[0]).toEqual({ action: "suspend_user", report: proxies, reason: "Proxies again." });
+
+    expect((await mod.send("post", `/api/moderation/users/${seller.user.id}/unsuspend`, { reason: "Cleanup for later tests." })).status).toBe(200);
+  });
 });
 
 describe("account deletion (4.2.4)", () => {
