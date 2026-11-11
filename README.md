@@ -87,6 +87,14 @@ GitHub Actions runs the unit tests, the build and the API tests on every pull re
 - API requests are rate limited.
 - Secrets stay in environment variables and are never sent to the browser.
 
+### Reporting a vulnerability
+
+Please don't open a public issue for a security problem. Report it privately through [GitHub's private vulnerability reporting](https://github.com/Ahmedali7597/TapToTrade/security/advisories/new). Include what you found, the steps to reproduce it and the impact you expect. I aim to reply within a week.
+
+- This covers the code in this repository and the live site at [taptotrade.ca](https://taptotrade.ca). Only the latest code on `main` is supported.
+- Test against a local copy wherever you can. The read-only `npm run test:security` checks are safe to run against the live site.
+- Don't run automated scanners or load tests against taptotrade.ca, and never access, change or delete other players' accounts or data.
+
 ## Project structure
 
 ```
@@ -98,8 +106,17 @@ postman/    API collection for Newman
 docs/       Map styles and the OWASP ZAP report
 ```
 
-To report a vulnerability, see [SECURITY.md](SECURITY.md).
-
 ## Contributing
 
-Issues and pull requests are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md) for the workflow.
+Issues and pull requests are welcome. For anything bigger than a small fix, open an issue first so we can agree on the approach.
+
+- Branch from `main` with a short name, like `fix/trade-keyboard`.
+- Commit messages follow [Conventional Commits](https://www.conventionalcommits.org/): `type(scope): summary`, using `feat`, `fix`, `docs`, `test`, `refactor`, `chore` or `ci`.
+- Keep each pull request to one change and link the issue it closes. In the description, say what changed, why, and how you tested it.
+- Run `npm test` and `npm run build` first, plus `npm run test:api` for API or database changes. Add or update tests for any behaviour you change.
+- Database changes go in a new numbered file in `server/migrations/` with a matching rollback in `server/migrations/down/`. Never edit a migration that has already run.
+- Never commit `.env` files, API keys or other secrets.
+
+## Credits
+
+The arrow in the logo is **"curved arrow" by dh park from [Noun Project](https://thenounproject.com/icon/curved-arrow-6891830/)**, licensed under [CC BY 3.0](https://creativecommons.org/licenses/by/3.0/). For Tap to Trade the arrow paths are unchanged, but the drawing is recoloured teal, the canvas is tightened, and CSS adds the rotation, scaling, movement and wordmark reveal. The credit is also shown in the site footer. No endorsement by dh park or Noun Project is implied. The arrow stays under CC BY 3.0, whatever licence covers the rest of the project.
