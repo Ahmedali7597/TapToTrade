@@ -4,11 +4,12 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { EmptyState, ErrorAlert, PageHeader, SegmentedControl, Spinner, SuccessMark, useApi } from "@/components/common";
-import { outranks, topicLabel } from "@shared/validation";
-import { api } from "@/lib/api";
+import { outranks, plural, topicLabel } from "@shared/validation";
+import { api, qs } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 
 // Small wrapper so each moderator action below reads as one line.
@@ -19,6 +20,13 @@ const profileLink = (username) => (
     {username}
   </Link>
 );
+/** Suspending an account, from a report (which the server then closes) or straight from the player list. */
+const suspend = (u, reportId) => ({
+  title: `Suspend ${u.username}?`,
+  confirm: "Suspend account",
+  destructive: true,
+  run: (reason) => post(`/moderation/users/${u.id}/suspend`, { reason, reportId }),
+});
 /** Lifting a suspension, from a report, the ban list or an accepted appeal (the server closes any open appeal). */
 const reinstate = (u, confirm = "Reinstate") => ({
   title: `Reinstate ${u.username}?`,
@@ -77,7 +85,7 @@ function ReasonDialog({ action, onClose, onDone }) {
  */
 function Queue({ path, list, filters, empty, testId, children }) {
   const [status, setStatus] = useState(filters?.[0].value);
-  const { data, error, loading, reload } = useApi(filters ? `${path}?status=${status}` : path);
+  const { data, error, loading, reload } = useApi(filters ? `${path}${path.includes("?") ? "&" : "?"}status=${status}` : path);
   const [action, setAction] = useState(null);
   const items = data?.[list];
   return (
@@ -172,17 +180,7 @@ function ReportQueue() {
                   }}
                 />
               )}
-              {r.target.status === "active" && (
-                <ActionButton
-                  open={open}
-                  action={{
-                    title: `Suspend ${r.target.username}?`,
-                    confirm: "Suspend account",
-                    destructive: true,
-                    run: (reason) => post(`/moderation/users/${r.target.id}/suspend`, { reason, reportId: r.id }),
-                  }}
-                />
-              )}
+              {r.target.status === "active" && <ActionButton open={open} action={suspend(r.target, r.id)} />}
               <ActionButton
                 open={open}
                 variant="secondary"
@@ -202,6 +200,61 @@ function ReportQueue() {
         </>
       )}
     </Queue>
+  );
+}
+
+/** Players: find anyone by username or city and suspend or reinstate them. Players with open reports come first. */
+function PlayerList() {
+  const { user } = useAuth();
+  // q is what's typed; query is what was last searched, so the list only reloads on submit.
+  const [q, setQ] = useState("");
+  const [query, setQuery] = useState("");
+  return (
+    <>
+      <form
+        role="search"
+        className="mb-4 flex max-w-md items-end gap-2"
+        onSubmit={(e) => {
+          e.preventDefault();
+          setQuery(q.trim());
+        }}
+      >
+        <div className="grid flex-1 gap-1.5">
+          <Label htmlFor="player-q">Find a player</Label>
+          <Input id="player-q" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Username or city" />
+        </div>
+        <Button type="submit">Search</Button>
+      </form>
+      <Queue
+        path={`/moderation/users${qs({ q: query })}`}
+        list="users"
+        testId="player-list"
+        empty={() => (query ? `No players match "${query}"` : "No players")}
+        filters={[
+          { value: "all", label: "Everyone" },
+          { value: "active", label: "Active" },
+          { value: "suspended", label: "Suspended" },
+        ]}
+      >
+        {(u, { open }) => (
+          <div className="flex flex-wrap items-center gap-2 text-sm">
+            {/* A suspended player's profile is hidden, so only active ones get a link. */}
+            {u.status === "active" ? profileLink(u.username) : <span className="font-semibold">{u.username}</span>}
+            <span className="text-muted-foreground">({u.city})</span>
+            {u.role !== "user" && <Badge variant="outline">{u.role}</Badge>}
+            {u.status === "suspended" && <Badge variant="destructive">Suspended</Badge>}
+            {u.openReports > 0 && <Badge variant="secondary">{plural(u.openReports, "open report")}</Badge>}
+            <Meta>joined {new Date(u.joinedAt).toLocaleDateString()}</Meta>
+            {outranks(user.role, u.role) &&
+              (u.status === "active" ? (
+                <ActionButton open={open} variant="destructive" label="Suspend" action={suspend(u)} />
+              ) : (
+                <ActionButton open={open} label="Reinstate" action={reinstate(u)} />
+              ))}
+          </div>
+        )}
+      </Queue>
+    </>
   );
 }
 
@@ -324,7 +377,7 @@ function SuggestionInbox() {
   );
 }
 
-const VIEWS = { reports: ReportQueue, bans: BanList, appeals: AppealQueue, suggestions: SuggestionInbox };
+const VIEWS = { reports: ReportQueue, players: PlayerList, bans: BanList, appeals: AppealQueue, suggestions: SuggestionInbox };
 
 /** 4.6.2–4.6.4: moderators review reports, remove listings, suspend or reinstate accounts and answer appeals. */
 export function ModerationPage() {
@@ -332,7 +385,7 @@ export function ModerationPage() {
   const View = VIEWS[view];
   return (
     <div className="mx-auto max-w-5xl px-4 py-10 sm:px-6">
-      <PageHeader title="Moderation" description="Review reports and appeals, manage bans and read suggestions. Every action you take here is logged with your reason." />
+      <PageHeader title="Moderation" description="Review reports and appeals, find any player to suspend or reinstate, and read suggestions. Every action you take here is logged with your reason." />
       <SegmentedControl
         label="Moderation queue"
         value={view}
@@ -340,6 +393,7 @@ export function ModerationPage() {
         className="mb-4 flex"
         options={[
           { value: "reports", label: "Reports" },
+          { value: "players", label: "Players" },
           { value: "bans", label: "Bans" },
           { value: "appeals", label: "Appeals" },
           { value: "suggestions", label: "Suggestions" },

@@ -214,6 +214,26 @@ router.get("/moderation/suspended", moderator, async (req, res) => {
   });
 });
 
+// ---- players: find anyone by username or city to suspend or reinstate, reported players first ----
+// No email addresses here: moderators only need what a public profile shows, plus status and open reports.
+router.get("/moderation/users", moderator, async (req, res) => {
+  const q = typeof req.query.q === "string" ? req.query.q.trim().slice(0, 100) : "";
+  const status = oneOf(req.query.status, ["all", "active", "suspended"]);
+  const { rows } = await query(
+    `SELECT u.id, u.username, u.city, u.role, u.status, u.created_at,
+            (SELECT count(*)::int FROM reports r WHERE r.reported_user_id = u.id AND r.status = 'pending') AS open_reports
+       FROM users u
+      WHERE u.status <> 'deleted' AND ($2 = 'all' OR u.status = $2)
+        AND ($1 = '' OR u.username ILIKE '%' || $1 || '%' OR u.city ILIKE '%' || $1 || '%')
+      ORDER BY open_reports DESC, lower(u.username)
+      LIMIT 50`,
+    [escapeLike(q), status],
+  );
+  res.json({
+    users: rows.map((u) => ({ id: u.id, username: u.username, city: u.city, role: u.role, status: u.status, joinedAt: u.created_at, openReports: u.open_reports })),
+  });
+});
+
 // ---- appeals: a suspended player can't sign in, so a failed login that proved who they are opens a short window ----
 const APPEAL_MINUTES = 30;
 const APPEAL_COOLDOWN_DAYS = 7; // after a rejection, so appeals can't flood the queue

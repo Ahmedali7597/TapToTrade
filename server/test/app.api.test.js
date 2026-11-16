@@ -521,6 +521,22 @@ describe("moderation (4.6) and roles (4.7)", () => {
     expect(rows.map((r) => r.action)).toEqual(["unsuspend_user", "reject_appeal"]);
   });
 
+  test("the player list finds anyone by name or city for moderators, reported players first, without emails", async () => {
+    expect((await reporter.get("/api/moderation/users")).status).toBe(403);
+    const { id } = (await reporter.send("post", "/api/reports", { reportedUserId: seller.user.id, reason: "Ghosted me twice." })).body.report;
+    const all = (await mod.get("/api/moderation/users")).body.users;
+    expect(all[0]).toMatchObject({ username: "shady_seller", status: "active" });
+    expect(all[0].openReports).toBeGreaterThan(0);
+    expect(all.find((u) => u.username === "honest_reporter").openReports).toBe(0);
+    expect(all[0]).not.toHaveProperty("email");
+    expect((await mod.get("/api/moderation/users?q=SHADY")).body.users.map((u) => u.username)).toEqual(["shady_seller"]);
+    expect((await mod.get("/api/moderation/users?q=100%25")).body.users).toEqual([]); // % is a literal, not a wildcard
+    expect((await mod.get("/api/moderation/users?status=suspended")).body.users).toEqual([]);
+    expect((await mod.send("post", `/api/moderation/users/${seller.user.id}/suspend`, { reason: "Ghosting trades.", reportId: id })).status).toBe(200);
+    expect((await mod.get("/api/moderation/users?status=suspended")).body.users).toMatchObject([{ username: "shady_seller", status: "suspended" }]);
+    expect((await mod.send("post", `/api/moderation/users/${seller.user.id}/unsuspend`, { reason: "Cleanup for later tests." })).status).toBe(200);
+  });
+
   test("moderators can't remove staff listings or close reports about staff; admins can", async () => {
     const card = await mod.add(RING, 1);
     expect((await mod.send("delete", `/api/moderation/inventory/${card.id}`, { reason: "Testing rank." })).status).toBe(403); // not even your own

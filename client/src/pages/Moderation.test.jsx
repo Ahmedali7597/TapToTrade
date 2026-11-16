@@ -117,6 +117,28 @@ describe("bans and appeals tabs", () => {
     expect(sent(fetch, "POST", "/api/moderation/users/2/unsuspend")).toEqual({ reason: "abc served the time" });
   });
 
+  test("the Players tab finds a player and suspends them, with no button for staff you don't outrank", async () => {
+    const fetch = mockApi({
+      "GET /api/moderation/reports": { reports: [] },
+      "GET /api/moderation/users": {
+        users: [
+          { id: 2, username: "bob", city: "Burlington, ON", role: "user", status: "active", joinedAt: "2026-10-01T12:00:00Z", openReports: 2 },
+          { id: 3, username: "dana", city: "Hamilton, ON", role: "admin", status: "active", joinedAt: "2026-09-01T12:00:00Z", openReports: 0 },
+        ],
+      },
+      "POST /api/moderation/users/2/suspend": { ok: true },
+    });
+    renderAt(<ModerationPage />, { user: moderator });
+    await userEvent.click(await screen.findByRole("button", { name: "Players" }));
+    expect(await screen.findByText("2 open reports")).toBeInTheDocument();
+    expect(screen.getAllByRole("button", { name: "Suspend" })).toHaveLength(1); // not on the admin
+    await userEvent.type(screen.getByLabelText("Find a player"), "bob");
+    await userEvent.click(screen.getByRole("button", { name: "Search" }));
+    expect(fetch.mock.calls.some(([url]) => url === "/api/moderation/users?q=bob&status=all")).toBe(true);
+    await act("Suspend", " ghosted three trades", "Suspend account");
+    expect(sent(fetch, "POST", "/api/moderation/users/2/suspend")).toEqual({ reason: "abc ghosted three trades" });
+  });
+
   test("the Appeals tab accepts (reinstates) or rejects an appeal", async () => {
     const appeal = { id: 5, message: "I have receipts.", status: "pending", createdAt: "2026-11-02T12:00:00Z", user: { id: 2, username: "bob", city: "Burlington, ON", role: "user", status: "suspended" } };
     const fetch = mockApi({
