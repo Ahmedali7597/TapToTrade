@@ -141,13 +141,13 @@ describe("rendered page", () => {
     expect(html).toContain('<meta property="og:image" content="https://taptotrade.ca/og-image.jpg" />');
     expect(html).toMatch(/<div id="root"><main class="seo-shell"><h1>Magic: The Gathering card browser<\/h1>/);
     expect(html).toContain('<a href="/search">');
-    expect(html).not.toContain("application/ld+json"); // structured data and the film preload are home-page only
+    expect(html).not.toContain("application/ld+json"); // structured data is home-page only
   });
 
-  test("the home page carries structured data and the hero preload; 404s carry no canonical", async () => {
+  test("the home page carries structured data (and no unused preload); 404s carry no canonical", async () => {
     const home = renderPage(TEMPLATE, await pageMeta("/"));
     expect(home).toContain('<script type="application/ld+json">');
-    expect(home).toContain('rel="preload" as="image"');
+    expect(home).not.toContain('rel="preload"'); // the film's frames are fetched by script, so a preload only warns
     expect(home).toContain('<link rel="canonical" href="https://taptotrade.ca/" />');
     const missing = renderPage(TEMPLATE, await pageMeta("/nope"));
     expect(missing).not.toContain('rel="canonical"');

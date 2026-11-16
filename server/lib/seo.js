@@ -154,8 +154,6 @@ export function renderPage(template, meta) {
     `<meta property="og:image:height" content="630" />`,
     `<meta property="og:locale" content="en_CA" />`,
     `<meta name="twitter:card" content="summary_large_image" />`,
-    // The scroll film's first frame is only worth preloading on the home page.
-    meta.home && `<link rel="preload" as="image" href="/hero/frames/frame_001.webp" fetchpriority="high" />`,
     // Google Maps browser key: public by design (Google only accepts it from this site's address, set in the
     // Cloud console). Without one the app's maps use OpenStreetMap.
     process.env.GOOGLE_MAPS_API_KEY && `<meta name="google-maps-key" content="${escape(process.env.GOOGLE_MAPS_API_KEY)}" />`,
