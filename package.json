@@ -12,7 +12,7 @@
     "dev:server": "node --watch --env-file-if-exists=.env server/index.js",
     "dev:client": "vite",
     "build": "vite build",
-    "start": "node --env-file-if-exists=.env server/index.js",
+    "start": "npm run migrate && node --env-file-if-exists=.env server/index.js",
     "migrate": "node --env-file-if-exists=.env server/migrate.js",
     "migrate:down": "node --env-file-if-exists=.env server/migrate.js down",
     "seed": "node --env-file-if-exists=.env server/seed/seed.js",
