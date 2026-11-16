@@ -5,6 +5,8 @@ import { authLimiter, reportLimiter, requireAuth, requireRole, revokeSessions } 
 import { escapeLike } from "../lib/search.js";
 import { logAction } from "../lib/audit.js";
 import { notice, promoted } from "../lib/notify.js";
+import { closeChannel } from "../lib/live.js";
+import { userChannel } from "../lib/notifications.js";
 import { FINISH_LABELS, outranks } from "../../shared/validation.js";
 
 // Reports (4.6.1), moderation (4.6.2–4.6.4) and role management (4.7). Every action writes mod_actions (5.2.3).
@@ -169,7 +171,10 @@ async function setStatus(req, from, to, action) {
     await logAction(c, { actorId: req.user.id, action, reportId, targetUserId: id, reason });
   });
   // Kick a suspended user out right away instead of waiting for their session to expire, and tell them either way.
-  if (to === "suspended") await revokeSessions(id);
+  if (to === "suspended") {
+    await revokeSessions(id);
+    closeChannel(userChannel(id)); // and their open tabs stop getting live updates
+  }
   notice(to === "suspended" ? "account_suspended" : "account_reinstated", id, {}, { suspended: true });
 }
 

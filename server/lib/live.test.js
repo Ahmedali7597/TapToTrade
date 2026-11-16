@@ -1,5 +1,5 @@
 import { EventEmitter } from "node:events";
-import { listenerCount, publish, subscribe } from "./live.js";
+import { closeChannel, listenerCount, publish, subscribe } from "./live.js";
 
 const fakeStream = () => {
   const req = new EventEmitter();
@@ -50,4 +50,24 @@ test("one thread or player gets at most 10 open streams; the 11th is refused", (
   expect(listenerCount(9)).toBe(10);
   for (const s of open) s.req.emit("close");
   expect(listenerCount(9)).toBe(0);
+});
+
+test("closeChannel ends every stream for a player and stops their keep-alives", () => {
+  jest.useFakeTimers();
+  const a = fakeStream();
+  const b = fakeStream();
+  for (const s of [a, b]) {
+    s.res.end = jest.fn();
+    subscribe(11, s.req, s.res);
+  }
+  closeChannel(11);
+  expect(a.res.end).toHaveBeenCalled();
+  expect(b.res.end).toHaveBeenCalled();
+  expect(listenerCount(11)).toBe(0);
+  const writes = a.res.write.mock.calls.length;
+  jest.advanceTimersByTime(25_000);
+  expect(a.res.write.mock.calls.length).toBe(writes);
+  a.req.emit("close"); // the browser hanging up afterwards is harmless
+  closeChannel(12); // nobody watching: no error
+  jest.useRealTimers();
 });

@@ -8,6 +8,8 @@ import { requireAuth, revokeSessions, verifyLimiter } from "../middleware.js";
 import { usernameProblem } from "../lib/slurs.js";
 import { cityMessage, emailMessage, normalizeEmail, parseTravelKm, passwordMessage, usernameMessage } from "../../shared/validation.js";
 import { duplicateAccountError, selfView } from "./auth.js";
+import { closeChannel } from "../lib/live.js";
+import { userChannel } from "../lib/notifications.js";
 
 // Private account settings (4.1.7, 4.2.2–4.2.4). Everything here requires the signed-in user.
 const router = Router();
@@ -150,6 +152,7 @@ router.delete("/", async (req, res) => {
     );
   });
   await revokeSessions(id);
+  closeChannel(userChannel(id));
   // The account row is anonymized now, so use the address and name it had (only if the address was confirmed).
   if (req.user.email_verified) background(() => sendTemplate("account_deleted", req.user.email, { username: req.user.username }));
   res.status(204).end();
