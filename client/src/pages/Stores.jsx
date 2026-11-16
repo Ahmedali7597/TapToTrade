@@ -62,8 +62,8 @@ function PartnerPitch() {
           Run a game store?
         </h2>
         <p className="mt-2 text-muted-foreground">
-          Partnering is free. Players who trade at your store browse your singles, join your events and come back. You promote {SITE_NAME} at your trade
-          nights, and we send local players your way.
+          Partnering is free. Players who meet at your store to trade also browse your singles and turn up to your events. You mention {SITE_NAME}
+          at your trade nights, and we send local players your way.
         </p>
         <Button asChild className="mt-5">
           <a href={mail}>Become a partner store</a>

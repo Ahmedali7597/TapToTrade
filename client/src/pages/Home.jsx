@@ -29,8 +29,8 @@ const STEPS = [
 ];
 // Safety principles, as a quiet list rather than another grid.
 const PRINCIPLES = [
-  { icon: MapPin, title: "City only", description: "Profiles show a username, a city and shared cards. Never your address. Meet somewhere public." },
-  { icon: ShieldCheck, title: "Moderated", description: "Report a listing or player; moderators can remove listings and suspend accounts." },
+  { icon: MapPin, title: "City only", description: "Profiles show a username, a city and shared cards, never your address. Meet somewhere public." },
+  { icon: ShieldCheck, title: "Moderated", description: "Report a listing or a player. Moderators can remove listings and suspend accounts, and suspended players can appeal." },
   { icon: BadgeCheck, title: "Honest status", description: "“Offer accepted” means you agreed to meet, not that the trade is done." },
 ];
 
@@ -115,7 +115,7 @@ function PartnerStores() {
               Meet at your local game store
             </h2>
             <p className="mt-3 max-w-[60ch] text-muted-foreground">
-              Partner stores are official meetup spots: public, friendly, and full of players. Pick one when you send a trade request.
+              Partner stores are official meetup spots where players already gather. Pick one when you send a trade request.
             </p>
           </div>
           <Link to="/stores" className="inline-flex items-center gap-1 font-semibold text-primary underline-offset-4 hover:underline">
@@ -207,7 +207,7 @@ export default function Home() {
           <div className="max-w-2xl rounded-2xl bg-background p-6 shadow-xl ring-1 ring-black/5 sm:p-8">
             <TapToTradeLogo animate={false} />
             <p className="mt-3 text-lg text-muted-foreground sm:text-xl">
-              Find the card. Tap to trade. Meet at a public spot in your city. No payments, no shipping.
+              Find the card, tap to trade, and meet at a public spot in your city. We never handle payments or shipping.
             </p>
             <div className="mt-6 flex flex-wrap gap-3">{ctas}</div>
           </div>
@@ -221,7 +221,7 @@ export default function Home() {
             Real printings, real binders
           </h2>
           <p className="mt-3 max-w-[60ch] text-muted-foreground">
-            Every listing points at an exact printing, with Scryfall images and set details. A new random pick every visit; tap any card to read it.
+            Every listing points at an exact printing, with Scryfall images and set details. The cards below change every visit. Tap one to read it.
           </p>
         </div>
         <div className="relative">
@@ -247,7 +247,7 @@ export default function Home() {
               From a dusty box to a local trade
             </h2>
             <p className="mt-4 max-w-[52ch] text-muted-foreground md:text-lg">
-              List what you own, find what you need nearby, and agree to meet. Tap to Trade never handles money or shipping.
+              List what you own, find what you need nearby, and agree on where to meet.
             </p>
             <ol className="mt-8 grid gap-0">
               {STEPS.map(({ icon: Icon, title, description }) => (
