@@ -1,4 +1,4 @@
-import { Router } from "express";
+import { json, Router } from "express";
 import { query, tx, valuesList } from "../db.js";
 import { findPrintings, MAX_ROWS, parseCollection } from "../lib/collectionImport.js";
 import { HttpError, checkFields, idParam, isUuid } from "../lib/http.js";
@@ -137,7 +137,7 @@ router.post("/", async (req, res) => {
  * (capped at 9999) and keep their visibility; new listings are private unless `available: true` is sent.
  * Unmatched rows come back in `skipped`.
  */
-router.post("/import", importLimiter, async (req, res) => {
+router.post("/import", importLimiter, json({ limit: "3mb" }), async (req, res) => {
   const text = typeof req.body?.text === "string" ? req.body.text : "";
   if (!text.trim()) throw new HttpError(400, "Choose a file or paste your list first.");
   const available = req.body?.available === true; // private unless the player chose to share them

@@ -1007,6 +1007,9 @@ describe("collection import and export", () => {
 
   test("rejects empty input and explains when Scryfall is down", async () => {
     expect((await p.send("post", "/api/inventory/import", { text: "   " })).status).toBe(400);
+    // Bodies over the general 100 kB limit still reach the import route, which reads up to 3 MB itself.
+    expect((await p.send("post", "/api/inventory/import", { text: " ".repeat(200_000) })).status).toBe(400);
+    expect((await p.send("post", "/api/suggestions", { text: " ".repeat(200_000) })).status).toBe(413);
     lookupCollection.mockRejectedValueOnce(new Error("timeout"));
     jest.spyOn(console, "warn").mockImplementation(() => {});
     const res = await p.send("post", "/api/inventory/import", { text: "1 Sol Ring" });

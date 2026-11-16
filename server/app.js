@@ -103,11 +103,11 @@ export function createApp() {
   // Everything under /api goes through the same chain: JSON body -> session -> rate limit -> user -> CSRF.
   // Order matters: loadUser needs the session, and csrf needs both.
   const PgStore = connectPgSimple(session);
-  // Collection files can be large; this path gets a bigger body limit, and the general parser below skips it.
-  app.use("/api/inventory/import", express.json({ limit: "3mb" }));
+  // Collection files can be large, so the import route parses its own 3 MB body, after the login check.
+  const json = express.json({ limit: "100kb" });
   app.use(
     "/api",
-    express.json({ limit: "100kb" }),
+    (req, res, next) => (req.path === "/inventory/import" ? next() : json(req, res, next)),
     session({
       store: new PgStore({ pool, tableName: "session", ttl: IDLE_MINUTES * 60 }),
       name: "ttt.sid",
