@@ -5,6 +5,7 @@ import { BlurFade } from "@/components/ui/blur-fade";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { CardImage, ErrorAlert, Field, Spinner, SuccessMark, SuccessMessage, useApi } from "@/components/common";
 import { api } from "@/lib/api";
+import { Textarea } from "@/components/ui/textarea";
 import { CitySelect, PasswordChecklist, ResendLink } from "@/components/AccountFields";
 import { useAuth } from "@/lib/auth";
 import { useForm } from "@/lib/useForm";
@@ -93,9 +94,42 @@ const GOOGLE_ERRORS = {
   cancelled: "Google sign-in was cancelled.",
   expired: "That Google sign-in took too long or was already used. Please try again.",
   failed: "Google sign-in didn't work. Please try again, or log in with your email and password.",
-  suspended: "This account is suspended. Contact the moderators if you think this is a mistake.",
+  suspended: "This account is suspended. You can send the moderators an appeal below.",
   other: "That email's account is linked to a different Google account. Log in with your password instead.",
 };
+
+/**
+ * Shown after a suspended player's login: the server remembers who just proved it was them, so they can ask the
+ * moderators to look again without signing in. Renders nothing when this browser can't appeal.
+ */
+function AppealForm() {
+  const { data, reload } = useApi("/appeals/mine");
+  const f = useForm({ message: "" });
+  if (!data?.canAppeal) return null;
+  if (data.appeal?.status === "pending") {
+    return <SuccessMessage>Your appeal from {new Date(data.appeal.createdAt).toLocaleDateString()} is waiting for a moderator. We'll email you the answer.</SuccessMessage>;
+  }
+  const submit = (e) => {
+    e.preventDefault();
+    if (f.reject(f.values.message.trim().length < 10 ? { message: "Write at least 10 characters." } : {})) return;
+    f.run(async () => {
+      await api("/appeals", { method: "POST", body: f.values });
+      reload();
+    });
+  };
+  const { id, error, ...field } = f.bind("message");
+  return (
+    <form ref={f.ref} onSubmit={submit} noValidate className="mt-6 grid gap-3 rounded-lg border p-4">
+      <ErrorAlert error={f.error} title="Appeal not sent" />
+      <Field id={id} label="Appeal your suspension" error={error} hint={data.appeal?.status === "rejected" ? "Your last appeal was turned down. Tell us anything new." : "Tell the moderators what happened and why the suspension should be lifted."}>
+        <Textarea id={id} maxLength={2000} rows={4} aria-invalid={!!error} {...field} />
+      </Field>
+      <Button type="submit" variant="secondary" disabled={f.busy}>
+        {f.busy ? "Sending…" : "Send appeal"}
+      </Button>
+    </form>
+  );
+}
 
 // Login page. After signing in, go back to wherever the user was sent from (?next=).
 export function Login() {
@@ -151,6 +185,7 @@ export function Login() {
           {f.busy ? "Logging in…" : "Log in"}
         </Button>
       </form>
+      {(f.error?.status === 403 || params.get("google") === "suspended") && <AppealForm key={f.error?.message} />}
     </AuthCard>
   );
 }

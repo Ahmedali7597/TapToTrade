@@ -58,11 +58,13 @@ describe("moderation report queue (4.6.2 to 4.6.4)", () => {
     expect(sent(fetch, "POST", "/api/moderation/users/2/suspend")).toEqual({ reason: "abc repeated fakes", reportId: 7 });
   });
 
-  test("4.7 a moderator gets no Suspend button for an admin (the server refuses it too)", async () => {
+  test("4.7 a moderator gets no actions on a report about an admin (the server refuses them too)", async () => {
     mockApi({ "GET /api/moderation/reports": { reports: [report({ role: "admin" })] } });
     renderAt(<ModerationPage />, { user: moderator });
-    expect(await screen.findByRole("button", { name: "Remove listing" })).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Suspend account" })).not.toBeInTheDocument();
+    expect(await screen.findByText("Looks like a proxy.")).toBeInTheDocument();
+    for (const name of ["Remove listing", "Suspend account", "Mark reviewed", "Dismiss"]) {
+      expect(screen.queryByRole("button", { name })).not.toBeInTheDocument();
+    }
   });
 
   test("4.6.4 a suspended player can be reinstated", async () => {
@@ -97,5 +99,36 @@ describe("moderation report queue (4.6.2 to 4.6.4)", () => {
     await act("Suspend account", " repeated fakes");
     const dialog = await screen.findByRole("dialog");
     expect(await within(dialog).findByText("That player is already suspended.")).toBeInTheDocument();
+  });
+});
+
+describe("bans and appeals tabs", () => {
+  test("the Bans tab lists suspended accounts with the reason and a Reinstate button", async () => {
+    const fetch = mockApi({
+      "GET /api/moderation/reports": { reports: [] },
+      "GET /api/moderation/suspended": { users: [{ id: 2, username: "bob", city: "Burlington, ON", role: "user", suspendedAt: "2026-11-01T12:00:00Z", suspendedBy: "mod", reason: "Sold fakes.", appealPending: true }] },
+      "POST /api/moderation/users/2/unsuspend": { ok: true },
+    });
+    renderAt(<ModerationPage />, { user: moderator });
+    await userEvent.click(await screen.findByRole("button", { name: "Bans" }));
+    expect(await screen.findByText("Sold fakes.")).toBeInTheDocument();
+    expect(screen.getByText("Appeal waiting")).toBeInTheDocument();
+    await act("Reinstate account", " served the time", "Reinstate");
+    expect(sent(fetch, "POST", "/api/moderation/users/2/unsuspend")).toEqual({ reason: "abc served the time" });
+  });
+
+  test("the Appeals tab accepts (reinstates) or rejects an appeal", async () => {
+    const appeal = { id: 5, message: "I have receipts.", status: "pending", createdAt: "2026-11-02T12:00:00Z", user: { id: 2, username: "bob", city: "Burlington, ON", role: "user", status: "suspended" } };
+    const fetch = mockApi({
+      "GET /api/moderation/reports": { reports: [] },
+      "GET /api/moderation/appeals": { appeals: [appeal] },
+      "POST /api/moderation/appeals/5/reject": { ok: true },
+    });
+    renderAt(<ModerationPage />, { user: moderator });
+    await userEvent.click(await screen.findByRole("button", { name: "Appeals" }));
+    expect(await screen.findByText("I have receipts.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Accept and reinstate" })).toBeEnabled();
+    await act("Reject appeal", " no receipts shown");
+    expect(sent(fetch, "POST", "/api/moderation/appeals/5/reject")).toEqual({ reason: "abc no receipts shown" });
   });
 });

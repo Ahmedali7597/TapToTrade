@@ -31,7 +31,8 @@ export const EMAIL_KINDS = [
   { key: "trade_meetup_confirmed", label: "Meetup confirmed", when: "Sent when the other player confirms the meetup you suggested (if trade emails are on)." },
   { key: "listing_removed", label: "Listing removed", when: "Sent when a moderator removes one of a player's listings." },
   { key: "account_suspended", label: "Account suspended", when: "Sent when a moderator suspends a player's account." },
-  { key: "account_reinstated", label: "Account reinstated", when: "Sent when a moderator lifts a suspension." },
+  { key: "account_reinstated", label: "Account reinstated", when: "Sent when a moderator lifts a suspension (including by accepting an appeal)." },
+  { key: "appeal_rejected", label: "Appeal rejected", when: "Sent when a moderator turns down a suspended player's appeal." },
   { key: "report_received", label: "Report received", when: "Sent to a player after they report a listing or another player." },
 ].map((k) => ({ ...k, alias: `ttt-${k.key.replace(/_/g, "-")}` }));
 
@@ -173,13 +174,13 @@ export const TEMPLATES = {
     preheader: "Here's what moderators do.",
     body:
       para(`Hi {{{USERNAME}}}, an administrator has made you a moderator on ${SITE_NAME}. Thank you for helping keep trading safe and friendly.`) +
-      para("Moderators review reports from players, remove listings that break the rules, suspend accounts when needed, and read players' suggestions. Each action asks for a reason and is kept in the moderation log.") +
+      para("Moderators review reports from players, remove listings that break the rules, suspend accounts when needed and answer appeals. They also read players' suggestions. Each action asks for a reason and is kept in the moderation log.") +
       button("Open the moderation queue", "{{{SITE}}}/moderation") +
       para(`Please read the ${textLink("{{{SITE}}}/terms", "trading rules")} so your decisions match them, and never share players' details outside the site.`, true),
     lines: [
       `Hi {{{USERNAME}}}, an administrator has made you a moderator on ${SITE_NAME}. Thank you for helping keep trading safe and friendly.`,
       "",
-      "Moderators review reports from players, remove listings that break the rules, suspend accounts when needed, and read players' suggestions. Each action asks for a reason and is kept in the moderation log.",
+      "Moderators review reports from players, remove listings that break the rules, suspend accounts when needed and answer appeals. They also read players' suggestions. Each action asks for a reason and is kept in the moderation log.",
       "",
       "Moderation queue: {{{SITE}}}/moderation",
       "Trading rules: {{{SITE}}}/terms",
@@ -279,11 +280,11 @@ export const TEMPLATES = {
     preheader: "You can't sign in while it's suspended.",
     body:
       para(`Hi {{{USERNAME}}}, a moderator has suspended your ${SITE_NAME} account for breaking the ${textLink("{{{SITE}}}/terms", "trading rules")}. You can't sign in or trade while it's suspended.`) +
-      para(`If you think this was a mistake, write to <a href="mailto:${EMAILS.support}" style="color:${C.teal}">${EMAILS.support}</a> within 30 days and tell us what happened. We'll look at it again.`),
+      para(`If you think we got it wrong, try to ${textLink("{{{SITE}}}/login", "log in")} and send an appeal from there, or write to <a href="mailto:${EMAILS.support}" style="color:${C.teal}">${EMAILS.support}</a> within 30 days. A moderator will look at it again.`),
     lines: [
       `Hi {{{USERNAME}}}, a moderator has suspended your ${SITE_NAME} account for breaking the trading rules ({{{SITE}}}/terms). You can't sign in or trade while it's suspended.`,
       "",
-      `If you think this was a mistake, write to ${EMAILS.support} within 30 days and tell us what happened. We'll look at it again.`,
+      `If you think we got it wrong, try to log in ({{{SITE}}}/login) and send an appeal from there, or write to ${EMAILS.support} within 30 days. A moderator will look at it again.`,
     ],
   }),
   account_reinstated: template({
@@ -292,6 +293,13 @@ export const TEMPLATES = {
     preheader: "You can sign in and trade again.",
     body: para(`Hi {{{USERNAME}}}, a moderator has lifted the suspension on your ${SITE_NAME} account. You can sign in and trade again.`) + button("Log in", "{{{SITE}}}/login"),
     lines: [`Hi {{{USERNAME}}}, a moderator has lifted the suspension on your ${SITE_NAME} account. You can sign in and trade again.`, "", "{{{SITE}}}/login"],
+  }),
+  appeal_rejected: template({
+    subject: `Your ${SITE_NAME} appeal`,
+    heading: "Your suspension stays in place",
+    preheader: "A moderator looked at your appeal.",
+    body: para(`Hi {{{USERNAME}}}, a moderator read your appeal and decided to keep your ${SITE_NAME} account suspended. If something new comes up, write to <a href="mailto:${EMAILS.support}" style="color:${C.teal}">${EMAILS.support}</a>.`),
+    lines: [`Hi {{{USERNAME}}}, a moderator read your appeal and decided to keep your ${SITE_NAME} account suspended. If something new comes up, write to ${EMAILS.support}.`],
   }),
   report_received: template({
     subject: `Thanks for your report`,

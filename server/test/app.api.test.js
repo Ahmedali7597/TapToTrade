@@ -481,6 +481,56 @@ describe("moderation (4.6) and roles (4.7)", () => {
     expect((await new Player().login(seller.email)).status).toBe(200);
   });
 
+  test("bans and appeals: a suspended player appeals from the login page; rejecting keeps the ban, reinstating accepts it", async () => {
+    const stranger = new Player();
+    await stranger.init();
+    expect((await stranger.get("/api/appeals/mine")).body).toEqual({ canAppeal: false });
+    expect((await stranger.send("post", "/api/appeals", { message: "Let me back in please." })).status).toBe(400);
+
+    expect((await mod.send("post", `/api/moderation/users/${seller.user.id}/suspend`, { reason: "Sold fakes." })).status).toBe(200);
+    const banned = (await mod.get("/api/moderation/suspended")).body.users.find((u) => u.id === seller.user.id);
+    expect(banned).toMatchObject({ username: "shady_seller", reason: "Sold fakes.", appealPending: false });
+    expect((await reporter.get("/api/moderation/suspended")).status).toBe(403);
+
+    // A wrong password opens nothing; the right one (still refused) opens the appeal window for that browser.
+    const p = new Player();
+    expect((await p.login(seller.email, "Wrong@1234")).status).toBe(401);
+    expect((await p.get("/api/appeals/mine")).body.canAppeal).toBe(false);
+    expect((await p.login(seller.email)).status).toBe(403);
+    expect((await p.get("/api/appeals/mine")).body).toEqual({ canAppeal: true, appeal: null });
+    expect((await p.send("post", "/api/appeals", { message: "short" })).status).toBe(400);
+    expect((await p.send("post", "/api/appeals", { message: "They were real, I have receipts." })).status).toBe(201);
+    expect((await p.send("post", "/api/appeals", { message: "Second try while the first waits." })).status).toBe(409);
+    expect((await mod.get("/api/moderation/suspended")).body.users.find((u) => u.id === seller.user.id).appealPending).toBe(true);
+
+    const pending = (await mod.get("/api/moderation/appeals")).body.appeals.find((a) => a.user.id === seller.user.id);
+    expect(pending).toMatchObject({ status: "pending", message: "They were real, I have receipts." });
+    expect((await mod.send("post", `/api/moderation/appeals/${pending.id}/reject`, { reason: "No receipts shown." })).status).toBe(200);
+    expect((await mod.send("post", `/api/moderation/appeals/${pending.id}/reject`, { reason: "No receipts shown." })).status).toBe(409);
+    expect((await lastEmailTo(seller.email)).subject).toBe("Your Tap to Trade appeal");
+    expect((await p.get("/api/appeals/mine")).body.appeal.status).toBe("rejected");
+
+    // A week's wait after a rejection; then a new appeal, accepted by reinstating the account.
+    expect((await p.send("post", "/api/appeals", { message: "Here are the receipts this time." })).status).toBe(429);
+    await pool.query("UPDATE appeals SET reviewed_at = now() - interval '8 days' WHERE id = $1", [pending.id]);
+    expect((await p.send("post", "/api/appeals", { message: "Here are the receipts this time." })).status).toBe(201);
+    expect((await mod.send("post", `/api/moderation/users/${seller.user.id}/unsuspend`, { reason: "Receipts check out." })).status).toBe(200);
+    expect((await mod.get("/api/moderation/appeals?status=accepted")).body.appeals[0]).toMatchObject({ user: { id: seller.user.id, status: "active" } });
+    expect((await p.send("post", "/api/appeals", { message: "Not suspended any more." })).status).toBe(409);
+    const { rows } = await pool.query("SELECT action FROM mod_actions WHERE target_user_id = $1 ORDER BY id DESC LIMIT 2", [seller.user.id]);
+    expect(rows.map((r) => r.action)).toEqual(["unsuspend_user", "reject_appeal"]);
+  });
+
+  test("moderators can't remove staff listings or close reports about staff; admins can", async () => {
+    const card = await mod.add(RING, 1);
+    expect((await mod.send("delete", `/api/moderation/inventory/${card.id}`, { reason: "Testing rank." })).status).toBe(403); // not even your own
+    expect((await mod.get("/api/inventory")).body.items.some((i) => i.id === card.id)).toBe(true); // rolled back
+    const { id } = (await reporter.send("post", "/api/reports", { reportedUserId: mod.user.id, reason: "Moderator was rude." })).body.report;
+    expect((await mod.send("post", `/api/moderation/reports/${id}/resolve`, { status: "dismissed" })).status).toBe(403);
+    expect((await admin.send("post", `/api/moderation/reports/${id}/resolve`, { status: "reviewed", reason: "Spoke to them." })).status).toBe(200);
+    expect((await admin.send("delete", `/api/moderation/inventory/${card.id}`, { reason: "Staff cleanup." })).status).toBe(200);
+  });
+
   test("admins promote and revoke moderators; others can't", async () => {
     expect((await mod.get("/api/admin/users")).status).toBe(403);
     expect((await admin.send("patch", `/api/admin/users/${reporter.user.id}/role`, { role: "moderator" })).body.user.role).toBe("moderator");
@@ -818,6 +868,16 @@ describe("Continue with Google", () => {
     const q = await new Player().init();
     exchangeCode.mockResolvedValueOnce({ sub: "g-someone-else", email: existing.email });
     expect((await callback(q, await start(q))).headers.location).toBe("/login?google=other");
+  });
+
+  test("linking an unconfirmed account drops the password someone else may have set, and its sessions", async () => {
+    const squatter = await newPlayer("email_squatter", undefined, { confirmed: false });
+    exchangeCode.mockResolvedValueOnce({ sub: "g-owner-1", email: squatter.email });
+    const owner = await new Player().init();
+    expect((await callback(owner, await start(owner))).headers.location).toBe("/dashboard");
+    expect((await squatter.get("/api/inventory")).status).toBe(401); // the squatter's session is gone
+    expect((await new Player().login(squatter.email)).status).toBe(401); // and so is their password
+    expect((await owner.get("/api/auth/me")).body.user).toMatchObject({ googleLinked: true, emailLogin: false, emailVerified: true });
   });
 
   test("forged state, replayed callbacks and suspended accounts are refused", async () => {

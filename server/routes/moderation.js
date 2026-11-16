@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { query, tx } from "../db.js";
-import { HttpError, idParam } from "../lib/http.js";
-import { requireAuth, requireRole, revokeSessions } from "../middleware.js";
+import { HttpError, idParam, oneOf, readText } from "../lib/http.js";
+import { authLimiter, reportLimiter, requireAuth, requireRole, revokeSessions } from "../middleware.js";
 import { escapeLike } from "../lib/search.js";
 import { logAction } from "../lib/audit.js";
 import { notice, promoted } from "../lib/notify.js";
@@ -17,11 +17,10 @@ const listingLabel = (r) => `${r.name} (${r.set_code.toUpperCase()} #${r.collect
 
 // Moderators have to say why they did something; resolving a report can skip it.
 function readReason(body, required = true) {
-  const reason = typeof body?.reason === "string" ? body.reason.trim() : "";
-  if (required && (reason.length < 5 || reason.length > 1000)) {
-    throw new HttpError(400, "Give a reason between 5 and 1000 characters.", { reason: "5–1000 characters." });
-  }
-  return reason || null;
+  if (!required) return readText(body?.reason, 0, Infinity) || null;
+  const reason = readText(body?.reason, 5, 1000);
+  if (reason === null) throw new HttpError(400, "Give a reason between 5 and 1000 characters.", { reason: "5–1000 characters." });
+  return reason;
 }
 
 /** Optionally closes the report a moderator acted from. */
@@ -37,7 +36,7 @@ async function closeReport(c, reportId, actorId) {
 }
 
 // ---- 4.6.1 any signed-in user can report a user or a specific listing ----
-router.post("/reports", requireAuth, async (req, res) => {
+router.post("/reports", requireAuth, reportLimiter, async (req, res) => {
   const reason = readReason(req.body);
   let reportedUserId = Number(req.body?.reportedUserId);
   let itemId = null;
@@ -71,7 +70,7 @@ router.post("/reports", requireAuth, async (req, res) => {
 
 // ---- 4.6.2 moderators view reports (pending by default) ----
 router.get("/moderation/reports", moderator, async (req, res) => {
-  const status = ["pending", "reviewed", "dismissed"].includes(req.query.status) ? req.query.status : "pending";
+  const status = oneOf(req.query.status, ["pending", "reviewed", "dismissed"]);
   const { rows } = await query(
     `SELECT r.id, r.reason, r.status, r.created_at, r.item_snapshot, r.inventory_item_id,
             rep.username AS reporter_username,
@@ -105,11 +104,14 @@ router.post("/moderation/reports/:id/resolve", moderator, async (req, res) => {
   if (!["reviewed", "dismissed"].includes(status)) throw new HttpError(400, "Choose reviewed or dismissed.");
   const reason = readReason(req.body, false);
   await tx(async (c) => {
-    const { rowCount } = await c.query(
-      "UPDATE reports SET status = $2, reviewed_at = now(), reviewed_by = $3 WHERE id = $1 AND status = 'pending'",
+    const { rows } = await c.query(
+      `UPDATE reports r SET status = $2, reviewed_at = now(), reviewed_by = $3 FROM users u
+        WHERE r.id = $1 AND r.status = 'pending' AND u.id = r.reported_user_id RETURNING u.role`,
       [id, status, req.user.id],
     );
-    if (!rowCount) throw new HttpError(409, "That report was already handled.");
+    if (!rows[0]) throw new HttpError(409, "That report was already handled.");
+    // A moderator can't close reports about themselves or other staff (the throw rolls the update back).
+    if (!outranks(req.user.role, rows[0].role)) throw new HttpError(403, "Only an administrator can handle that report.");
     await logAction(c, { actorId: req.user.id, action: `report_${status}`, reportId: id, reason });
   });
   res.json({ ok: true });
@@ -122,12 +124,14 @@ router.delete("/moderation/inventory/:id", moderator, async (req, res) => {
   const removed = await tx(async (c) => {
     // RETURNING gives us the card details for the audit log before the row is gone.
     const { rows } = await c.query(
-      `DELETE FROM inventory_items i USING card_printings p
-        WHERE i.id = $1 AND p.id = i.printing_id
-        RETURNING i.id, i.owner_id, i.quantity, i.condition, i.finish, p.name, p.set_code, p.collector_number`,
+      `DELETE FROM inventory_items i USING card_printings p, users u
+        WHERE i.id = $1 AND p.id = i.printing_id AND u.id = i.owner_id
+        RETURNING i.id, i.owner_id, i.quantity, i.condition, i.finish, p.name, p.set_code, p.collector_number, u.role`,
       [id],
     );
     if (!rows[0]) throw new HttpError(404, "That listing was not found.");
+    if (!outranks(req.user.role, rows[0].role)) throw new HttpError(403, "You can't remove that player's listings.");
+    delete rows[0].role; // not part of the audit details
     const reportId = await closeReport(c, req.body?.reportId, req.user.id);
     await logAction(c, {
       actorId: req.user.id,
@@ -157,6 +161,10 @@ async function setStatus(req, from, to, action) {
     if (!outranks(req.user.role, target.role)) throw new HttpError(403, "You can't change the status of that account.");
     if (target.status !== from) throw new HttpError(409, `That account is already ${target.status}.`);
     await c.query("UPDATE users SET status = $2, updated_at = now() WHERE id = $1", [id, to]);
+    // Reinstating answers any appeal they were waiting on.
+    if (to === "active") {
+      await c.query("UPDATE appeals SET status = 'accepted', reviewed_at = now(), reviewed_by = $2 WHERE user_id = $1 AND status = 'pending'", [id, req.user.id]);
+    }
     const reportId = await closeReport(c, req.body?.reportId, req.user.id);
     await logAction(c, { actorId: req.user.id, action, reportId, targetUserId: id, reason });
   });
@@ -172,6 +180,111 @@ router.post("/moderation/users/:id/suspend", moderator, async (req, res) => {
 
 router.post("/moderation/users/:id/unsuspend", moderator, async (req, res) => {
   await setStatus(req, "suspended", "active", "unsuspend_user");
+  res.json({ ok: true });
+});
+
+// ---- bans: every suspended account, with who suspended it, when, why, and any appeal waiting ----
+router.get("/moderation/suspended", moderator, async (req, res) => {
+  const { rows } = await query(
+    `SELECT u.id, u.username, u.city, u.role, m.created_at AS suspended_at, m.reason, actor.username AS suspended_by, ap.id AS appeal_id
+       FROM users u
+       LEFT JOIN LATERAL (SELECT * FROM mod_actions WHERE target_user_id = u.id AND action = 'suspend_user' ORDER BY created_at DESC LIMIT 1) m ON true
+       LEFT JOIN users actor ON actor.id = m.actor_id
+       LEFT JOIN appeals ap ON ap.user_id = u.id AND ap.status = 'pending'
+      WHERE u.status = 'suspended'
+      ORDER BY m.created_at DESC NULLS LAST, u.id
+      LIMIT 100`,
+  );
+  res.json({
+    users: rows.map((u) => ({
+      id: u.id,
+      username: u.username,
+      city: u.city,
+      role: u.role,
+      suspendedAt: u.suspended_at,
+      suspendedBy: u.suspended_by,
+      reason: u.reason,
+      appealPending: u.appeal_id != null,
+    })),
+  });
+});
+
+// ---- appeals: a suspended player can't sign in, so a failed login that proved who they are opens a short window ----
+const APPEAL_MINUTES = 30;
+const APPEAL_COOLDOWN_DAYS = 7; // after a rejection, so appeals can't flood the queue
+const appealUser = (req) => {
+  const a = req.session.appeal;
+  return a && Date.now() - a.at < APPEAL_MINUTES * 60_000 ? a.userId : null;
+};
+
+/** Whether this browser may send an appeal, and the latest one that account already sent. */
+router.get("/appeals/mine", async (req, res) => {
+  const userId = appealUser(req);
+  if (!userId) return res.json({ canAppeal: false });
+  const { rows } = await query("SELECT status, created_at FROM appeals WHERE user_id = $1 ORDER BY created_at DESC LIMIT 1", [userId]);
+  res.json({ canAppeal: true, appeal: rows[0] ? { status: rows[0].status, createdAt: rows[0].created_at } : null });
+});
+
+router.post("/appeals", authLimiter, async (req, res) => {
+  const userId = appealUser(req);
+  if (!userId) throw new HttpError(400, "Log in again to send an appeal.");
+  const message = readText(req.body?.message, 10, 2000);
+  if (message === null) throw new HttpError(400, "Write between 10 and 2000 characters.", { message: "10–2000 characters." });
+  const { rows: state } = await query(
+    `SELECT u.status, (SELECT max(reviewed_at) FROM appeals WHERE user_id = u.id AND status = 'rejected') > now() - make_interval(days => $2) AS waiting
+       FROM users u WHERE u.id = $1`,
+    [userId, APPEAL_COOLDOWN_DAYS],
+  );
+  if (state[0]?.status !== "suspended") throw new HttpError(409, "This account isn't suspended any more. Try logging in.");
+  if (state[0].waiting) throw new HttpError(429, `Your last appeal was turned down recently. You can send a new one ${APPEAL_COOLDOWN_DAYS} days after that answer.`);
+  // The unique index allows one pending appeal at a time.
+  const { rows } = await query("INSERT INTO appeals (user_id, message) VALUES ($1, $2) RETURNING status, created_at", [userId, message]).catch((err) => {
+    throw err.code === "23505" ? new HttpError(409, "Your appeal is already waiting for a moderator.") : err;
+  });
+  res.status(201).json({ appeal: { status: rows[0].status, createdAt: rows[0].created_at } });
+});
+
+// Moderators read appeals: pending oldest first (like reports), answered ones newest first.
+router.get("/moderation/appeals", moderator, async (req, res) => {
+  const status = oneOf(req.query.status, ["pending", "accepted", "rejected"]);
+  const { rows } = await query(
+    `SELECT ap.id, ap.message, ap.status, ap.created_at, ap.reviewed_at, u.id AS user_id, u.username, u.city, u.role, u.status AS user_status,
+            rv.username AS reviewed_by
+       FROM appeals ap JOIN users u ON u.id = ap.user_id LEFT JOIN users rv ON rv.id = ap.reviewed_by
+      WHERE ap.status = $1
+      ORDER BY ap.created_at ${status === "pending" ? "ASC" : "DESC"}, ap.id
+      LIMIT 100`,
+    [status],
+  );
+  res.json({
+    appeals: rows.map((a) => ({
+      id: a.id,
+      message: a.message,
+      status: a.status,
+      createdAt: a.created_at,
+      reviewedAt: a.reviewed_at,
+      reviewedBy: a.reviewed_by,
+      user: { id: a.user_id, username: a.username, city: a.city, role: a.role, status: a.user_status },
+    })),
+  });
+});
+
+// Accepting an appeal is reinstating the account (unsuspend above). Rejecting keeps the suspension and tells them.
+router.post("/moderation/appeals/:id/reject", moderator, async (req, res) => {
+  const id = idParam(req, "That appeal");
+  const reason = readReason(req.body);
+  const userId = await tx(async (c) => {
+    const { rows } = await c.query(
+      `UPDATE appeals ap SET status = 'rejected', reviewed_at = now(), reviewed_by = $2 FROM users u
+        WHERE ap.id = $1 AND ap.status = 'pending' AND u.id = ap.user_id RETURNING ap.user_id, u.role`,
+      [id, req.user.id],
+    );
+    if (!rows[0]) throw new HttpError(409, "That appeal was already answered.");
+    if (!outranks(req.user.role, rows[0].role)) throw new HttpError(403, "You can't answer that appeal.");
+    await logAction(c, { actorId: req.user.id, action: "reject_appeal", targetUserId: rows[0].user_id, reason, details: { appealId: id } });
+    return rows[0].user_id;
+  });
+  notice("appeal_rejected", userId, {}, { suspended: true });
   res.json({ ok: true });
 });
 

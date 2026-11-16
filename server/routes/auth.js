@@ -2,7 +2,7 @@ import { emailPrefsFor } from "../../shared/notifications.js";
 import { Router } from "express";
 import { query, tx } from "../db.js";
 import { HttpError, checkFields, logEvent } from "../lib/http.js";
-import { notice, sendTemplate, welcome } from "../lib/notify.js";
+import { background, notice, sendTemplate, welcome } from "../lib/notify.js";
 import { siteUrl } from "../lib/seo.js";
 import { hashPassword, newToken, safeEqual, sha256, verifyDummy, verifyPassword } from "../lib/security.js";
 import { authUrl, exchangeCode, googleConfigured } from "../lib/google.js";
@@ -41,6 +41,18 @@ async function startSession(req, user) {
   await regenerate(req);
   req.session.userId = user.id;
   req.session.csrfToken = newToken();
+}
+
+/**
+ * A suspended player got their password (or Google) right: log it, and let this browser send one appeal
+ * (POST /api/appeals) for a while, since they can't sign in to do it.
+ */
+async function suspendedLogin(req, user) {
+  logEvent("auth.login_suspended", { userId: user.id, ip: req.ip });
+  const { csrfToken } = req.session;
+  await regenerate(req); // a fresh session id, so a planted cookie can't pick up the appeal
+  req.session.csrfToken = csrfToken;
+  req.session.appeal = { userId: user.id, at: Date.now() };
 }
 
 /** Maps unique-constraint violations to friendly field errors (AT-02: 409). */
@@ -98,8 +110,8 @@ router.post("/login", authLimiter, async (req, res) => {
   }
   // Only tell someone they're suspended after they've proven they know the password.
   if (user.status === "suspended") {
-    logEvent("auth.login_suspended", { userId: user.id, ip: req.ip });
-    throw new HttpError(403, "This account is suspended. Contact the moderators if you think this is a mistake.");
+    await suspendedLogin(req, user);
+    throw new HttpError(403, "This account is suspended. You can send the moderators an appeal below.");
   }
   await startSession(req, user);
   res.json({ user: selfView(user), csrfToken: req.session.csrfToken });
@@ -128,7 +140,8 @@ router.post("/forgot-password", authLimiter, async (req, res) => {
       );
     });
     const link = `${siteUrl()}/reset-password?token=${token}`;
-    await sendTemplate("reset", rows[0].email, { username: rows[0].username, link, minutes: RESET_TTL_MINUTES });
+    // In the background, so the reply takes as long whether or not the account exists.
+    background(() => sendTemplate("reset", rows[0].email, { username: rows[0].username, link, minutes: RESET_TTL_MINUTES }));
   }
   res.status(202).json({ message: "If that email has an account, a reset link is on its way." });
 });
@@ -240,11 +253,21 @@ router.get("/google/callback", authLimiter, async (req, res) => {
   if (user) {
     if (user.google_sub && user.google_sub !== account.sub) return fail("other");
     if (user.status === "suspended") {
-      logEvent("auth.login_suspended", { userId: user.id, ip: req.ip });
+      await suspendedLogin(req, user);
       return fail("suspended");
     }
     if (!user.google_sub) {
-      user = (await query("UPDATE users SET google_sub = $1, updated_at = now() WHERE id = $2 RETURNING *", [account.sub, user.id])).rows[0];
+      // Nobody has proved they own an unconfirmed address, so someone else may have signed up with it first. Google
+      // has now proved who owns it, so that password and any sessions it started stop working.
+      const unconfirmed = !user.email_verified_at;
+      user = (
+        await query(
+          `UPDATE users SET google_sub = $1, password_hash = CASE WHEN email_verified_at IS NULL THEN '!' ELSE password_hash END, updated_at = now()
+            WHERE id = $2 RETURNING *`,
+          [account.sub, user.id],
+        )
+      ).rows[0];
+      if (unconfirmed) await revokeSessions(user.id);
     }
     // Google has confirmed this address, so the player doesn't need our confirmation email too.
     if (!user.email_verified_at && user.email === email) {
