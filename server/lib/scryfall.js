@@ -53,9 +53,11 @@ export function rankByName(printings, q) {
 // Note: per-process throttle; share it (e.g. via the DB) if the app ever runs several instances.
 const GAP = process.env.NODE_ENV === "test" ? 0 : 100;
 const SLOW_GAP = process.env.NODE_ENV === "test" ? 0 : 600; // 500 ms plus a margin, so network jitter never squeezes two together
+const MAX_WAIT_MS = 10_000; // a longer queue means someone is flooding us: fail fast (503) instead of stalling everyone
 async function throttle(slow = false) {
   const at = Math.max(Date.now(), lastCall + GAP, slow ? lastSlow + SLOW_GAP : 0);
   const wait = at - Date.now();
+  if (wait > MAX_WAIT_MS) throw new Error("Scryfall queue is full");
   lastCall = at; // reserve the slot before waiting, so parallel calls queue up
   if (slow) lastSlow = at;
   if (wait > 0) await new Promise((r) => setTimeout(r, wait));

@@ -57,6 +57,7 @@ const STORE_GAP_MS = process.env.NODE_ENV === "test" ? 0 : 1000;
 let nextStoreCall = 0;
 async function storeJson(path) {
   const wait = nextStoreCall - Date.now();
+  if (wait > 10_000) throw new Error("Face to Face Games queue is full"); // someone is flooding us: fail fast
   nextStoreCall = Math.max(Date.now(), nextStoreCall) + STORE_GAP_MS;
   if (wait > 0) await new Promise((r) => setTimeout(r, wait));
   const res = await fetch(`${F2F}${path}`, { headers: { "User-Agent": UA, Accept: "application/json" }, signal: AbortSignal.timeout(6000) });

@@ -38,3 +38,16 @@ test("pushes events to everyone watching a thread, and only that thread", () => 
   other.req.emit("close");
   jest.useRealTimers();
 });
+
+test("one thread or player gets at most 10 open streams; the 11th is refused", () => {
+  const open = Array.from({ length: 10 }, () => fakeStream());
+  for (const s of open) subscribe(9, s.req, s.res);
+  const extra = fakeStream();
+  extra.res.status = jest.fn(() => extra.res);
+  extra.res.end = jest.fn();
+  subscribe(9, extra.req, extra.res);
+  expect(extra.res.status).toHaveBeenCalledWith(429);
+  expect(listenerCount(9)).toBe(10);
+  for (const s of open) s.req.emit("close");
+  expect(listenerCount(9)).toBe(0);
+});

@@ -5,9 +5,11 @@
 
 const channels = new Map(); // thread id -> Set of open responses
 const HEARTBEAT_MS = 25_000; // a comment line often enough that proxies don't close an idle connection
+const MAX_PER_CHANNEL = 10; // plenty of tabs for one player or trade; stops one account holding open endless sockets
 
 /** Streams events for `threadId` to `res` until the browser disconnects. */
 export function subscribe(threadId, req, res) {
+  if ((channels.get(threadId)?.size ?? 0) >= MAX_PER_CHANNEL) return res.status(429).end();
   res.set({ "Content-Type": "text/event-stream", "Cache-Control": "no-cache, no-transform", Connection: "keep-alive", "X-Accel-Buffering": "no" });
   res.flushHeaders();
   res.write("retry: 5000\n\n"); // reconnect after 5 s if the connection drops
