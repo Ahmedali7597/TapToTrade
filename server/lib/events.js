@@ -4,7 +4,7 @@
 import { EVENT_KINDS, eventKindLabel, timeZoneFor } from "../../shared/events.js";
 import { storePath } from "../../shared/stores.js";
 import { query } from "../db.js";
-import { httpsLinkOrBlank } from "./http.js";
+import { httpsLinkOrBlank, readText } from "./http.js";
 
 // A weekly event can be posted for up to this many weeks at once (each week becomes its own event).
 const MAX_REPEAT_WEEKS = 12;
@@ -87,11 +87,10 @@ export function readEvent(body = {}, { timeZone, partial = false, now = new Date
   const values = {};
   const fields = {};
   const sent = (key) => !partial || body[key] !== undefined;
-  const text = (key) => (typeof body[key] === "string" ? body[key].trim() : "");
 
   if (sent("title")) {
-    const v = text("title");
-    if (v.length < 2 || v.length > 100) fields.title = "Title must be 2-100 characters.";
+    const v = readText(body.title, 2, 100);
+    if (v === null) fields.title = "Title must be 2-100 characters.";
     else values.title = v;
   }
   if (sent("kind")) {
@@ -115,8 +114,8 @@ export function readEvent(body = {}, { timeZone, partial = false, now = new Date
   // Optional text: blank means none.
   const optional = (key, column, max, message) => {
     if (!sent(key)) return;
-    const v = text(key);
-    if (v.length > max) fields[key] = message;
+    const v = readText(body[key], 0, max);
+    if (v === null) fields[key] = message;
     else values[column] = v || null;
   };
   optional("details", "details", 500, "Keep the details under 500 characters.");

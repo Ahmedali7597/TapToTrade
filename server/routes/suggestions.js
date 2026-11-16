@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { query } from "../db.js";
-import { HttpError, checkFields, idParam } from "../lib/http.js";
+import { HttpError, checkFields, idParam, oneOf, readText } from "../lib/http.js";
 import { requireAuth, requireRole, suggestionLimiter } from "../middleware.js";
 import { SUGGESTION_TOPICS } from "../../shared/validation.js";
 
@@ -24,8 +24,8 @@ const view = (s, withAuthor = false) => ({
 function readSuggestion(body = {}) {
   const fields = {};
   if (!TOPICS.includes(body.topic)) fields.topic = "Choose what your suggestion is about.";
-  const message = typeof body.message === "string" ? body.message.trim() : "";
-  if (message.length < 10 || message.length > 2000) fields.message = "Write between 10 and 2000 characters.";
+  const message = readText(body.message, 10, 2000);
+  if (message === null) fields.message = "Write between 10 and 2000 characters.";
   checkFields(fields);
   return { topic: body.topic, message };
 }
@@ -45,7 +45,7 @@ router.get("/suggestions/mine", requireAuth, async (req, res) => {
 
 // Staff inbox: new suggestions oldest first (like the report queue), reviewed ones newest first.
 router.get("/moderation/suggestions", staff, async (req, res) => {
-  const status = req.query.status === "reviewed" ? "reviewed" : "new";
+  const status = oneOf(req.query.status, ["new", "reviewed"]);
   const { rows } = await query(
     `SELECT s.*, u.username FROM suggestions s JOIN users u ON u.id = s.user_id
       WHERE s.status = $1 ORDER BY s.created_at ${status === "new" ? "ASC" : "DESC"}, s.id LIMIT 100`,

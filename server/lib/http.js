@@ -15,6 +15,15 @@ export function checkFields(fields) {
 /** True for a UUID such as a Scryfall card id ("0000579f-7b35-4ed3-b44c-db2a538066fe"). */
 export const isUuid = (value) => typeof value === "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
 
+/** The trimmed text when it is between `min` and `max` characters, else null. Anything but a string counts as blank. */
+export function readText(value, min, max) {
+  const t = typeof value === "string" ? value.trim() : "";
+  return t.length >= min && t.length <= max ? t : null;
+}
+
+/** `value` when it is one of `allowed`, else the first entry, which is the default. */
+export const oneOf = (value, allowed) => (allowed.includes(value) ? value : allowed[0]);
+
 /**
  * A web address typed into a form: null when left blank, the address when it's a full https:// link of at most
  * 300 characters, and undefined when it's neither (so the caller can show an error).

@@ -1,11 +1,12 @@
-import { useRef, useState } from "react";
+import { useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { EmptyState, ErrorAlert, PageHeader, SegmentedControl, shake, Spinner, SuccessMessage, useApi } from "@/components/common";
+import { EmptyState, ErrorAlert, PageHeader, SegmentedControl, Spinner, SuccessMessage, useApi } from "@/components/common";
 import { api } from "@/lib/api";
+import { useForm } from "@/lib/useForm";
 import { SUGGESTION_TOPICS, topicLabel } from "@shared/validation";
 
 const MAX = 2000;
@@ -13,36 +14,23 @@ const MAX = 2000;
 /** Players send ideas to the moderators and admins, and can see which ones have been read. */
 export default function Suggestions() {
   const mine = useApi("/suggestions/mine");
-  const form = useRef(null);
-  const [topic, setTopic] = useState("feature");
-  const [message, setMessage] = useState("");
-  const [fields, setFields] = useState({});
-  const [error, setError] = useState(null);
   const [sent, setSent] = useState(false);
-  const [busy, setBusy] = useState(false);
+  const { ref, values, setValues, errors: fields, error, busy, run, reject } = useForm({ topic: "feature", message: "" });
+  const { topic, message } = values;
+  const setTopic = (t) => setValues((v) => ({ ...v, topic: t }));
+  const setMessage = (m) => setValues((v) => ({ ...v, message: m }));
 
   const submit = async (e) => {
     e.preventDefault();
     setSent(false);
-    if (message.trim().length < 10) {
-      setFields({ message: "Write at least 10 characters so the team knows what you mean." });
-      shake(form.current);
-      return;
-    }
-    setBusy(true);
-    setError(null);
-    setFields({});
-    try {
+    // Too short shows the message and shakes the form; a valid one clears old field errors first.
+    if (reject(message.trim().length < 10 ? { message: "Write at least 10 characters so the team knows what you mean." } : {})) return;
+    await run(async () => {
       await api("/suggestions", { method: "POST", body: { topic, message } });
       setSent(true);
       setMessage("");
       mine.reload();
-    } catch (err) {
-      setFields(err.fields ?? {});
-      setError(err);
-    } finally {
-      setBusy(false);
-    }
+    });
   };
 
   return (
@@ -54,7 +42,7 @@ export default function Suggestions() {
           <CardDescription>Plain text only. Please don't include passwords or other private details.</CardDescription>
         </CardHeader>
         <CardContent>
-          <form ref={form} onSubmit={submit} noValidate className="grid gap-4">
+          <form ref={ref} onSubmit={submit} noValidate className="grid gap-4">
             <ErrorAlert error={error} title="Suggestion not sent" />
             <div className="grid gap-1.5">
               <span className="text-sm font-medium" aria-hidden="true">

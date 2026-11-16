@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { query, tx, valuesList } from "../db.js";
-import { checkFields, HttpError, idParam } from "../lib/http.js";
+import { checkFields, HttpError, idParam, readText } from "../lib/http.js";
 import { canTransition, lineShapeError, stockErrors } from "../lib/trades.js";
 import { feedbackError } from "../lib/reputation.js";
 import { background, tradeNotice, tradeUpdate } from "../lib/notify.js";
@@ -86,8 +86,8 @@ export function readProposal(body = {}) {
   const offered = toLines(body.offered ?? []);
   const shape = lineShapeError(requested, offered);
   if (shape) throw new HttpError(400, shape);
-  const message = typeof body.message === "string" ? body.message.trim() : "";
-  if (message.length > 500) {
+  const message = readText(body.message, 0, 500);
+  if (message === null) {
     throw new HttpError(400, "Keep the message under 500 characters.", { message: "Too long (500 max)." });
   }
   if (hasSlur(message)) throw new HttpError(400, SLUR_MESSAGE, { message: SLUR_MESSAGE });
@@ -264,9 +264,10 @@ const threadMessages = async (rootId) =>
 
 router.post("/:id/messages", messageLimiter, async (req, res) => {
   const { root, latest } = await loadThread(idParam(req, "That proposal"), req.user.id);
-  const body = typeof req.body?.body === "string" ? req.body.body.trim() : "";
+  // Too long is checked first: a null here must not fall through to the "write a message" error.
+  const body = readText(req.body?.body, 0, 1000);
+  if (body === null) throw new HttpError(400, "Keep messages under 1,000 characters.", { body: "Too long (1,000 max)." });
   if (!body) throw new HttpError(400, "Write a message first.", { body: "Write a message first." });
-  if (body.length > 1000) throw new HttpError(400, "Keep messages under 1,000 characters.", { body: "Too long (1,000 max)." });
   if (hasSlur(body)) throw new HttpError(400, SLUR_MESSAGE, { body: SLUR_MESSAGE });
   if (latest.status !== "pending" && latest.status !== "accepted") {
     throw new HttpError(409, "This trade is closed, so it can't get new messages.");

@@ -24,6 +24,31 @@ export function useDisplay() {
   return [choices, set];
 }
 
+/**
+ * A display choice (view, sort, grouping, card size) remembered on this device under ttt-<prefix>-<key>. Only a saved
+ * value in `allowed` is used, so a stale one falls back to `initial`. `initial` can be a function.
+ */
+export function useStoredChoice(prefix, key, initial, allowed) {
+  const [value, setValue] = useState(() => {
+    const fallback = typeof initial === "function" ? initial() : initial;
+    try {
+      const saved = localStorage.getItem(`ttt-${prefix}-${key}`);
+      return allowed.includes(saved) ? saved : fallback;
+    } catch {
+      return fallback;
+    }
+  });
+  const set = (v) => {
+    setValue(v);
+    try {
+      localStorage.setItem(`ttt-${prefix}-${key}`, v);
+    } catch {
+      /* not remembered, but still applied */
+    }
+  };
+  return [value, set];
+}
+
 /** True when motion should be kept to a minimum: the player chose it here, or their device asks for it. */
 export const motionReduced = () =>
   typeof document !== "undefined" &&

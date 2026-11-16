@@ -141,3 +141,6 @@ export const SUGGESTION_TOPICS = [
   { value: "other", label: "Other" },
 ];
 export const topicLabel = (value) => SUGGESTION_TOPICS.find((t) => t.value === value)?.label ?? value;
+
+// "1 card", "3 cards": the count, then the word with an s unless the count is exactly 1.
+export const plural = (n, word) => `${n} ${word}${n === 1 ? "" : "s"}`;

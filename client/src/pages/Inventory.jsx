@@ -18,7 +18,7 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, Di
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select";
-import { CardImage, EmptyState, ErrorAlert, Field, FinishBadge, FinishSelect, LanguageBadge, LanguageSelect, PageHeader, printingLabel, Spinner, SuccessMark, SuccessMessage, useApi } from "@/components/common";
+import { CardImage, ConditionSelect, EmptyState, ErrorAlert, Field, FinishBadge, FinishSelect, LanguageBadge, LanguageSelect, PageHeader, printingLabel, Spinner, SuccessMark, SuccessMessage, useApi } from "@/components/common";
 import { Switch } from "@/components/ui/switch";
 import BinderView from "@/components/BinderView";
 import { GridView, StacksView } from "@/components/CollectionViews";
@@ -26,22 +26,10 @@ import ImportCollection from "@/components/ImportCollection";
 import PrintingPicker from "@/components/PrintingPicker";
 import { api } from "@/lib/api";
 import { filterItems, GROUP_OPTIONS, groupItems, SORT_OPTIONS, sortItems, summarize } from "@/lib/collection";
+import { useStoredChoice } from "@/lib/display";
 import { cad } from "@/lib/prices";
 import { cn } from "@/lib/utils";
-import { CONDITION_LABELS, CONDITIONS, parseQuantity } from "@shared/validation";
-
-// Dropdown of card conditions, shared by the add form and each inventory row.
-function ConditionSelect({ id, value, onChange, className }) {
-  return (
-    <NativeSelect id={id} value={value} onChange={onChange} className={cn("w-full", className)}>
-      {CONDITIONS.map((c) => (
-        <NativeSelectOption key={c} value={c}>
-          {CONDITION_LABELS[c]} ({c})
-        </NativeSelectOption>
-      ))}
-    </NativeSelect>
-  );
-}
+import { parseQuantity } from "@shared/validation";
 
 /** Mockup 3 direction: choose a specific printing, then quantity, condition and availability. */
 function AddCardForm({ onAdded }) {
@@ -291,28 +279,6 @@ const VIEWS = [
 // Grid and stacks start with this many cards and add more on request, so a big import doesn't load every image.
 const PAGE = 120;
 
-/** A display choice remembered on this device (view, sort, grouping, card size). `initial` can be a function. */
-function useChoice(key, initial, allowed) {
-  const [value, setValue] = useState(() => {
-    const fallback = typeof initial === "function" ? initial() : initial;
-    try {
-      const saved = localStorage.getItem(`ttt-inventory-${key}`);
-      return allowed.includes(saved) ? saved : fallback;
-    } catch {
-      return fallback;
-    }
-  });
-  const set = (v) => {
-    setValue(v);
-    try {
-      localStorage.setItem(`ttt-inventory-${key}`, v);
-    } catch {
-      /* not remembered, but still applied */
-    }
-  };
-  return [value, set];
-}
-
 function Choice({ id, label, value, onChange, options, className }) {
   return (
     <div className={cn("grid gap-1", className)}>
@@ -436,10 +402,10 @@ export default function Inventory() {
   const prices = lastPrices.current;
 
   // The binder opens first, except on phones, where a single binder page is small and the grid reads better.
-  const [view, setView] = useChoice("view", () => (window.matchMedia?.("(max-width: 639px)").matches ? "grid" : "binder"), VIEWS.map(([v]) => v));
-  const [sort, setSort] = useChoice("sort", "name", SORT_OPTIONS.map(([v]) => v));
-  const [group, setGroup] = useChoice("group", "type", GROUP_OPTIONS.map(([v]) => v));
-  const [size, setSize] = useChoice("size", "m", ["s", "m", "l"]);
+  const [view, setView] = useStoredChoice("inventory", "view", () => (window.matchMedia?.("(max-width: 639px)").matches ? "grid" : "binder"), VIEWS.map(([v]) => v));
+  const [sort, setSort] = useStoredChoice("inventory", "sort", "name", SORT_OPTIONS.map(([v]) => v));
+  const [group, setGroup] = useStoredChoice("inventory", "group", "type", GROUP_OPTIONS.map(([v]) => v));
+  const [size, setSize] = useStoredChoice("inventory", "size", "m", ["s", "m", "l"]);
   const [q, setQ] = useState("");
   const [show, setShow] = useState("all");
   const [limit, setLimit] = useState(PAGE);

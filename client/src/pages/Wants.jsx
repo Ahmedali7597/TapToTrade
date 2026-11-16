@@ -15,9 +15,7 @@ import { api, qs } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { distanceLabel } from "@/components/ListingCard";
 import { RADII } from "@shared/cities";
-import { FINISHES, parseQuantity } from "@shared/validation";
-
-const plural = (n, word) => `${n} ${word}${n === 1 ? "" : "s"}`;
+import { FINISHES, parseQuantity, plural } from "@shared/validation";
 
 /** Pick a card, then whether any printing will do, the finish and how many. */
 function AddWantForm({ onAdded }) {

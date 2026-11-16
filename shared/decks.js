@@ -45,7 +45,7 @@ const ANY_NUMBER = new Set([
   "Cid, Timeless Artificer",
 ]);
 const LIMITED = { "Seven Dwarves": 7, "Nazgûl": 9 };
-const isBasic = (p) => /\bBasic\b/.test(p.typeLine ?? "");
+export const isBasic = (p) => /\bBasic\b/.test(p.typeLine ?? "");
 
 /** Copies of one card a deck may have in `format`. */
 export function copyLimit(printing, format) {

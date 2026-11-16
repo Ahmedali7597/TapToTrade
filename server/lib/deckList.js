@@ -1,4 +1,4 @@
-import { LINE } from "./collectionImport.js";
+import { LINE, LINE_NOISE } from "./collectionImport.js";
 
 // Pasted decklists, in the text formats Moxfield, Archidekt, Arena and MTGO export:
 //   Commander / Deck / Sideboard / Maybeboard section lines (with or without a colon, any case),
@@ -16,7 +16,7 @@ export function parseDeckList(text) {
       const section = raw.trim().replace(/^\/\/\s*/, "").replace(/:$/, "").toLowerCase();
       if (SECTIONS[section]) return (board = SECTIONS[section]);
       const tags = [...raw.matchAll(/\[([^\]]*)\]/g)].map((m) => m[1].toLowerCase());
-      const line = raw.replace(/\[[^\]]*\]|\^[^^]*\^|\s+#.*$/g, "").trim();
+      const line = raw.replace(LINE_NOISE, "").trim();
       if (!line || line.startsWith("//")) return;
       const m = LINE.exec(line);
       if (!m) return skipped.push({ line: i + 1, name: line.slice(0, 80), reason: "Couldn't read this line." });

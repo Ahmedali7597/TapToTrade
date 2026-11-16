@@ -11,7 +11,7 @@ import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select"
 import { api } from "@/lib/api";
 import { motionReduced } from "@/lib/display";
 import { cn } from "@/lib/utils";
-import { CONDITION_LABELS, FINISH_LABELS, FINISHES, LANGUAGE_LABELS, LANGUAGES } from "@shared/validation";
+import { CONDITION_LABELS, CONDITIONS, FINISH_LABELS, FINISHES, LANGUAGE_LABELS, LANGUAGES } from "@shared/validation";
 
 /** Loads GET /api{path}; returns { data, error, loading, reload }. Pass null to skip. */
 export function useApi(path) {
@@ -288,6 +288,19 @@ export function LanguageSelect({ id, value, onChange, className }) {
       {LANGUAGES.map((l) => (
         <NativeSelectOption key={l} value={l}>
           {LANGUAGE_LABELS[l]}
+        </NativeSelectOption>
+      ))}
+    </NativeSelect>
+  );
+}
+
+// Dropdown of card conditions, shared by the add form and each inventory row.
+export function ConditionSelect({ id, value, onChange, className }) {
+  return (
+    <NativeSelect id={id} value={value} onChange={onChange} className={cn("w-full", className)}>
+      {CONDITIONS.map((c) => (
+        <NativeSelectOption key={c} value={c}>
+          {CONDITION_LABELS[c]} ({c})
         </NativeSelectOption>
       ))}
     </NativeSelect>

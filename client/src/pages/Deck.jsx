@@ -28,16 +28,16 @@ import { ColourDots, DeckForm } from "@/pages/Decks";
 import { api, qs } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { groupItems, sortItems } from "@/lib/collection";
+import { useStoredChoice } from "@/lib/display";
 import { cad, priceOf, usePrices } from "@/lib/prices";
 import { cn } from "@/lib/utils";
-import { BOARD_LABELS, BOARDS, colourPips, countOn, deckProblems, deckText, FORMAT_LABELS, manaCurve } from "@shared/decks";
+import { BOARD_LABELS, BOARDS, colourPips, countOn, deckProblems, deckText, FORMAT_LABELS, isBasic, manaCurve } from "@shared/decks";
 import { deckTitle } from "@shared/pages";
 
 // One deck, after Moxfield: the cards as deck-style stacks (or a grid, or the text list), with the commander
 // first and the sideboard and maybeboard after; a stats panel (size, value, mana curve, colours, format
 // problems); and, for a signed-in viewer, which cards they own and which they'd still need to trade for.
 
-const isBasic = (p) => /\bBasic\b/.test(p.typeLine ?? "");
 const GROUPS = [
   ["type", "Card type"],
   ["cmc", "Mana value"],
@@ -56,27 +56,6 @@ function groupMain(items, by) {
     groups.get(label).push(c);
   }
   return [...groups].map(([label, list]) => ({ label, items: list })).sort((a, b) => (a.label === "Lands") - (b.label === "Lands") || a.label.localeCompare(b.label));
-}
-
-function useChoice(key, initial) {
-  const [value, setValue] = useState(() => {
-    try {
-      return localStorage.getItem(`ttt-deck-${key}`) ?? initial;
-    } catch {
-      return initial;
-    }
-  });
-  return [
-    value,
-    (v) => {
-      setValue(v);
-      try {
-        localStorage.setItem(`ttt-deck-${key}`, v);
-      } catch {
-        /* not remembered */
-      }
-    },
-  ];
 }
 
 /** Add a card by name (with suggestions as you type) to a board. */
@@ -498,8 +477,8 @@ export default function Deck() {
   const [cards, setCards] = useState(null);
   const [deckInfo, setDeckInfo] = useState(null);
   const [editing, setEditing] = useState(null);
-  const [view, setView] = useChoice("view", "stacks");
-  const [group, setGroup] = useChoice("group", "type");
+  const [view, setView] = useStoredChoice("deck", "view", "stacks", ["stacks", "grid", "text"]);
+  const [group, setGroup] = useStoredChoice("deck", "group", "type", GROUPS.map(([v]) => v));
   const [copied, setCopied] = useState(false);
   const [wantResult, setWantResult] = useState(null);
   const list = cards ?? data?.cards ?? [];

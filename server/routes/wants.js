@@ -28,6 +28,13 @@ const wantView = (r) => ({
 
 const getWant = async (id, userId) => (await query(`${WANT_SELECT} WHERE w.id = $1 AND w.user_id = $2`, [id, userId])).rows[0];
 
+// Only an exact-printing want is limited to that printing's finishes; any printing can be any finish.
+function checkWantFinish(finishes, finish, anyPrinting) {
+  if (finish && !anyPrinting && !finishes.includes(finish)) {
+    throw new HttpError(400, "This printing doesn't come in that finish.", { finish: "Not made in this finish." });
+  }
+}
+
 // The same card name already wanted in "any printing" mode would match the same listings twice.
 async function assertNoOverlap(userId, printingId, anyPrinting, exceptId = 0) {
   const { rows } = await query(
@@ -54,10 +61,7 @@ router.post("/", async (req, res) => {
   checkFields(fields);
   const { rows: printing } = await query("SELECT finishes FROM card_printings WHERE id = $1", [printingId]);
   if (!printing[0]) throw notChosen;
-  // Only an exact-printing want is limited to that printing's finishes; any printing can be any finish.
-  if (values.finish && !values.anyPrinting && !printing[0].finishes.includes(values.finish)) {
-    throw new HttpError(400, "This printing doesn't come in that finish.", { finish: "Not made in this finish." });
-  }
+  checkWantFinish(printing[0].finishes, values.finish, values.anyPrinting);
   const { rows: count } = await query("SELECT count(*)::int AS n FROM want_items WHERE user_id = $1", [req.user.id]);
   if (count[0].n >= MAX_WANTS) throw new HttpError(400, `Want lists can hold up to ${MAX_WANTS} cards. Remove some you've found first.`);
   await assertNoOverlap(req.user.id, printingId, values.anyPrinting);
@@ -83,9 +87,7 @@ router.patch("/:id", async (req, res) => {
     finish: values.finish === undefined ? current.finish : values.finish,
     anyPrinting: values.anyPrinting ?? current.any_printing,
   };
-  if (next.finish && !next.anyPrinting && !current.finishes.includes(next.finish)) {
-    throw new HttpError(400, "This printing doesn't come in that finish.", { finish: "Not made in this finish." });
-  }
+  checkWantFinish(current.finishes, next.finish, next.anyPrinting);
   if (next.anyPrinting && !current.any_printing) await assertNoOverlap(req.user.id, current.printing_id, true, id);
   await query(
     "UPDATE want_items SET quantity = $3, finish = $4, any_printing = $5, updated_at = now() WHERE id = $1 AND user_id = $2",

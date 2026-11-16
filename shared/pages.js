@@ -2,6 +2,7 @@
 // React app (the browser tab title as people move between pages).
 
 import { FORMAT_LABELS } from "./decks.js";
+import { plural } from "./validation.js";
 
 export const SITE_NAME = "Tap to Trade";
 
@@ -185,7 +186,6 @@ export const NOT_FOUND_TITLE = `Page not found · ${SITE_NAME}`;
 export const CITY_RADIUS_KM = 25;
 export const cityTitle = (city) => `Trade MTG cards in ${city} · ${SITE_NAME}`;
 export const cityHeading = (city) => `Trade Magic: The Gathering cards in ${city}`;
-const plural = (n, word) => `${n} ${word}${n === 1 ? "" : "s"}`;
 /** One sentence on what's happening near a city, from its stats (see cityStats in server/routes/cities.js). */
 export function citySummary({ city, radiusKm, players, listings, stores }) {
   const shared = players > 0 ? `${plural(players, "player")} within ${radiusKm} km of ${city} have shared ${plural(listings, "card listing")} for trade` : `No one near ${city} has shared cards yet`;

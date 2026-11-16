@@ -11,6 +11,7 @@ import { useAuth } from "@/lib/auth";
 import { ListingCard, RequestTradeButton } from "@/components/ListingCard";
 import { TradeSummary } from "@/components/TradeSummary";
 import { RADII } from "@shared/cities";
+import { plural } from "@shared/validation";
 
 /** Mockup 2 direction: card-and-city search first, then pending trade actions and nearby listings. */
 export default function Dashboard() {
@@ -31,7 +32,6 @@ export default function Dashboard() {
   // Nearby players who list a card on your want list.
   const haveYourWants = matches.data?.players.filter((m) => m.theyHave.length > 0).length ?? 0;
   const listings = inventory.data?.items.length;
-  const plural = (n, word) => `${n} ${word}${n === 1 ? "" : "s"}`;
 
   return (
     <div className="mx-auto max-w-6xl px-4 py-10 sm:px-6">

@@ -152,12 +152,15 @@ const detectFormat = (header) => {
 /** One plain-text list line: "4 Lightning Bolt", "1x Sol Ring (C21) 263", "2 Opt (ELD) 59 *F*". */
 export const LINE = /^(\d+)\s*x?\s+(.+?)(?:\s+\(([A-Za-z0-9]{2,6})\)(?:\s+([A-Za-z0-9★-]+))?)?(?:\s+\*([FE])\*)?$/i;
 
+// Archidekt [categories], ^tags^ and trailing "# comments", stripped from a text line before it is read (shared with deckList.js).
+export const LINE_NOISE = /\[[^\]]*\]|\^[^^]*\^|\s+#.*$/g;
+
 function parseTextList(lines) {
   const rows = [];
   const skipped = [];
   lines.forEach((raw, i) => {
     // Drop Archidekt [categories], ^tags^ and trailing comments; skip section headers and blank lines.
-    const line = raw.replace(/\[[^\]]*\]|\^[^^]*\^|\s+#.*$/g, "").trim();
+    const line = raw.replace(LINE_NOISE, "").trim();
     if (!line || line.startsWith("//") || /^(deck|sideboard|commander|companion|maybeboard)\b:?$/i.test(line)) return;
     const m = LINE.exec(line);
     if (!m) return skipped.push({ line: i + 1, name: line.slice(0, 80), reason: "Couldn't read this line." });

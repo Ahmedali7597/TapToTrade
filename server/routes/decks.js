@@ -3,7 +3,7 @@ import { query, tx, valuesList } from "../db.js";
 import { findPrintings } from "../lib/collectionImport.js";
 import { parseDeckList } from "../lib/deckList.js";
 import { commanderSuggestions } from "../lib/edhrec.js";
-import { HttpError, checkFields, idFrom, idParam, isUuid } from "../lib/http.js";
+import { HttpError, checkFields, idFrom, idParam, isUuid, readText } from "../lib/http.js";
 import { lookupCollection } from "../lib/scryfall.js";
 import { hasSlur, SLUR_MESSAGE } from "../lib/slurs.js";
 import { PRINTING_COLUMNS, printingView } from "../lib/views.js";
@@ -25,8 +25,8 @@ export function readDeckFields(body = {}, partial = false) {
   const out = {};
   const fields = {};
   if (!partial || body.name !== undefined) {
-    out.name = typeof body.name === "string" ? body.name.trim() : "";
-    if (!out.name || out.name.length > 100) fields.name = "Give the deck a name of up to 100 characters.";
+    out.name = readText(body.name, 1, 100);
+    if (out.name === null) fields.name = "Give the deck a name of up to 100 characters.";
     else if (hasSlur(out.name)) fields.name = SLUR_MESSAGE;
   }
   if (!partial || body.format !== undefined) {
@@ -34,8 +34,8 @@ export function readDeckFields(body = {}, partial = false) {
     if (!FORMAT_KEYS.includes(out.format)) fields.format = "Choose a format.";
   }
   if (body.description !== undefined || !partial) {
-    out.description = typeof body.description === "string" ? body.description.trim() : "";
-    if (out.description.length > 2000) fields.description = "Keep the description under 2,000 characters.";
+    out.description = readText(body.description, 0, 2000);
+    if (out.description === null) fields.description = "Keep the description under 2,000 characters.";
     else if (hasSlur(out.description)) fields.description = SLUR_MESSAGE;
   }
   if (!partial || body.visibility !== undefined) {

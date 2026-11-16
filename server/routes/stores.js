@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { query, tx } from "../db.js";
-import { HttpError, checkFields, httpsLinkOrBlank, idParam } from "../lib/http.js";
+import { HttpError, checkFields, httpsLinkOrBlank, idParam, readText } from "../lib/http.js";
 import { requireRole } from "../middleware.js";
 import { CITIES } from "../../shared/validation.js";
 import { cityDistance, citiesWithin, RADII, searchCities } from "../../shared/cities.js";
@@ -43,8 +43,8 @@ function readStore(body = {}, partial = false) {
   const out = {};
   const text = (key, min, max, label) => {
     if (partial && body[key] === undefined) return;
-    const v = typeof body[key] === "string" ? body[key].trim() : "";
-    if (v.length < min || v.length > max) fields[key] = `${label} must be ${min}-${max} characters.`;
+    const v = readText(body[key], min, max);
+    if (v === null) fields[key] = `${label} must be ${min}-${max} characters.`;
     else out[key] = v;
   };
   text("name", 2, 100, "Name");
@@ -72,8 +72,8 @@ function readStore(body = {}, partial = false) {
   // Optional free text: blank means none.
   const optional = (key, max, message) => {
     if (partial && body[key] === undefined) return;
-    const v = typeof body[key] === "string" ? body[key].trim() : "";
-    if (v.length > max) fields[key] = message;
+    const v = readText(body[key], 0, max);
+    if (v === null) fields[key] = message;
     else out[key] = v || null;
   };
   optional("notes", 500, "Keep the description under 500 characters.");
