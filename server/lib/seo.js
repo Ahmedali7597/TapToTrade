@@ -2,6 +2,9 @@
 // canonical link, share tags and robots rule, plus a little real HTML for crawlers that don't run JavaScript.
 // React replaces that HTML as soon as the app starts. robots.txt and sitemap.xml are built here too.
 
+import { createHash } from "node:crypto";
+import fs from "node:fs";
+import path from "node:path";
 import { FORMAT_LABELS } from "../../shared/decks.js";
 import { escape } from "../../shared/html.js";
 import {
@@ -131,6 +134,25 @@ export async function pageMeta(path, query = {}, find = {}) {
 }
 
 const notFound = () => ({ status: 404, title: NOT_FOUND_TITLE, description: PUBLIC["/"].description, robots: "noindex, follow", canonical: null });
+
+/**
+ * Shortens the first paint's critical path, once at startup, in the built index.html (`dist` is client/dist): the
+ * theme script and the logo styles go inline (two fewer render-blocking requests), and the heading font is
+ * preloaded instead of waiting for the stylesheet to name it. Returns the page and the CSP hash for the script.
+ */
+export function inlineCritical(html, dist) {
+  const read = (file) => fs.readFileSync(path.join(dist, file), "utf8");
+  const script = read("theme-init.js");
+  const font = fs.readdirSync(path.join(dist, "assets")).find((f) => /^bricolage-grotesque-latin-opsz-normal-[\w-]+\.woff2$/.test(f));
+  const preload = font ? `\n    <link rel="preload" as="font" type="font/woff2" href="/assets/${font}" crossorigin />` : "";
+  return {
+    html: html
+      .replace("<meta charset=\"UTF-8\" />", (m) => m + preload)
+      .replace('<script src="/theme-init.js"></script>', () => `<script>${script}</script>`)
+      .replace('<link rel="stylesheet" href="/brand/taptotrade-logo.css" />', () => `<style>${read("brand/taptotrade-logo.css")}</style>`),
+    scriptHash: `'sha256-${createHash("sha256").update(script).digest("base64")}'`,
+  };
+}
 
 /** Writes `meta` into the built index.html: head tags, and crawlable text inside #root that React replaces. */
 export function renderPage(template, meta) {
@@ -271,6 +293,8 @@ const storeData = (site, store, events = []) => {
 export const robotsTxt = () =>
   [
     "User-agent: *",
+    // AI agents and search engines may read and cite the public pages (contentsignals.org); no stance on training.
+    "Content-Signal: search=yes, ai-input=yes",
     "Allow: /",
     "Disallow: /api/",
     ...["/dashboard", "/inventory", "/wants", "/trades", "/settings", "/suggestions", "/moderation", "/admin"].map((p) => `Disallow: ${p}`),

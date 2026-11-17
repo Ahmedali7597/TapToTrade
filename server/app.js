@@ -7,7 +7,7 @@ import connectPgSimple from "connect-pg-simple";
 import helmet from "helmet";
 import { pool } from "./db.js";
 import { errorHandler, HttpError } from "./lib/http.js";
-import { pageMeta, renderPage, robotsTxt, siteUrl, sitemapXml } from "./lib/seo.js";
+import { inlineCritical, pageMeta, renderPage, robotsTxt, siteUrl, sitemapXml } from "./lib/seo.js";
 import { storePath } from "../shared/stores.js";
 import { apiLimiter, csrf, IDLE_MINUTES, loadUser } from "./middleware.js";
 import authRoutes from "./routes/auth.js";
@@ -40,13 +40,17 @@ export function createApp() {
   const google = process.env.GOOGLE_MAPS_API_KEY
     ? { script: ["https://*.googleapis.com", "https://*.gstatic.com", "blob:", "'wasm-unsafe-eval'"], img: ["https://*.googleapis.com", "https://*.gstatic.com", "https://*.google.com", "https://*.googleusercontent.com"], connect: ["https://*.googleapis.com", "https://*.google.com", "https://*.gstatic.com", "data:", "blob:"], style: ["https://fonts.googleapis.com"], font: ["https://fonts.gstatic.com"] }
     : { script: [], img: [], connect: [], style: [], font: [] };
+  // Built React app (npm run build). Its index.html gets the theme script and logo styles inlined, so the CSP
+  // allows that one script by hash. No build yet (tests, dev) means no page to serve and nothing to allow.
+  const dist = path.resolve("client/dist");
+  const critical = fs.existsSync(path.join(dist, "index.html")) ? inlineCritical(fs.readFileSync(path.join(dist, "index.html"), "utf8"), dist) : null;
   app.use(
     helmet({
       contentSecurityPolicy: {
         directives: {
           // svgs.scryfall.io serves the mana and tap symbols in card text.
           "img-src": ["'self'", "data:", "https://cards.scryfall.io", "https://svgs.scryfall.io", "https://tile.openstreetmap.org", ...google.img],
-          "script-src": ["'self'", ...google.script],
+          "script-src": ["'self'", ...(critical ? [critical.scriptHash] : []), ...google.script],
           "connect-src": ["'self'", ...google.connect],
           // Our fonts and styles are bundled, so no other sites (Helmet's default allows any https: host).
           // 'unsafe-inline' stays for styles only: the UI libraries add small <style> tags at runtime.
@@ -143,8 +147,6 @@ export function createApp() {
 
   // Built React app (npm run build). Every page is index.html with that page's title, description, canonical
   // link and robots rule written in (lib/seo.js); unknown paths get the same app with a real 404 status.
-  const dist = path.resolve("client/dist");
-  let template;
   // Brand images and the share picture are shown by email apps and other sites, so they may be loaded
   // cross-origin (Helmet's default only allows this site). Everything else keeps the same-origin rule.
   app.use(["/brand", "/og-image.jpg"], (req, res, next) => {
@@ -156,7 +158,7 @@ export function createApp() {
   app.use(express.static(dist, { index: false, setHeaders: (res, file) => file.includes(`${path.sep}assets${path.sep}`) && res.set("Cache-Control", "public, max-age=31536000, immutable") }));
   app.get("/{*path}", async (req, res, next) => {
     try {
-      template ??= fs.readFileSync(path.join(dist, "index.html"), "utf8");
+      if (!critical) throw new Error("client/dist is missing: run npm run build first.");
       const find = {
         profile: async (username) =>
           (await pool.query("SELECT 1 FROM users WHERE lower(username) = lower($1) AND status = 'active'", [username])).rowCount > 0,
@@ -176,7 +178,7 @@ export function createApp() {
       };
       const meta = await pageMeta(req.path, req.query, find);
       // no-cache: the page is checked on every visit, so a new deploy shows up straight away.
-      res.status(meta.status).type("html").set("Cache-Control", "no-cache").send(renderPage(template, meta));
+      res.status(meta.status).type("html").set("Cache-Control", "no-cache").send(renderPage(critical.html, meta));
     } catch (err) {
       next(err);
     }

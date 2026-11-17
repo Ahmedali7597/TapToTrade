@@ -1,4 +1,7 @@
-import { pageMeta, renderPage, robotsTxt, sitemapXml, structuredData } from "./seo.js";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { inlineCritical, pageMeta, renderPage, robotsTxt, sitemapXml, structuredData } from "./seo.js";
 
 const STORE = { id: 7, name: "The Mana Vault", address: "1 King St W", city: "Hamilton, ON", lat: 43.25, lng: -79.87, website: "https://example.com", notes: "Trade tables </script> on Fridays", tags: ["trade_night", "commander"] };
 const TEMPLATE = `<!doctype html><html lang="en-CA"><head><meta name="description" content="old" /><title>Old</title></head><body><div id="root"></div></body></html>`;
@@ -189,7 +192,7 @@ test("structured data names the site and its organisation", () => {
 test("robots.txt and sitemap.xml use the public address", () => {
   const robots = robotsTxt();
   expect(robots).toContain("Disallow: /api/");
-  expect(robots).toContain("User-agent: *\nAllow: /");
+  expect(robots).toContain("User-agent: *\nContent-Signal: search=yes, ai-input=yes\nAllow: /");
   expect(robots).not.toContain("Disallow: /u/"); // profiles must be readable to see their noindex
   expect(robots).toContain("Sitemap: https://taptotrade.ca/sitemap.xml");
   const sitemap = sitemapXml();
@@ -211,4 +214,23 @@ test("every page has its own tab title, including signed-in pages", async () => 
   expect(titles.filter((t) => t === SITE_NAME)).toEqual([]); // none fall back to the bare site name
   expect(new Set(titles).size).toBe(paths.length);
   expect(pageTitle("/somewhere-else")).toBe(SITE_NAME);
+});
+
+test("the theme script and logo styles are inlined and the heading font preloaded, with the script's CSP hash", () => {
+  const dist = fs.mkdtempSync(path.join(os.tmpdir(), "ttt-dist-"));
+  fs.mkdirSync(path.join(dist, "assets"));
+  fs.mkdirSync(path.join(dist, "brand"));
+  fs.writeFileSync(path.join(dist, "theme-init.js"), "document.documentElement.dataset.theme = '$&';");
+  fs.writeFileSync(path.join(dist, "brand", "taptotrade-logo.css"), ".logo { color: teal; }");
+  fs.writeFileSync(path.join(dist, "assets", "bricolage-grotesque-latin-opsz-normal-Ab_1.woff2"), "");
+  const html = '<head><meta charset="UTF-8" /><script src="/theme-init.js"></script><link rel="stylesheet" href="/brand/taptotrade-logo.css" /></head>';
+  const out = inlineCritical(html, dist);
+  expect(out.html).toBe(
+    '<head><meta charset="UTF-8" />\n    <link rel="preload" as="font" type="font/woff2" href="/assets/bricolage-grotesque-latin-opsz-normal-Ab_1.woff2" crossorigin />' +
+      "<script>document.documentElement.dataset.theme = '$&';</script><style>.logo { color: teal; }</style></head>",
+  ); // "$&" stays literal: the replacements are functions
+  expect(out.scriptHash).toMatch(/^'sha256-[A-Za-z0-9+/]+=*'$/);
+  fs.rmSync(path.join(dist, "assets", "bricolage-grotesque-latin-opsz-normal-Ab_1.woff2"));
+  expect(inlineCritical(html, dist).html).not.toContain("preload"); // no font file, no preload
+  fs.rmSync(dist, { recursive: true });
 });
